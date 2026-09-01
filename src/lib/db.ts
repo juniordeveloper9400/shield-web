@@ -1,4 +1,4 @@
-import { neon } from '@neondatabase/serverless';
+import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 
 /**
  * Direct Neon Postgres access from the browser over HTTPS.
@@ -15,7 +15,7 @@ import { neon } from '@neondatabase/serverless';
  *
  *   const rows = await sql`SELECT * FROM app.member WHERE id = ${id}`;
  *
- * For a query built at runtime, use `sql.query(text, params)` with `$1` holes.
+ * For a query built at runtime, use `query(text, params)` with `$1` holes.
  */
 const connectionString = import.meta.env.VITE_DATABASE_URL;
 
@@ -29,14 +29,44 @@ if (!isDbConfigured && import.meta.env.DEV) {
   );
 }
 
-export const sql = neon(connectionString ?? 'postgresql://unset');
+/**
+ * The real Neon client, created on first use.
+ *
+ * `neon()` throws synchronously on a missing/malformed connection string, so
+ * calling it at module load would take the whole app down (blank page) on any
+ * deployment where `VITE_DATABASE_URL` was not set. Building it lazily lets the
+ * login screen and shell render; only the data screens fail, with a readable
+ * message from `dbErrorMessage()`.
+ */
+let client: NeonQueryFunction<false, false> | null = null;
 
-/** Narrow helper for `sql.query` results (already a plain row array). */
+function getClient(): NeonQueryFunction<false, false> {
+  if (!connectionString) {
+    throw new Error(
+      'The database is not configured (VITE_DATABASE_URL). See .env.example.',
+    );
+  }
+  if (!client) client = neon(connectionString);
+  return client;
+}
+
+/**
+ * Tagged-template query function, e.g.
+ *
+ *   const rows = await sql`SELECT * FROM app.member WHERE id = ${id}`;
+ *
+ * Thin lazy wrapper around the Neon client so importing this module never
+ * throws; the first actual query is what surfaces a config error.
+ */
+export const sql = ((strings: TemplateStringsArray, ...params: unknown[]) =>
+  getClient()(strings, ...params)) as NeonQueryFunction<false, false>;
+
+/** Narrow helper for a runtime-built query; results are a plain row array. */
 export async function query<T = Record<string, unknown>>(
   text: string,
   params: unknown[] = [],
 ): Promise<T[]> {
-  return (await sql.query(text, params)) as T[];
+  return (await getClient().query(text, params)) as T[];
 }
 
 /** A human-readable message for a failed query, for surfacing in the UI. */
