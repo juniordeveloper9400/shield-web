@@ -100,7 +100,7 @@ export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
     'appointments',
     'admins',
   ],
-  pharmacy: ['dashboard', 'orders', 'prescriptions', 'activations', 'products'],
+  pharmacy: ['dashboard', 'orders', 'prescriptions', 'products'],
   lab: ['dashboard', 'lab_orders', 'lab_tests'],
   appointments: ['dashboard', 'appointments'],
 };
