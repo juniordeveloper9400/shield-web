@@ -48,7 +48,7 @@ export const MODULES: NavItem[] = [
   },
   {
     key: 'activations',
-    label: 'Activations',
+    label: 'Privilege plans',
     path: '/activations',
     icon: 'wallet',
     description: 'Privilege-plan activations awaiting approval',
