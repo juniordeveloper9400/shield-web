@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { scopeToStore } from '@/config/permissions';
+import { canReviewActivations, scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
@@ -43,6 +43,7 @@ export default function ActivationsPage() {
 
   const scoped = useMemo(() => scopeToStore(rows, user), [rows, user]);
   const branchBound = user?.role === 'pharmacy' && Boolean(user.storeCode);
+  const canReview = user ? canReviewActivations(user.role) : false;
 
   const storeOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -87,6 +88,10 @@ export default function ActivationsPage() {
   }
 
   async function approve(id: string) {
+    if (!canReview) {
+      setActionError('Only a Super Admin can approve activations.');
+      return;
+    }
     setSaving(true);
     setActionError(null);
     try {
@@ -104,6 +109,10 @@ export default function ActivationsPage() {
   }
 
   async function reject(id: string) {
+    if (!canReview) {
+      setActionError('Only a Super Admin can reject activations.');
+      return;
+    }
     if (!note.trim()) {
       setActionError('Give the member a reason for the rejection.');
       return;
@@ -177,7 +186,7 @@ export default function ActivationsPage() {
       header: '',
       render: (row) => (
         <Button variant="secondary" size="sm" onClick={() => setSelectedId(row.id)}>
-          {row.status === 'pending' ? 'Review' : 'Open'}
+          {row.status === 'pending' && canReview ? 'Review' : 'Open'}
         </Button>
       ),
       className: 'text-right',
@@ -234,7 +243,7 @@ export default function ActivationsPage() {
         onClose={closeModal}
         title={selected ? `${selected.tier} · ${selected.memberName}` : ''}
         footer={
-          selected && selected.status === 'pending' ? (
+          selected && selected.status === 'pending' && canReview ? (
             rejecting ? (
               <>
                 <Button
@@ -336,11 +345,21 @@ export default function ActivationsPage() {
               </div>
             )}
 
-            {selected.status === 'pending' && !rejecting && (
+            {selected.status === 'pending' && !rejecting && canReview && (
               <p className="mt-4 text-xs text-slate-400">
                 Approving writes the activation and bonus to the member's wallet
                 ledger and adds {formatCurrency(selected.credited)} to their
                 balance.
+              </p>
+            )}
+
+            {selected.status === 'pending' && !canReview && (
+              <p className="mt-4 flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 ring-1 ring-inset ring-slate-200">
+                <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  This activation is awaiting review. Only a Super Admin can
+                  approve or reject it.
+                </span>
               </p>
             )}
           </>

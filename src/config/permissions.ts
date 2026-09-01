@@ -123,6 +123,15 @@ export function canAccess(role: Role, moduleKey: ModuleKey): boolean {
   return ROLE_PERMISSIONS[role]?.includes(moduleKey) ?? false;
 }
 
+/**
+ * Deciding a privilege-plan activation (approve / reject) is a Super Admin
+ * action only. Pharmacy Admins can open the queue to track their branch's
+ * submissions, but the approve/reject controls are theirs to view, not use.
+ */
+export function canReviewActivations(role: Role): boolean {
+  return role === 'superadmin';
+}
+
 export function allowedModules(role: Role): NavItem[] {
   return MODULES.filter((m) => canAccess(role, m.key));
 }
