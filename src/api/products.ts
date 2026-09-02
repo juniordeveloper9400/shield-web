@@ -19,6 +19,7 @@ function toProduct(r: Row): Product {
     isPrescriptionOnly: Boolean(r.is_prescription_only),
     status: String(r.status).toUpperCase() === 'ACTIVE' ? 'active' : 'inactive',
     stockQuantity: num(r.stock_quantity),
+    image: String(r.image ?? ''),
     addedAt: iso(r.created_at) ?? new Date(0).toISOString(),
   };
 }
@@ -29,7 +30,7 @@ export async function listProducts(): Promise<Product[]> {
            c.slug  AS category_slug,
            c.title AS category_title,
            p.price, p.mrp, p.discount_label, p.is_prescription_only,
-           p.status, p.stock_quantity, p.created_at
+           p.status, p.stock_quantity, p.image, p.created_at
     FROM app.product p
     LEFT JOIN app.product_category c ON c.id = p.category_id
     ORDER BY p.name
@@ -61,11 +62,11 @@ export async function createProduct(p: NewProduct): Promise<string> {
     `
     INSERT INTO app.product
       (name, pack, brand, category_id, price, mrp, discount_label,
-       is_prescription_only, status, stock_quantity, code)
+       is_prescription_only, status, stock_quantity, code, image)
     VALUES
       ($1, $2, $3,
        (SELECT id FROM app.product_category WHERE slug = $4),
-       $5, $6, $7, $8, $9, $10, $11)
+       $5, $6, $7, $8, $9, $10, $11, $12)
     RETURNING id
     `,
     [
@@ -80,6 +81,7 @@ export async function createProduct(p: NewProduct): Promise<string> {
       p.status === 'active' ? 'ACTIVE' : 'INACTIVE',
       p.stockQuantity,
       p.code.trim() || null,
+      p.image || null,
     ],
   );
   return String(rows[0].id);

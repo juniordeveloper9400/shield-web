@@ -34,7 +34,38 @@ const EMPTY_NEW: NewProduct = {
   isPrescriptionOnly: false,
   stockQuantity: 0,
   status: 'active',
+  image: '',
 };
+
+/**
+ * Reads a picked image file, scales it so the longest side is at most [max] px,
+ * and returns a JPEG data URI — small enough to store in `app.product.image`
+ * (text) and render straight from `<img src>` in the app and the console.
+ */
+function fileToResizedDataUrl(file: File, max = 640, quality = 0.72): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read the file.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('That file is not a readable image.'));
+      img.onload = () => {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return reject(new Error('Canvas is unavailable.'));
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.src = String(reader.result);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
@@ -174,18 +205,31 @@ export default function ProductsPage() {
       key: 'name',
       header: 'Product',
       render: (row) => (
-        <div>
-          <p className="font-medium text-slate-800">
-            {row.name}
-            {row.isPrescriptionOnly && (
-              <span className="ml-2 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-600">
-                Rx
-              </span>
-            )}
-          </p>
-          <p className="text-xs text-slate-400">
-            {row.brand} · {row.pack}
-          </p>
+        <div className="flex items-center gap-3">
+          {row.image ? (
+            <img
+              src={row.image}
+              alt=""
+              className="h-10 w-10 shrink-0 rounded-md border border-slate-200 object-cover"
+            />
+          ) : (
+            <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md border border-dashed border-slate-200 text-slate-300">
+              <Icon name="products" className="h-4 w-4" />
+            </div>
+          )}
+          <div>
+            <p className="font-medium text-slate-800">
+              {row.name}
+              {row.isPrescriptionOnly && (
+                <span className="ml-2 rounded bg-rose-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-rose-600">
+                  Rx
+                </span>
+              )}
+            </p>
+            <p className="text-xs text-slate-400">
+              {row.brand} · {row.pack}
+            </p>
+          </div>
         </div>
       ),
     },
@@ -333,11 +377,18 @@ export default function ProductsPage() {
       >
         {selected && !editing && (
           <>
-            <div className="mb-3">
+            <div className="mb-3 flex items-center gap-3">
               <Badge tone={selected.status === 'active' ? 'green' : 'gray'}>
                 {selected.status === 'active' ? 'Active' : 'Inactive'}
               </Badge>
             </div>
+            {selected.image && (
+              <img
+                src={selected.image}
+                alt={selected.name}
+                className="mb-4 h-40 w-full rounded-lg border border-slate-200 object-contain bg-slate-50"
+              />
+            )}
             <DetailList
               rows={[
                 { label: 'Code', value: selected.code || '—' },
@@ -484,6 +535,50 @@ export default function ProductsPage() {
               className={inputClass}
               placeholder="20% off"
             />
+          </EditField>
+          <EditField label="Product image (optional)">
+            <div className="flex items-center gap-3">
+              {draft.image ? (
+                <img
+                  src={draft.image}
+                  alt=""
+                  className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
+                />
+              ) : (
+                <div className="grid h-16 w-16 place-items-center rounded-lg border border-dashed border-slate-300 text-slate-300">
+                  <Icon name="products" className="h-6 w-6" />
+                </div>
+              )}
+              <div className="flex flex-col gap-1">
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="text-xs text-slate-500 file:mr-2 file:rounded-md file:border-0 file:bg-brand-50 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-brand-700"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    setAddError(null);
+                    try {
+                      const url = await fileToResizedDataUrl(file);
+                      setDraft((d) => ({ ...d, image: url }));
+                    } catch (err) {
+                      setAddError(
+                        err instanceof Error ? err.message : 'Could not load the image.',
+                      );
+                    }
+                  }}
+                />
+                {draft.image && (
+                  <button
+                    type="button"
+                    className="self-start text-xs font-medium text-rose-600"
+                    onClick={() => setDraft((d) => ({ ...d, image: '' }))}
+                  >
+                    Remove image
+                  </button>
+                )}
+              </div>
+            </div>
           </EditField>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input

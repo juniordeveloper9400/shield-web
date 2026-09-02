@@ -78,6 +78,8 @@ export interface NewProduct {
   isPrescriptionOnly: boolean;
   stockQuantity: number;
   status: ProductStatus;
+  /** A resized JPEG data URI from the picked file, or '' for no image. */
+  image: string;
 }
 
 /** One row of `app.product`, joined to its `app.product_category`. */
@@ -95,6 +97,8 @@ export interface Product {
   isPrescriptionOnly: boolean;
   status: ProductStatus;
   stockQuantity: number;
+  /** `app.product.image` — a resized JPEG data URI, or '' when none. */
+  image: string;
   addedAt: string;
 }
 
