@@ -12,8 +12,29 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { Icon } from '@/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
-import { listProducts, setProductStatus, updateProduct } from '@/api/products';
-import type { Product, ProductStatus } from '@/types';
+import {
+  listProducts,
+  listCategories,
+  createProduct,
+  deleteProduct,
+  setProductStatus,
+  updateProduct,
+} from '@/api/products';
+import type { NewProduct, Product, ProductStatus } from '@/types';
+
+const EMPTY_NEW: NewProduct = {
+  categorySlug: '',
+  name: '',
+  pack: '',
+  brand: '',
+  code: '',
+  price: 0,
+  mrp: 0,
+  discountLabel: '',
+  isPrescriptionOnly: false,
+  stockQuantity: 0,
+  status: 'active',
+};
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
@@ -23,6 +44,7 @@ const STATUS_OPTIONS = [
 
 export default function ProductsPage() {
   const { data, loading, error, reload } = useAsync(listProducts, []);
+  const categories = useAsync(listCategories, []);
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
@@ -32,6 +54,45 @@ export default function ProductsPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ price: '', stockQuantity: '' });
+
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState<NewProduct>(EMPTY_NEW);
+  const [addError, setAddError] = useState<string | null>(null);
+
+  function openAdd() {
+    setDraft(EMPTY_NEW);
+    setAddError(null);
+    setAdding(true);
+  }
+
+  async function saveNew() {
+    if (!draft.categorySlug) return setAddError('Pick a category first.');
+    if (!draft.name.trim()) return setAddError('Give the product a name.');
+    if (!(draft.price >= 0) || !(draft.mrp >= 0))
+      return setAddError('Price and MRP must be zero or more.');
+    setSaving(true);
+    setAddError(null);
+    try {
+      await createProduct(draft);
+      setAdding(false);
+      reload();
+    } catch (err) {
+      setAddError(err instanceof Error ? err.message : 'Could not add the product.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeProduct(id: string) {
+    setSaving(true);
+    try {
+      await deleteProduct(id);
+      setSelectedId(null);
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -180,6 +241,11 @@ export default function ProductsPage() {
       <PageHeader
         title="Catalogue"
         subtitle="The storefront and pharmacy-shelf catalogue members buy from."
+        actions={
+          <Button variant="primary" onClick={openAdd}>
+            <Icon name="plus" className="h-4 w-4" /> Add product
+          </Button>
+        }
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -252,6 +318,13 @@ export default function ProductsPage() {
                       <Icon name="check" className="h-4 w-4" /> Activate
                     </Button>
                   )}
+                  <Button
+                    variant="danger"
+                    disabled={saving}
+                    onClick={() => removeProduct(selected.id)}
+                  >
+                    Delete
+                  </Button>
                 </>
               )}
             </>
@@ -310,6 +383,134 @@ export default function ProductsPage() {
             </EditField>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        open={adding}
+        onClose={() => setAdding(false)}
+        title="Add product"
+        footer={
+          <>
+            <Button variant="secondary" disabled={saving} onClick={() => setAdding(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" disabled={saving} onClick={saveNew}>
+              Add to catalogue
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <EditField label="Category">
+            <select
+              value={draft.categorySlug}
+              onChange={(e) => setDraft({ ...draft, categorySlug: e.target.value })}
+              className={inputClass}
+            >
+              <option value="">Select a category…</option>
+              {(categories.data ?? []).map((c) => (
+                <option key={c.id} value={c.slug}>
+                  {c.title}
+                </option>
+              ))}
+            </select>
+          </EditField>
+          <EditField label="Name">
+            <input
+              value={draft.name}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+              className={inputClass}
+              placeholder="Paracetamol 500mg"
+            />
+          </EditField>
+          <div className="grid grid-cols-2 gap-3">
+            <EditField label="Pack">
+              <input
+                value={draft.pack}
+                onChange={(e) => setDraft({ ...draft, pack: e.target.value })}
+                className={inputClass}
+                placeholder="15 tablets"
+              />
+            </EditField>
+            <EditField label="Brand">
+              <input
+                value={draft.brand}
+                onChange={(e) => setDraft({ ...draft, brand: e.target.value })}
+                className={inputClass}
+              />
+            </EditField>
+            <EditField label="Price (₹)">
+              <input
+                inputMode="numeric"
+                value={draft.price || ''}
+                onChange={(e) =>
+                  setDraft({ ...draft, price: Number(e.target.value) || 0 })
+                }
+                className={inputClass}
+              />
+            </EditField>
+            <EditField label="MRP (₹)">
+              <input
+                inputMode="numeric"
+                value={draft.mrp || ''}
+                onChange={(e) =>
+                  setDraft({ ...draft, mrp: Number(e.target.value) || 0 })
+                }
+                className={inputClass}
+              />
+            </EditField>
+            <EditField label="Stock on hand">
+              <input
+                inputMode="numeric"
+                value={draft.stockQuantity || ''}
+                onChange={(e) =>
+                  setDraft({ ...draft, stockQuantity: Number(e.target.value) || 0 })
+                }
+                className={inputClass}
+              />
+            </EditField>
+            <EditField label="Code (optional)">
+              <input
+                value={draft.code}
+                onChange={(e) => setDraft({ ...draft, code: e.target.value })}
+                className={inputClass}
+              />
+            </EditField>
+          </div>
+          <EditField label="Discount label (optional)">
+            <input
+              value={draft.discountLabel}
+              onChange={(e) => setDraft({ ...draft, discountLabel: e.target.value })}
+              className={inputClass}
+              placeholder="20% off"
+            />
+          </EditField>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={draft.isPrescriptionOnly}
+              onChange={(e) =>
+                setDraft({ ...draft, isPrescriptionOnly: e.target.checked })
+              }
+            />
+            Prescription required
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={draft.status === 'active'}
+              onChange={(e) =>
+                setDraft({ ...draft, status: e.target.checked ? 'active' : 'inactive' })
+              }
+            />
+            Active (visible in the app straight away)
+          </label>
+          {addError && (
+            <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {addError}
+            </p>
+          )}
+        </div>
       </Modal>
     </>
   );

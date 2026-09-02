@@ -1,6 +1,6 @@
 import { sql, query } from '@/lib/db';
 import { iso, num } from '@/lib/mappers';
-import type { Product, ProductStatus } from '@/types';
+import type { NewProduct, Product, ProductCategory, ProductStatus } from '@/types';
 
 type Row = Record<string, unknown>;
 
@@ -35,6 +35,59 @@ export async function listProducts(): Promise<Product[]> {
     ORDER BY p.name
   `) as Row[];
   return rows.map(toProduct);
+}
+
+/** The storefront category groups the admin picks from when adding a product. */
+export async function listCategories(): Promise<ProductCategory[]> {
+  const rows = (await sql`
+    SELECT id, slug, title
+    FROM app.product_category
+    WHERE is_active
+    ORDER BY sort, title
+  `) as Row[];
+  return rows.map((r) => ({
+    id: String(r.id),
+    slug: String(r.slug),
+    title: String(r.title),
+  }));
+}
+
+/**
+ * Adds a product to the catalogue under the chosen category. Available to the
+ * app and the web console the moment it is written. Returns the new id.
+ */
+export async function createProduct(p: NewProduct): Promise<string> {
+  const rows = await query<Row>(
+    `
+    INSERT INTO app.product
+      (name, pack, brand, category_id, price, mrp, discount_label,
+       is_prescription_only, status, stock_quantity, code)
+    VALUES
+      ($1, $2, $3,
+       (SELECT id FROM app.product_category WHERE slug = $4),
+       $5, $6, $7, $8, $9, $10, $11)
+    RETURNING id
+    `,
+    [
+      p.name.trim(),
+      p.pack.trim(),
+      p.brand.trim(),
+      p.categorySlug,
+      p.price,
+      p.mrp,
+      p.discountLabel.trim(),
+      p.isPrescriptionOnly,
+      p.status === 'active' ? 'ACTIVE' : 'INACTIVE',
+      p.stockQuantity,
+      p.code.trim() || null,
+    ],
+  );
+  return String(rows[0].id);
+}
+
+/** Removes a product from the catalogue. Order lines keep their text copy. */
+export async function deleteProduct(id: string): Promise<void> {
+  await query('DELETE FROM app.product WHERE id = $1', [id]);
 }
 
 export async function setProductStatus(id: string, status: ProductStatus): Promise<void> {

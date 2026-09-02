@@ -58,6 +58,28 @@ export interface Store {
 /** A catalogue product's admin state — mirrors `app.product.status`. */
 export type ProductStatus = 'active' | 'inactive';
 
+/** One storefront category group — a row of `app.product_category`. */
+export interface ProductCategory {
+  id: string;
+  slug: string;
+  title: string;
+}
+
+/** Fields the admin fills to add a product to the catalogue. */
+export interface NewProduct {
+  categorySlug: string;
+  name: string;
+  pack: string;
+  brand: string;
+  code: string;
+  price: number;
+  mrp: number;
+  discountLabel: string;
+  isPrescriptionOnly: boolean;
+  stockQuantity: number;
+  status: ProductStatus;
+}
+
 /** One row of `app.product`, joined to its `app.product_category`. */
 export interface Product {
   id: string;
