@@ -35,6 +35,12 @@ export const ADMIN_CREDENTIALS: AdminCredential[] = [
     role: 'superadmin',
   },
   {
+    loginId: 'admin',
+    password: 'Shield@Admin#2026',
+    name: 'Admin',
+    role: 'admin',
+  },
+  {
     loginId: 'lab',
     password: 'Shield@Lab#2026',
     name: 'Lab Admin',
@@ -122,6 +128,7 @@ export const ADMIN_CREDENTIALS: AdminCredential[] = [
 
 const ROLE_COLOR: Record<Role, string> = {
   superadmin: '#2c57a6',
+  admin: '#0f766e',
   pharmacy: '#1f7a4d',
   lab: '#8a5b1f',
   appointments: '#6b3fa0',

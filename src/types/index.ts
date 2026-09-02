@@ -1,4 +1,20 @@
-export type Role = 'superadmin' | 'pharmacy' | 'lab' | 'appointments';
+/**
+ * Console login roles.
+ *
+ * - `superadmin` — the whole view: every module, plus the Admins module that
+ *   controls who can sign in. Oversight.
+ * - `admin` — runs the app: catalogue, users (incl. agent / investor
+ *   conversion), orders, prescriptions, privilege plans, labs, appointments.
+ *   Everything `superadmin` can reach except the Admins module.
+ * - `pharmacy` / `lab` / `appointments` — one desk each, branch-scoped where
+ *   it applies.
+ */
+export type Role =
+  | 'superadmin'
+  | 'admin'
+  | 'pharmacy'
+  | 'lab'
+  | 'appointments';
 
 export type ModuleKey =
   | 'dashboard'
@@ -76,6 +92,37 @@ export interface ProductSubcategory {
   label: string;
 }
 
+/** One question/answer pair for a product's detail-page FAQ (`app.product_faq`). */
+export interface ProductFaqInput {
+  question: string;
+  answer: string;
+}
+
+/**
+ * The rich detail-page content for a product — `app.product_detail` plus its
+ * `app.product_faq` rows.
+ *
+ * Every field is optional for the admin. The customer app fills any blank in
+ * with text generated from the product's name and pack, so a product with an
+ * all-blank detail block still shows a complete page. The list fields
+ * (`highlights`, `benefits`, `directions`, `safety`) are captured as one
+ * textarea each, one item per line; `createProduct` splits them into `text[]`.
+ */
+export interface ProductDetailInput {
+  /** Dosage form / kind — "Tablet", "Syrup", "Cream", "Device", … */
+  form: string;
+  manufacturer: string;
+  description: string;
+  ingredients: string;
+  storage: string;
+  /** Newline-separated; one bullet per line. */
+  highlights: string;
+  benefits: string;
+  directions: string;
+  safety: string;
+  faqs: ProductFaqInput[];
+}
+
 /** Fields the admin fills to add a product to the catalogue. */
 export interface NewProduct {
   categorySlug: string;
@@ -93,6 +140,12 @@ export interface NewProduct {
   status: ProductStatus;
   /** A resized JPEG data URI from the picked file, or '' for no image. */
   image: string;
+  /** Home-feed placement — `app.product.is_popular` / `is_deal` / `is_offer_of_day`. */
+  isPopular: boolean;
+  isDeal: boolean;
+  isOfferOfDay: boolean;
+  /** Detail-page content. Written to `app.product_detail` / `app.product_faq`. */
+  detail: ProductDetailInput;
 }
 
 /** One row of `app.product`, joined to its `app.product_category`. */
@@ -116,6 +169,10 @@ export interface Product {
   stockQuantity: number;
   /** `app.product.image` — a resized JPEG data URI, or '' when none. */
   image: string;
+  /** Home-feed placement flags. */
+  isPopular: boolean;
+  isDeal: boolean;
+  isOfferOfDay: boolean;
   addedAt: string;
 }
 

@@ -4,11 +4,85 @@ import type {
   NewProduct,
   Product,
   ProductCategory,
+  ProductDetailInput,
+  ProductFaqInput,
   ProductStatus,
   ProductSubcategory,
 } from '@/types';
 
 type Row = Record<string, unknown>;
+
+/** Splits a textarea into trimmed, non-empty lines for a `text[]` column. */
+function lines(value: string): string[] {
+  return value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+/** True when the admin entered nothing in the detail block — skip the writes. */
+function detailIsBlank(d: ProductDetailInput): boolean {
+  return (
+    !d.form.trim() &&
+    !d.manufacturer.trim() &&
+    !d.description.trim() &&
+    !d.ingredients.trim() &&
+    !d.storage.trim() &&
+    !d.highlights.trim() &&
+    !d.benefits.trim() &&
+    !d.directions.trim() &&
+    !d.safety.trim() &&
+    d.faqs.every((f) => !f.question.trim() && !f.answer.trim())
+  );
+}
+
+/** Writes `app.product_detail` + `app.product_faq` for a product id. */
+async function writeProductDetail(
+  productId: string,
+  d: ProductDetailInput,
+): Promise<void> {
+  await query(
+    `
+    INSERT INTO app.product_detail
+      (product_id, form, manufacturer, description, ingredients, storage,
+       highlights, benefits, directions, safety)
+    VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8::text[], $9::text[], $10::text[])
+    ON CONFLICT (product_id) DO UPDATE SET
+      form = EXCLUDED.form,
+      manufacturer = EXCLUDED.manufacturer,
+      description = EXCLUDED.description,
+      ingredients = EXCLUDED.ingredients,
+      storage = EXCLUDED.storage,
+      highlights = EXCLUDED.highlights,
+      benefits = EXCLUDED.benefits,
+      directions = EXCLUDED.directions,
+      safety = EXCLUDED.safety,
+      updated_at = now()
+    `,
+    [
+      productId,
+      d.form.trim(),
+      d.manufacturer.trim(),
+      d.description.trim(),
+      d.ingredients.trim(),
+      d.storage.trim(),
+      lines(d.highlights),
+      lines(d.benefits),
+      lines(d.directions),
+      lines(d.safety),
+    ],
+  );
+
+  const faqs = d.faqs.filter((f) => f.question.trim() && f.answer.trim());
+  await query('DELETE FROM app.product_faq WHERE product_id = $1', [productId]);
+  for (let i = 0; i < faqs.length; i += 1) {
+    await query(
+      `INSERT INTO app.product_faq (product_id, question, answer, sort)
+       VALUES ($1, $2, $3, $4)`,
+      [productId, faqs[i].question.trim(), faqs[i].answer.trim(), i],
+    );
+  }
+}
 
 function toProduct(r: Row): Product {
   return {
@@ -28,6 +102,9 @@ function toProduct(r: Row): Product {
     status: String(r.status).toUpperCase() === 'ACTIVE' ? 'active' : 'inactive',
     stockQuantity: num(r.stock_quantity),
     image: String(r.image ?? ''),
+    isPopular: r.is_popular === true,
+    isDeal: r.is_deal === true,
+    isOfferOfDay: r.is_offer_of_day === true,
     addedAt: iso(r.created_at) ?? new Date(0).toISOString(),
   };
 }
@@ -40,7 +117,8 @@ export async function listProducts(): Promise<Product[]> {
            s.id    AS subcategory_id,
            s.label AS subcategory_label,
            p.price, p.mrp, p.discount_label, p.is_prescription_only,
-           p.status, p.stock_quantity, p.image, p.created_at
+           p.status, p.stock_quantity, p.image,
+           p.is_popular, p.is_deal, p.is_offer_of_day, p.created_at
     FROM app.product p
     LEFT JOIN app.product_category    c ON c.id = p.category_id
     LEFT JOIN app.product_subcategory s ON s.id = p.subcategory_id
@@ -93,12 +171,13 @@ export async function createProduct(p: NewProduct): Promise<string> {
     `
     INSERT INTO app.product
       (name, pack, brand, category_id, subcategory_id, price, mrp,
-       discount_label, is_prescription_only, status, stock_quantity, code, image)
+       discount_label, is_prescription_only, status, stock_quantity, code, image,
+       is_popular, is_deal, is_offer_of_day)
     VALUES
       ($1, $2, $3,
        (SELECT id FROM app.product_category WHERE slug = $4),
        $5::bigint,
-       $6, $7, $8, $9, $10, $11, $12, $13)
+       $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
     RETURNING id
     `,
     [
@@ -115,9 +194,79 @@ export async function createProduct(p: NewProduct): Promise<string> {
       p.stockQuantity,
       p.code.trim() || null,
       p.image || null,
+      p.isPopular,
+      p.isDeal,
+      p.isOfferOfDay,
     ],
   );
-  return String(rows[0].id);
+  const id = String(rows[0].id);
+
+  // The detail page + FAQs, when the admin filled any of that block in. A
+  // failure here should not lose the product that was just created, so it is
+  // reported but not rethrown past the returned id.
+  if (!detailIsBlank(p.detail)) {
+    try {
+      await writeProductDetail(id, p.detail);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Product created, but its detail page failed to save:', err);
+    }
+  }
+
+  return id;
+}
+
+/**
+ * The detail-page content for a product, or `null` when none has been entered.
+ * The list columns come back as JS arrays from the driver.
+ */
+export async function getProductDetail(
+  id: string,
+): Promise<(ProductDetailInput & { hasDetail: boolean }) | null> {
+  const rows = (await query<Row>(
+    `
+    SELECT d.form, d.manufacturer, d.description, d.ingredients, d.storage,
+           d.highlights, d.benefits, d.directions, d.safety,
+           COALESCE((
+             SELECT json_agg(json_build_object('question', f.question, 'answer', f.answer)
+                             ORDER BY f.sort, f.id)
+             FROM app.product_faq f WHERE f.product_id = p.id
+           ), '[]') AS faqs
+    FROM app.product p
+    LEFT JOIN app.product_detail d ON d.product_id = p.id
+    WHERE p.id = $1
+    LIMIT 1
+    `,
+    [id],
+  )) as Row[];
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  const arr = (v: unknown): string[] =>
+    Array.isArray(v) ? (v as unknown[]).map(String) : [];
+  const rawFaqs = r.faqs;
+  const faqs: ProductFaqInput[] = Array.isArray(rawFaqs)
+    ? (rawFaqs as ProductFaqInput[])
+    : typeof rawFaqs === 'string'
+      ? (JSON.parse(rawFaqs) as ProductFaqInput[])
+      : [];
+  const hasDetail =
+    r.form != null ||
+    r.manufacturer != null ||
+    Boolean(r.description) ||
+    faqs.length > 0;
+  return {
+    form: String(r.form ?? ''),
+    manufacturer: String(r.manufacturer ?? ''),
+    description: String(r.description ?? ''),
+    ingredients: String(r.ingredients ?? ''),
+    storage: String(r.storage ?? ''),
+    highlights: arr(r.highlights).join('\n'),
+    benefits: arr(r.benefits).join('\n'),
+    directions: arr(r.directions).join('\n'),
+    safety: arr(r.safety).join('\n'),
+    faqs,
+    hasDetail,
+  };
 }
 
 /** Removes a product from the catalogue. Order lines keep their text copy. */
@@ -139,5 +288,22 @@ export async function updateProduct(
   await query(
     'UPDATE app.product SET price = $2, stock_quantity = $3 WHERE id = $1',
     [id, patch.price, patch.stockQuantity],
+  );
+}
+
+/**
+ * Sets which home-feed rows a product appears in — "Popular Items",
+ * "Deals You Love", "Offer of the Day". The app picks the change up on its
+ * next catalogue load.
+ */
+export async function updateProductSections(
+  id: string,
+  sections: { isPopular: boolean; isDeal: boolean; isOfferOfDay: boolean },
+): Promise<void> {
+  await query(
+    `UPDATE app.product
+        SET is_popular = $2, is_deal = $3, is_offer_of_day = $4
+      WHERE id = $1`,
+    [id, sections.isPopular, sections.isDeal, sections.isOfferOfDay],
   );
 }

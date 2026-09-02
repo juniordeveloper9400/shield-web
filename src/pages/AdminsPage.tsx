@@ -21,6 +21,7 @@ const ROLES = Object.keys(ROLE_LABELS) as Role[];
 
 const ROLE_COLOR: Record<Role, string> = {
   superadmin: '#2c57a6',
+  admin: '#0f766e',
   pharmacy: '#1f7a4d',
   lab: '#8a5b1f',
   appointments: '#6b3fa0',
@@ -129,7 +130,12 @@ export default function AdminsPage() {
 
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
         <StatCard label="Total logins" value={rows.length} icon="admins" tone="blue" />
-        <StatCard label="Super Admins" value={byRole('superadmin')} icon="check" tone="green" />
+        <StatCard
+          label="Super Admin / Admin"
+          value={byRole('superadmin') + byRole('admin')}
+          icon="check"
+          tone="green"
+        />
         <StatCard label="Pharmacy" value={byRole('pharmacy')} tone="violet" />
         <StatCard label="Lab / Appts" value={byRole('lab') + byRole('appointments')} tone="amber" />
       </div>

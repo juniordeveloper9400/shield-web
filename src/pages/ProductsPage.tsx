@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -20,8 +20,28 @@ import {
   deleteProduct,
   setProductStatus,
   updateProduct,
+  updateProductSections,
+  getProductDetail,
 } from '@/api/products';
-import type { NewProduct, Product, ProductStatus } from '@/types';
+import type {
+  NewProduct,
+  Product,
+  ProductDetailInput,
+  ProductStatus,
+} from '@/types';
+
+const EMPTY_DETAIL: ProductDetailInput = {
+  form: '',
+  manufacturer: '',
+  description: '',
+  ingredients: '',
+  storage: '',
+  highlights: '',
+  benefits: '',
+  directions: '',
+  safety: '',
+  faqs: [],
+};
 
 const EMPTY_NEW: NewProduct = {
   categorySlug: '',
@@ -37,6 +57,10 @@ const EMPTY_NEW: NewProduct = {
   stockQuantity: 0,
   status: 'active',
   image: '',
+  isPopular: false,
+  isDeal: false,
+  isOfferOfDay: false,
+  detail: EMPTY_DETAIL,
 };
 
 /**
@@ -93,10 +117,43 @@ export default function ProductsPage() {
   const [draft, setDraft] = useState<NewProduct>(EMPTY_NEW);
   const [addError, setAddError] = useState<string | null>(null);
 
+  // The selected product's detail-page content, loaded lazily when its modal
+  // opens. `undefined` = not loaded yet, `null` = loaded and there is none.
+  const [selectedDetail, setSelectedDetail] = useState<
+    Awaited<ReturnType<typeof getProductDetail>> | undefined
+  >(undefined);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setSelectedDetail(undefined);
+      return;
+    }
+    let cancelled = false;
+    setSelectedDetail(undefined);
+    getProductDetail(selectedId)
+      .then((d) => {
+        if (!cancelled) setSelectedDetail(d);
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedDetail(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
+
   function openAdd() {
     setDraft(EMPTY_NEW);
     setAddError(null);
     setAdding(true);
+  }
+
+  /** Patches one field of the draft's detail block. */
+  function setDetail<K extends keyof ProductDetailInput>(
+    key: K,
+    value: ProductDetailInput[K],
+  ) {
+    setDraft((d) => ({ ...d, detail: { ...d.detail, [key]: value } }));
   }
 
   /** Sub-categories under the category the draft currently points at. */
@@ -438,6 +495,84 @@ export default function ProductsPage() {
                 { label: 'Added', value: formatDate(selected.addedAt) },
               ]}
             />
+            <div className="mt-4 rounded-lg border border-slate-200 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Home feed rows
+              </p>
+              <div className="space-y-1.5">
+                {(
+                  [
+                    ['isPopular', 'Popular Items'],
+                    ['isDeal', 'Deals You Love'],
+                    ['isOfferOfDay', 'Offer of the Day'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label
+                    key={key}
+                    className="flex items-center gap-2 text-sm text-slate-700"
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={saving}
+                      checked={selected[key]}
+                      onChange={async (e) => {
+                        setSaving(true);
+                        try {
+                          await updateProductSections(selected.id, {
+                            isPopular: selected.isPopular,
+                            isDeal: selected.isDeal,
+                            isOfferOfDay: selected.isOfferOfDay,
+                            [key]: e.target.checked,
+                          });
+                          reload();
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-slate-200 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Detail page
+              </p>
+              {selectedDetail === undefined ? (
+                <p className="text-sm text-slate-400">Loading…</p>
+              ) : selectedDetail && selectedDetail.hasDetail ? (
+                <div className="space-y-2 text-sm text-slate-600">
+                  <p>
+                    <span className="font-medium text-slate-700">Custom content</span>{' '}
+                    entered by an admin. Shown in the app; blanks fall back to
+                    auto-generated text.
+                  </p>
+                  {selectedDetail.form && (
+                    <p className="text-xs text-slate-500">
+                      Form: {selectedDetail.form}
+                    </p>
+                  )}
+                  {selectedDetail.description && (
+                    <p className="line-clamp-3 text-xs text-slate-500">
+                      {selectedDetail.description}
+                    </p>
+                  )}
+                  {selectedDetail.faqs.length > 0 && (
+                    <p className="text-xs text-slate-500">
+                      {selectedDetail.faqs.length} FAQ
+                      {selectedDetail.faqs.length === 1 ? '' : 's'}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">
+                  Auto-generated by the app from the name and pack. Add custom
+                  content when creating a product.
+                </p>
+              )}
+            </div>
           </>
         )}
 
@@ -659,6 +794,205 @@ export default function ProductsPage() {
             />
             Active (visible in the app straight away)
           </label>
+          <div className="rounded-lg border border-slate-200 p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Home feed rows
+            </p>
+            <div className="space-y-1.5">
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={draft.isPopular}
+                  onChange={(e) => setDraft({ ...draft, isPopular: e.target.checked })}
+                />
+                Popular Items
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={draft.isDeal}
+                  onChange={(e) => setDraft({ ...draft, isDeal: e.target.checked })}
+                />
+                Deals You Love
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={draft.isOfferOfDay}
+                  onChange={(e) =>
+                    setDraft({ ...draft, isOfferOfDay: e.target.checked })
+                  }
+                />
+                Offer of the Day
+              </label>
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 p-3">
+            <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Detail page (optional)
+            </p>
+            <p className="mb-3 text-xs text-slate-400">
+              Anything left blank is filled in automatically by the app from the
+              name and pack. List fields take one item per line.
+            </p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <EditField label="Form / kind">
+                  <input
+                    value={draft.detail.form}
+                    onChange={(e) => setDetail('form', e.target.value)}
+                    className={inputClass}
+                    placeholder="Tablet, Syrup, Cream, Device…"
+                  />
+                </EditField>
+                <EditField label="Manufacturer">
+                  <input
+                    value={draft.detail.manufacturer}
+                    onChange={(e) => setDetail('manufacturer', e.target.value)}
+                    className={inputClass}
+                  />
+                </EditField>
+              </div>
+              <EditField label="Description">
+                <textarea
+                  value={draft.detail.description}
+                  onChange={(e) => setDetail('description', e.target.value)}
+                  className={textareaClass}
+                  rows={3}
+                />
+              </EditField>
+              <div className="grid grid-cols-2 gap-3">
+                <EditField label="Ingredients">
+                  <textarea
+                    value={draft.detail.ingredients}
+                    onChange={(e) => setDetail('ingredients', e.target.value)}
+                    className={textareaClass}
+                    rows={2}
+                  />
+                </EditField>
+                <EditField label="Storage">
+                  <textarea
+                    value={draft.detail.storage}
+                    onChange={(e) => setDetail('storage', e.target.value)}
+                    className={textareaClass}
+                    rows={2}
+                  />
+                </EditField>
+              </div>
+              <EditField label="Highlights (one per line)">
+                <textarea
+                  value={draft.detail.highlights}
+                  onChange={(e) => setDetail('highlights', e.target.value)}
+                  className={textareaClass}
+                  rows={3}
+                />
+              </EditField>
+              <EditField label="Key benefits (one per line)">
+                <textarea
+                  value={draft.detail.benefits}
+                  onChange={(e) => setDetail('benefits', e.target.value)}
+                  className={textareaClass}
+                  rows={3}
+                />
+              </EditField>
+              <EditField label="Directions for use (one per line)">
+                <textarea
+                  value={draft.detail.directions}
+                  onChange={(e) => setDetail('directions', e.target.value)}
+                  className={textareaClass}
+                  rows={3}
+                />
+              </EditField>
+              <EditField label="Safety information (one per line)">
+                <textarea
+                  value={draft.detail.safety}
+                  onChange={(e) => setDetail('safety', e.target.value)}
+                  className={textareaClass}
+                  rows={3}
+                />
+              </EditField>
+
+              <div>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-700">
+                    FAQs
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-brand-600"
+                    onClick={() =>
+                      setDetail('faqs', [
+                        ...draft.detail.faqs,
+                        { question: '', answer: '' },
+                      ])
+                    }
+                  >
+                    + Add question
+                  </button>
+                </div>
+                {draft.detail.faqs.length === 0 && (
+                  <p className="text-xs text-slate-400">
+                    None — the app generates a standard set.
+                  </p>
+                )}
+                <div className="space-y-2">
+                  {draft.detail.faqs.map((faq, i) => (
+                    <div
+                      key={i}
+                      className="rounded-md border border-slate-200 p-2"
+                    >
+                      <div className="mb-1 flex items-center justify-between">
+                        <span className="text-xs font-medium text-slate-500">
+                          Question {i + 1}
+                        </span>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-rose-600"
+                          onClick={() =>
+                            setDetail(
+                              'faqs',
+                              draft.detail.faqs.filter((_, j) => j !== i),
+                            )
+                          }
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <input
+                        value={faq.question}
+                        onChange={(e) =>
+                          setDetail(
+                            'faqs',
+                            draft.detail.faqs.map((f, j) =>
+                              j === i ? { ...f, question: e.target.value } : f,
+                            ),
+                          )
+                        }
+                        className={`${inputClass} mb-1.5`}
+                        placeholder="Question"
+                      />
+                      <textarea
+                        value={faq.answer}
+                        onChange={(e) =>
+                          setDetail(
+                            'faqs',
+                            draft.detail.faqs.map((f, j) =>
+                              j === i ? { ...f, answer: e.target.value } : f,
+                            ),
+                          )
+                        }
+                        className={textareaClass}
+                        rows={2}
+                        placeholder="Answer"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {addError && (
             <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
               {addError}
@@ -672,6 +1006,8 @@ export default function ProductsPage() {
 
 const inputClass =
   'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+
+const textareaClass = `${inputClass} resize-y`;
 
 function EditField({ label, children }: { label: string; children: ReactNode }) {
   return (

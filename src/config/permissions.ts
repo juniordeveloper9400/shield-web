@@ -94,20 +94,24 @@ export const MODULES: NavItem[] = [
  * Which modules each login role may open. The router uses this to decide
  * whether a page renders or redirects to "No access".
  */
+/** Every operational module — what an `admin` runs. `superadmin` gets this
+ *  plus `admins`. Keep the two in step. */
+const APP_MODULES: ModuleKey[] = [
+  'dashboard',
+  'stores',
+  'products',
+  'orders',
+  'prescriptions',
+  'activations',
+  'users',
+  'lab_orders',
+  'lab_tests',
+  'appointments',
+];
+
 export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
-  superadmin: [
-    'dashboard',
-    'stores',
-    'products',
-    'orders',
-    'prescriptions',
-    'activations',
-    'users',
-    'lab_orders',
-    'lab_tests',
-    'appointments',
-    'admins',
-  ],
+  superadmin: [...APP_MODULES, 'admins'],
+  admin: [...APP_MODULES],
   pharmacy: ['dashboard', 'orders', 'prescriptions', 'products'],
   lab: ['dashboard', 'lab_orders', 'lab_tests'],
   appointments: ['dashboard', 'appointments'],
@@ -115,13 +119,17 @@ export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
 
 export const ROLE_LABELS: Record<Role, string> = {
   superadmin: 'Super Admin',
+  admin: 'Admin',
   pharmacy: 'Pharmacy Admin',
   lab: 'Lab Admin',
   appointments: 'Appointments Admin',
 };
 
 export const ROLE_SUMMARY: Record<Role, string> = {
-  superadmin: 'Full access to every module, including admin management.',
+  superadmin:
+    'The whole view — every module, plus the Admins module that controls who can sign in.',
+  admin:
+    'Runs the app: catalogue, users & agent / investor conversion, orders, prescriptions, privilege plans, labs and appointments.',
   pharmacy: 'Works one branch — its member orders and uploaded prescriptions.',
   lab: 'Handles member lab-test bookings and the package catalogue.',
   appointments: 'Handles the clinic, tele and dietitian appointment queue.',
@@ -132,12 +140,13 @@ export function canAccess(role: Role, moduleKey: ModuleKey): boolean {
 }
 
 /**
- * Deciding a privilege-plan activation (approve / reject) is a Super Admin
- * action only. Pharmacy Admins can open the queue to track their branch's
- * submissions, but the approve/reject controls are theirs to view, not use.
+ * Deciding a privilege-plan activation (approve / reject) is for the app
+ * managers — Super Admin and Admin. Pharmacy Admins can open the queue to
+ * track their branch's submissions, but the approve/reject controls are
+ * theirs to view, not use.
  */
 export function canReviewActivations(role: Role): boolean {
-  return role === 'superadmin';
+  return role === 'superadmin' || role === 'admin';
 }
 
 export function allowedModules(role: Role): NavItem[] {

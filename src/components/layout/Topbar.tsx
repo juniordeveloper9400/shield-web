@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { MODULES, ROLE_LABELS } from '@/config/permissions';
 import { Icon } from '@/components/ui/Icon';
+import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
 import { initials } from '@/lib/format';
 
 export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
@@ -10,6 +12,8 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,9 +30,20 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
 
   const currentModule = MODULES.find((m) => location.pathname.startsWith(m.path));
 
+  function askSignOut() {
+    setMenuOpen(false);
+    setConfirmOpen(true);
+  }
+
   async function handleSignOut() {
-    await logout();
-    navigate('/login', { replace: true });
+    setSigningOut(true);
+    try {
+      await logout();
+      navigate('/login', { replace: true });
+    } finally {
+      setSigningOut(false);
+      setConfirmOpen(false);
+    }
   }
 
   return (
@@ -86,7 +101,7 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
               <p className="mt-1 truncate text-xs text-slate-400">{user.loginId}</p>
             </div>
             <button
-              onClick={handleSignOut}
+              onClick={askSignOut}
               className="mt-1 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50"
             >
               <Icon name="logout" className="h-4 w-4" />
@@ -95,6 +110,37 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
           </div>
         )}
       </div>
+
+      <Modal
+        open={confirmOpen}
+        onClose={() => {
+          if (!signingOut) setConfirmOpen(false);
+        }}
+        title="Sign out?"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              onClick={() => setConfirmOpen(false)}
+              disabled={signingOut}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              onClick={handleSignOut}
+              disabled={signingOut}
+            >
+              {signingOut ? 'Signing out…' : 'Sign out'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">
+          You will be returned to the login screen and need to sign in again to
+          use the console.
+        </p>
+      </Modal>
     </header>
   );
 }
