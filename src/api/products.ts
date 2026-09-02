@@ -1,6 +1,12 @@
 import { sql, query } from '@/lib/db';
 import { iso, num } from '@/lib/mappers';
-import type { NewProduct, Product, ProductCategory, ProductStatus } from '@/types';
+import type {
+  NewProduct,
+  Product,
+  ProductCategory,
+  ProductStatus,
+  ProductSubcategory,
+} from '@/types';
 
 type Row = Record<string, unknown>;
 
@@ -13,6 +19,8 @@ function toProduct(r: Row): Product {
     brand: String(r.brand ?? ''),
     categorySlug: String(r.category_slug ?? ''),
     categoryTitle: String(r.category_title ?? ''),
+    subcategoryId: r.subcategory_id == null ? '' : String(r.subcategory_id),
+    subcategoryLabel: String(r.subcategory_label ?? ''),
     price: num(r.price),
     mrp: num(r.mrp),
     discountLabel: String(r.discount_label ?? ''),
@@ -29,10 +37,13 @@ export async function listProducts(): Promise<Product[]> {
     SELECT p.id, p.code, p.name, p.pack, p.brand,
            c.slug  AS category_slug,
            c.title AS category_title,
+           s.id    AS subcategory_id,
+           s.label AS subcategory_label,
            p.price, p.mrp, p.discount_label, p.is_prescription_only,
            p.status, p.stock_quantity, p.image, p.created_at
     FROM app.product p
-    LEFT JOIN app.product_category c ON c.id = p.category_id
+    LEFT JOIN app.product_category    c ON c.id = p.category_id
+    LEFT JOIN app.product_subcategory s ON s.id = p.subcategory_id
     ORDER BY p.name
   `) as Row[];
   return rows.map(toProduct);
@@ -54,6 +65,26 @@ export async function listCategories(): Promise<ProductCategory[]> {
 }
 
 /**
+ * Every sub-category, with its parent category's slug — the second dropdown on
+ * the "Add product" form filters this list by the chosen category. Seeded to
+ * match the app's category browser by migration 0004.
+ */
+export async function listSubcategories(): Promise<ProductSubcategory[]> {
+  const rows = (await sql`
+    SELECT s.id, s.label, c.slug AS category_slug
+    FROM app.product_subcategory s
+    JOIN app.product_category c ON c.id = s.category_id
+    WHERE c.is_active
+    ORDER BY c.sort, s.sort, s.label
+  `) as Row[];
+  return rows.map((r) => ({
+    id: String(r.id),
+    categorySlug: String(r.category_slug),
+    label: String(r.label),
+  }));
+}
+
+/**
  * Adds a product to the catalogue under the chosen category. Available to the
  * app and the web console the moment it is written. Returns the new id.
  */
@@ -61,12 +92,13 @@ export async function createProduct(p: NewProduct): Promise<string> {
   const rows = await query<Row>(
     `
     INSERT INTO app.product
-      (name, pack, brand, category_id, price, mrp, discount_label,
-       is_prescription_only, status, stock_quantity, code, image)
+      (name, pack, brand, category_id, subcategory_id, price, mrp,
+       discount_label, is_prescription_only, status, stock_quantity, code, image)
     VALUES
       ($1, $2, $3,
        (SELECT id FROM app.product_category WHERE slug = $4),
-       $5, $6, $7, $8, $9, $10, $11, $12)
+       $5::bigint,
+       $6, $7, $8, $9, $10, $11, $12, $13)
     RETURNING id
     `,
     [
@@ -74,6 +106,7 @@ export async function createProduct(p: NewProduct): Promise<string> {
       p.pack.trim(),
       p.brand.trim(),
       p.categorySlug,
+      p.subcategoryId || null,
       p.price,
       p.mrp,
       p.discountLabel.trim(),

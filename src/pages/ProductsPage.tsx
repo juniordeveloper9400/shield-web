@@ -15,6 +15,7 @@ import { useAsync } from '@/lib/useAsync';
 import {
   listProducts,
   listCategories,
+  listSubcategories,
   createProduct,
   deleteProduct,
   setProductStatus,
@@ -24,6 +25,7 @@ import type { NewProduct, Product, ProductStatus } from '@/types';
 
 const EMPTY_NEW: NewProduct = {
   categorySlug: '',
+  subcategoryId: '',
   name: '',
   pack: '',
   brand: '',
@@ -76,6 +78,7 @@ const STATUS_OPTIONS = [
 export default function ProductsPage() {
   const { data, loading, error, reload } = useAsync(listProducts, []);
   const categories = useAsync(listCategories, []);
+  const subcategories = useAsync(listSubcategories, []);
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
@@ -96,8 +99,19 @@ export default function ProductsPage() {
     setAdding(true);
   }
 
+  /** Sub-categories under the category the draft currently points at. */
+  const draftSubOptions = useMemo(
+    () =>
+      (subcategories.data ?? []).filter(
+        (s) => s.categorySlug === draft.categorySlug,
+      ),
+    [subcategories.data, draft.categorySlug],
+  );
+
   async function saveNew() {
     if (!draft.categorySlug) return setAddError('Pick a category first.');
+    if (draftSubOptions.length > 0 && !draft.subcategoryId)
+      return setAddError('Pick a sub-category.');
     if (!draft.name.trim()) return setAddError('Give the product a name.');
     if (!(draft.price >= 0) || !(draft.mrp >= 0))
       return setAddError('Price and MRP must be zero or more.');
@@ -233,7 +247,18 @@ export default function ProductsPage() {
         </div>
       ),
     },
-    { key: 'category', header: 'Category', render: (row) => row.categoryTitle || '—' },
+    {
+      key: 'category',
+      header: 'Category',
+      render: (row) => (
+        <div>
+          <p className="text-slate-700">{row.categoryTitle || '—'}</p>
+          {row.subcategoryLabel && (
+            <p className="text-xs text-slate-400">{row.subcategoryLabel}</p>
+          )}
+        </div>
+      ),
+    },
     {
       key: 'price',
       header: 'Price',
@@ -395,6 +420,10 @@ export default function ProductsPage() {
                 { label: 'Brand', value: selected.brand || '—' },
                 { label: 'Pack', value: selected.pack || '—' },
                 { label: 'Category', value: selected.categoryTitle || '—' },
+                {
+                  label: 'Sub-category',
+                  value: selected.subcategoryLabel || '—',
+                },
                 { label: 'Price', value: formatCurrency(selected.price) },
                 { label: 'MRP', value: formatCurrency(selected.mrp) },
                 {
@@ -455,13 +484,43 @@ export default function ProductsPage() {
           <EditField label="Category">
             <select
               value={draft.categorySlug}
-              onChange={(e) => setDraft({ ...draft, categorySlug: e.target.value })}
+              onChange={(e) =>
+                setDraft({
+                  ...draft,
+                  categorySlug: e.target.value,
+                  // The old sub-category belongs to the old category.
+                  subcategoryId: '',
+                })
+              }
               className={inputClass}
             >
               <option value="">Select a category…</option>
               {(categories.data ?? []).map((c) => (
                 <option key={c.id} value={c.slug}>
                   {c.title}
+                </option>
+              ))}
+            </select>
+          </EditField>
+          <EditField label="Sub-category">
+            <select
+              value={draft.subcategoryId}
+              onChange={(e) =>
+                setDraft({ ...draft, subcategoryId: e.target.value })
+              }
+              className={inputClass}
+              disabled={!draft.categorySlug || draftSubOptions.length === 0}
+            >
+              <option value="">
+                {!draft.categorySlug
+                  ? 'Pick a category first'
+                  : draftSubOptions.length === 0
+                    ? 'No sub-categories for this category'
+                    : 'Select a sub-category…'}
+              </option>
+              {draftSubOptions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.label}
                 </option>
               ))}
             </select>

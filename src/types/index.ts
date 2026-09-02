@@ -65,9 +65,22 @@ export interface ProductCategory {
   title: string;
 }
 
+/**
+ * One sub-category under a category — a row of `app.product_subcategory`, e.g.
+ * "Skin Care" under "Personal Care". Seeded from the app's category browser by
+ * migration 0004; `categorySlug` is the parent's slug.
+ */
+export interface ProductSubcategory {
+  id: string;
+  categorySlug: string;
+  label: string;
+}
+
 /** Fields the admin fills to add a product to the catalogue. */
 export interface NewProduct {
   categorySlug: string;
+  /** `app.product_subcategory.id`, or '' when the category has no sub-categories. */
+  subcategoryId: string;
   name: string;
   pack: string;
   brand: string;
@@ -91,6 +104,10 @@ export interface Product {
   brand: string;
   categorySlug: string;
   categoryTitle: string;
+  /** `app.product_subcategory.id`, or '' when unfiled. */
+  subcategoryId: string;
+  /** `app.product_subcategory.label`, or '' when unfiled. */
+  subcategoryLabel: string;
   price: number;
   mrp: number;
   discountLabel: string;
