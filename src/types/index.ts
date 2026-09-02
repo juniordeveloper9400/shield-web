@@ -7,6 +7,7 @@ export type ModuleKey =
   | 'orders'
   | 'prescriptions'
   | 'activations'
+  | 'users'
   | 'lab_orders'
   | 'lab_tests'
   | 'appointments'
@@ -144,6 +145,52 @@ export interface Prescription {
   storeName: string;
   createdAt: string;
   medicines: PrescriptionMedicine[];
+}
+
+/** What a member's account currently resolves to across the app + web console. */
+export type Persona = 'member' | 'agent' | 'investor';
+
+/** `app.agent_level`, lowercased for the console. */
+export type AgentLevel =
+  | 'national'
+  | 'region'
+  | 'state'
+  | 'district'
+  | 'assembly'
+  | 'lsgd'
+  | 'ward';
+
+/** `app.investor_plan_type`, lowercased. */
+export type InvestorPlanType = 'yearly' | 'monthly';
+
+/**
+ * One row of `app.users` — an app member — with whatever persona the Super
+ * Admin has granted them (`app.agent` / `app.investor`).
+ */
+export interface AppUser {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  registered: boolean;
+  homeStoreCode: string;
+  homeStoreName: string;
+  createdAt: string;
+  lastLoginAt: string;
+  persona: Persona;
+  /** e.g. `SHD-AGT-003`, set when `persona === 'agent'`. */
+  agentCode: string;
+  agentLevel: AgentLevel | '';
+  /** e.g. `SHD-INV-002`, set when `persona === 'investor'`. */
+  investorCode: string;
+}
+
+/** A pickable parent when converting a user to an agent. */
+export interface AgentOption {
+  id: string;
+  code: string;
+  name: string;
+  level: AgentLevel;
 }
 
 /** `app.lab_booking_status`. */

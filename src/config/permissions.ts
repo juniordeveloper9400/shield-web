@@ -75,6 +75,13 @@ export const MODULES: NavItem[] = [
     description: 'Clinic, tele & dietitian bookings',
   },
   {
+    key: 'users',
+    label: 'Users',
+    path: '/users',
+    icon: 'users',
+    description: 'App members & agent / investor conversion',
+  },
+  {
     key: 'admins',
     label: 'Admins',
     path: '/admins',
@@ -95,6 +102,7 @@ export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
     'orders',
     'prescriptions',
     'activations',
+    'users',
     'lab_orders',
     'lab_tests',
     'appointments',

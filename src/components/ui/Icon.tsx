@@ -10,6 +10,7 @@ export type IconName =
   | 'labs'
   | 'admins'
   | 'wallet'
+  | 'users'
   | 'menu'
   | 'close'
   | 'search'
@@ -80,6 +81,13 @@ const ICONS: Record<IconName, ReactNode> = {
       <path d="M3 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
       <path d="M3 10h18" />
       <circle cx="16" cy="14" r="1" />
+    </>
+  ),
+  users: (
+    <>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6" />
+      <path d="M16 4.5a3.5 3.5 0 0 1 0 7M17 20c0-3.3-1.3-5.2-3-6" />
     </>
   ),
   menu: <path d="M4 7h16M4 12h16M4 17h16" />,
