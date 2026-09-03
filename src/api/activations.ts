@@ -8,33 +8,9 @@ import type {
 
 type Row = Record<string, unknown>;
 
-/**
- * Every privilege-plan activation members have submitted — `app.wallet_card`
- * joined to its member, tier and branch. Pending first, then newest.
- */
-export async function listActivations(): Promise<PrivilegeActivation[]> {
-  const rows = (await sql`
-    SELECT wc.id, wc.uuid,
-           m.name  AS member_name,
-           m.phone AS member_phone,
-           mt.name AS tier_name,
-           mt.kind AS tier_kind,
-           wc.amount, wc.bonus, wc.recharged_extra,
-           wc.status, wc.card_number,
-           wc.receipt_reference, wc.receipt_file_name, wc.receipt_image,
-           wc.reviewer_note,
-           wc.submitted_at, wc.reviewed_at, wc.issued_on, wc.expires_on,
-           s.code AS store_code,
-           s.name AS store_name
-    FROM app.wallet_card wc
-    JOIN app.wallet w           ON w.id  = wc.wallet_id
-    JOIN app.users m            ON m.id  = w.member_id
-    JOIN app.membership_tier mt ON mt.id = wc.tier_id
-    LEFT JOIN app.shield_store s ON s.id = wc.store_id
-    ORDER BY (wc.status = 'PENDING') DESC, wc.submitted_at DESC
-  `) as Row[];
-
-  return rows.map((r) => ({
+/** `app.wallet_card` + member + tier + branch → the shape the console renders. */
+function toActivation(r: Row): PrivilegeActivation {
+  return {
     id: String(r.id),
     uuid: String(r.uuid),
     memberName: String(r.member_name ?? '—'),
@@ -56,7 +32,50 @@ export async function listActivations(): Promise<PrivilegeActivation[]> {
     issuedOn: iso(r.issued_on) ?? '',
     expiresOn: iso(r.expires_on) ?? '',
     reviewedAt: iso(r.reviewed_at),
-  }));
+  };
+}
+
+const ACTIVATION_COLUMNS = `
+    wc.id, wc.uuid,
+    m.name  AS member_name,
+    m.phone AS member_phone,
+    mt.name AS tier_name,
+    mt.kind AS tier_kind,
+    wc.amount, wc.bonus, wc.recharged_extra,
+    wc.status, wc.card_number,
+    wc.receipt_reference, wc.receipt_file_name, wc.receipt_image,
+    wc.reviewer_note,
+    wc.submitted_at, wc.reviewed_at, wc.issued_on, wc.expires_on,
+    s.code AS store_code,
+    s.name AS store_name
+  FROM app.wallet_card wc
+  JOIN app.wallet w           ON w.id  = wc.wallet_id
+  JOIN app.users m            ON m.id  = w.member_id
+  JOIN app.membership_tier mt ON mt.id = wc.tier_id
+  LEFT JOIN app.shield_store s ON s.id = wc.store_id
+`;
+
+/**
+ * Every privilege-plan activation members have submitted — `app.wallet_card`
+ * joined to its member, tier and branch. Pending first, then newest.
+ */
+export async function listActivations(): Promise<PrivilegeActivation[]> {
+  const rows = await query<Row>(
+    `SELECT ${ACTIVATION_COLUMNS}
+     ORDER BY (wc.status = 'PENDING') DESC, wc.submitted_at DESC`,
+  );
+  return rows.map(toActivation);
+}
+
+/** A single activation by `app.wallet_card.id`, for the review page. */
+export async function getActivation(
+  id: string,
+): Promise<PrivilegeActivation | null> {
+  const rows = await query<Row>(
+    `SELECT ${ACTIVATION_COLUMNS} WHERE wc.id = $1 LIMIT 1`,
+    [id],
+  );
+  return rows[0] ? toActivation(rows[0]) : null;
 }
 
 /**

@@ -14,12 +14,15 @@ export function DataTable<T extends { id: string }>({
   empty = 'No records found.',
   loading = false,
   error = null,
+  onRowClick,
 }: {
   columns: Column<T>[];
   rows: T[];
   empty?: string;
   loading?: boolean;
   error?: string | null;
+  /** When set, the whole row is clickable and shows a pointer cursor. */
+  onRowClick?: (row: T) => void;
 }) {
   const message = loading
     ? 'Loading…'
@@ -55,7 +58,13 @@ export function DataTable<T extends { id: string }>({
             </tr>
           ) : (
             rows.map((row) => (
-              <tr key={row.id} className="transition hover:bg-slate-50/80">
+              <tr
+                key={row.id}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+                className={`transition hover:bg-slate-50/80 ${
+                  onRowClick ? 'cursor-pointer' : ''
+                }`}
+              >
                 {columns.map((column) => (
                   <td
                     key={column.key}

@@ -10,6 +10,7 @@ import ProductsPage from '@/pages/ProductsPage';
 import OrdersPage from '@/pages/OrdersPage';
 import PrescriptionsPage from '@/pages/PrescriptionsPage';
 import ActivationsPage from '@/pages/ActivationsPage';
+import ActivationDetailPage from '@/pages/ActivationDetailPage';
 import LabOrdersPage from '@/pages/LabOrdersPage';
 import AppointmentsPage from '@/pages/AppointmentsPage';
 import LabsPage from '@/pages/LabsPage';
@@ -85,6 +86,14 @@ export default function App() {
           element={
             <ProtectedRoute module="activations">
               <ActivationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/activations/:id"
+          element={
+            <ProtectedRoute module="activations">
+              <ActivationDetailPage />
             </ProtectedRoute>
           }
         />
