@@ -12,28 +12,9 @@ import type {
 
 type Row = Record<string, unknown>;
 
-/**
- * Every app member (`app.users`), newest first, tagged with the persona the
- * Super Admin has granted them — `member`, `agent` (an `app.agent` row) or
- * `investor` (an `app.investor` row).
- */
-export async function listUsers(): Promise<AppUser[]> {
-  const rows = (await sql`
-    SELECT u.id, u.name, u.phone, u.email,
-           u.registration_completed_at IS NOT NULL AS registered,
-           u.created_at, u.last_login_at,
-           s.code AS home_store_code, s.name AS home_store_name,
-           a.code  AS agent_code,  a.level AS agent_level,
-           i.code  AS investor_code
-    FROM app.users u
-    LEFT JOIN app.shield_store s ON s.id = u.home_store_id
-    LEFT JOIN app.agent a        ON a.member_id = u.id
-    LEFT JOIN app.investor i     ON i.member_id = u.id
-    WHERE u.deleted_at IS NULL
-    ORDER BY u.created_at DESC
-  `) as Row[];
-
-  return rows.map((r) => ({
+/** `app.users` + home branch + persona row → the shape the console renders. */
+function toAppUser(r: Row): AppUser {
+  return {
     id: String(r.id),
     name: String(r.name ?? '—'),
     phone: String(r.phone ?? ''),
@@ -45,11 +26,45 @@ export async function listUsers(): Promise<AppUser[]> {
     lastLoginAt: iso(r.last_login_at) ?? '',
     persona: r.agent_code ? 'agent' : r.investor_code ? 'investor' : 'member',
     agentCode: String(r.agent_code ?? ''),
-    agentLevel: r.agent_level
-      ? fromEnum<AgentLevel>(String(r.agent_level))
-      : '',
+    agentLevel: r.agent_level ? fromEnum<AgentLevel>(String(r.agent_level)) : '',
     investorCode: String(r.investor_code ?? ''),
-  }));
+  };
+}
+
+const USER_COLUMNS = `
+    u.id, u.name, u.phone, u.email,
+    u.registration_completed_at IS NOT NULL AS registered,
+    u.created_at, u.last_login_at,
+    s.code AS home_store_code, s.name AS home_store_name,
+    a.code  AS agent_code,  a.level AS agent_level,
+    i.code  AS investor_code
+  FROM app.users u
+  LEFT JOIN app.shield_store s ON s.id = u.home_store_id
+  LEFT JOIN app.agent a        ON a.member_id = u.id
+  LEFT JOIN app.investor i     ON i.member_id = u.id
+`;
+
+/**
+ * Every app member (`app.users`), newest first, tagged with the persona the
+ * Super Admin has granted them — `member`, `agent` (an `app.agent` row) or
+ * `investor` (an `app.investor` row).
+ */
+export async function listUsers(): Promise<AppUser[]> {
+  const rows = await query<Row>(
+    `SELECT ${USER_COLUMNS}
+     WHERE u.deleted_at IS NULL
+     ORDER BY u.created_at DESC`,
+  );
+  return rows.map(toAppUser);
+}
+
+/** A single member by `app.users.id`, for the detail page. */
+export async function getUser(id: string): Promise<AppUser | null> {
+  const rows = await query<Row>(
+    `SELECT ${USER_COLUMNS} WHERE u.id = $1 AND u.deleted_at IS NULL LIMIT 1`,
+    [id],
+  );
+  return rows[0] ? toAppUser(rows[0]) : null;
 }
 
 /**

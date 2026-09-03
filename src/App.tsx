@@ -16,6 +16,7 @@ import AppointmentsPage from '@/pages/AppointmentsPage';
 import LabsPage from '@/pages/LabsPage';
 import AdminsPage from '@/pages/AdminsPage';
 import UsersPage from '@/pages/UsersPage';
+import UserDetailPage from '@/pages/UserDetailPage';
 import NoAccessPage from '@/pages/NoAccessPage';
 
 export default function App() {
@@ -126,6 +127,14 @@ export default function App() {
           element={
             <ProtectedRoute module="users">
               <UsersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/users/:id"
+          element={
+            <ProtectedRoute module="users">
+              <UserDetailPage />
             </ProtectedRoute>
           }
         />
