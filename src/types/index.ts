@@ -228,6 +228,18 @@ export interface PrescriptionMedicine {
   doseMorning: number;
   doseAfternoon: number;
   doseNight: number;
+  /** Units the pharmacist counted out for this line — `total_units`. */
+  totalUnits: number;
+}
+
+/** One row the pharmacist enters on the intake card in the console. */
+export interface PrescriptionMedicineInput {
+  name: string;
+  pack: string;
+  /** The three-digit morning-afternoon-night code, e.g. "101". */
+  intake: string;
+  /** Units for this line. */
+  totalUnits: number;
 }
 
 /** An uploaded prescription — `app.prescription` + `app.prescription_medicine`. */
@@ -239,6 +251,8 @@ export interface Prescription {
   patientName: string;
   doctor: string;
   fileName: string;
+  /** The uploaded script itself — a resized JPEG data URI, or '' when none. */
+  image: string;
   duration: string;
   status: PrescriptionStatus;
   storeCode: string;

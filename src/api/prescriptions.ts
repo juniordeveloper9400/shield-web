@@ -3,6 +3,7 @@ import { fromEnum, iso, num } from '@/lib/mappers';
 import type {
   Prescription,
   PrescriptionMedicine,
+  PrescriptionMedicineInput,
   PrescriptionStatus,
 } from '@/types';
 
@@ -30,6 +31,7 @@ function toMedicine(r: Row): PrescriptionMedicine {
     doseMorning: num(r.dose_morning),
     doseAfternoon: num(r.dose_afternoon),
     doseNight: num(r.dose_night),
+    totalUnits: num(r.total_units),
   };
 }
 
@@ -44,7 +46,8 @@ export async function listPrescriptions(): Promise<Prescription[]> {
            m.name  AS member_name,
            m.phone AS member_phone,
            pt.name AS patient_name,
-           rx.doctor, rx.file_name, rx.duration, rx.custom_days, rx.status,
+           rx.doctor, rx.file_name, rx.image,
+           rx.duration, rx.custom_days, rx.status,
            COALESCE(rs.code, os.code, hs.code) AS store_code,
            COALESCE(rs.name, os.name, hs.name) AS store_name,
            rx.created_at
@@ -69,7 +72,8 @@ export async function listPrescriptions(): Promise<Prescription[]> {
 
   const ids = rows.map((r) => String(r.id));
   const medRows = await query<Row>(
-    `SELECT prescription_id, name, pack, dose_morning, dose_afternoon, dose_night
+    `SELECT prescription_id, name, pack,
+            dose_morning, dose_afternoon, dose_night, total_units
        FROM app.prescription_medicine
       WHERE prescription_id = ANY($1::bigint[])
       ORDER BY sort, id`,
@@ -95,6 +99,7 @@ export async function listPrescriptions(): Promise<Prescription[]> {
     patientName: String(r.patient_name ?? '—'),
     doctor: String(r.doctor ?? ''),
     fileName: String(r.file_name ?? ''),
+    image: String(r.image ?? ''),
     duration: durationLabel(r),
     status: fromEnum<PrescriptionStatus>(String(r.status)),
     storeCode: String(r.store_code ?? ''),
@@ -117,4 +122,64 @@ export async function setPrescriptionStatus(
       WHERE id = $1`,
     [id, db],
   );
+}
+
+/** "101" / "1-0-1" → [1, 0, 1]. Non-digits are dropped; short/long codes pad
+ *  or truncate to three so a half-typed row still saves something sane. */
+function intakeDigits(code: string): [number, number, number] {
+  const d = (code.match(/\d/g) ?? []).slice(0, 3).map(Number);
+  while (d.length < 3) d.push(0);
+  return [d[0], d[1], d[2]];
+}
+
+/**
+ * Replaces a prescription's intake card with the lines the pharmacist entered
+ * and moves the row to `READ` — the customer app picks the card up on its next
+ * read and expands it.
+ *
+ * Blank rows (no name) are dropped. Sending an empty list clears the card and
+ * leaves the row at whatever status it was.
+ */
+export async function savePrescriptionIntake(
+  id: string,
+  medicines: PrescriptionMedicineInput[],
+): Promise<void> {
+  const rows = medicines
+    .map((m) => ({ ...m, name: m.name.trim() }))
+    .filter((m) => m.name.length > 0);
+
+  await query('DELETE FROM app.prescription_medicine WHERE prescription_id = $1', [
+    id,
+  ]);
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const [morning, afternoon, night] = intakeDigits(rows[i].intake);
+    await query(
+      `INSERT INTO app.prescription_medicine
+         (prescription_id, sort, name, pack,
+          dose_morning, dose_afternoon, dose_night, total_units)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        id,
+        i,
+        rows[i].name,
+        rows[i].pack.trim(),
+        morning,
+        afternoon,
+        night,
+        Math.max(0, Math.round(rows[i].totalUnits) || 0),
+      ],
+    );
+  }
+
+  if (rows.length > 0) {
+    await query(
+      `UPDATE app.prescription
+          SET status = 'READ'::app.prescription_status,
+              reviewed_at = COALESCE(reviewed_at, now()),
+              updated_at = now()
+        WHERE id = $1`,
+      [id],
+    );
+  }
 }
