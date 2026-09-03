@@ -5,7 +5,14 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DetailList } from '@/components/ui/DetailList';
-import { formatDate, formatDateTime, titleCase } from '@/lib/format';
+import { PrivilegeCard } from '@/components/ui/PrivilegeCard';
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  titleCase,
+  toneForStatus,
+} from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import {
   getUser,
@@ -15,6 +22,7 @@ import {
   convertToInvestor,
   revokePersona,
 } from '@/api/users';
+import { listActivationsForMember } from '@/api/activations';
 import type { AgentLevel, InvestorPlanType } from '@/types';
 
 const AGENT_LEVELS: AgentLevel[] = [
@@ -39,7 +47,10 @@ export default function UserDetailPage() {
   const user = useAsync(() => getUser(id), [id]);
   const detail = useAsync(() => getUserDetail(id), [id]);
   const agents = useAsync(listAgentOptions, []);
+  const plans = useAsync(() => listActivationsForMember(id), [id]);
   const selected = user.data;
+  const planRows = plans.data ?? [];
+  const headlinePlan = planRows.find((p) => p.status === 'approved') ?? planRows[0];
 
   const [mode, setMode] = useState<'view' | 'agent' | 'investor'>('view');
   const [saving, setSaving] = useState(false);
@@ -317,6 +328,72 @@ export default function UserDetailPage() {
                           </p>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-5">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Privilege plans{' '}
+                      {planRows.length > 0 ? `(${planRows.length})` : ''}
+                    </p>
+                    {planRows.length > 0 && (
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => navigate(`/activations/member/${id}`)}
+                      >
+                        More →
+                      </Button>
+                    )}
+                  </div>
+                  {plans.loading ? (
+                    <p className="text-sm text-slate-400">Loading…</p>
+                  ) : planRows.length === 0 ? (
+                    <p className="text-sm text-slate-400">
+                      No privilege plan activated.
+                    </p>
+                  ) : (
+                    <div className="space-y-3">
+                      {headlinePlan && (
+                        <div className="max-w-xs">
+                          <PrivilegeCard
+                            tierKind={headlinePlan.tierKind}
+                            tierName={headlinePlan.tier}
+                            cardNumber={headlinePlan.cardNumber}
+                            holder={headlinePlan.memberName}
+                            amount={headlinePlan.amount}
+                            bonus={headlinePlan.bonus}
+                            status={titleCase(headlinePlan.status)}
+                            footNote={
+                              headlinePlan.expiresOn
+                                ? `Expires ${formatDate(headlinePlan.expiresOn)}`
+                                : undefined
+                            }
+                          />
+                        </div>
+                      )}
+                      <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                        {planRows.map((p) => (
+                          <li
+                            key={p.id}
+                            className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium text-slate-800">
+                                {p.tier} · {formatCurrency(p.amount)}
+                              </span>
+                              <span className="text-xs text-slate-400">
+                                {p.cardNumber || '—'} · {formatDate(p.submittedAt)}
+                              </span>
+                            </span>
+                            <Badge tone={toneForStatus(p.status)}>
+                              {titleCase(p.status)}
+                            </Badge>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
                   )}
                 </div>

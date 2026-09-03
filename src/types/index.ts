@@ -469,6 +469,8 @@ export type PrivilegeActivationStatus =
 export interface PrivilegeActivation {
   id: string;
   uuid: string;
+  /** `app.wallet.member_id` — the `app.users` id, for grouping a member's plans. */
+  memberId: string;
   memberName: string;
   memberPhone: string;
   /** e.g. `Silver Shield`. */

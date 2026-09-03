@@ -8,15 +8,10 @@ import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
-import {
-  formatCurrency,
-  formatDateTime,
-  titleCase,
-  toneForStatus,
-} from '@/lib/format';
+import { formatCurrency, titleCase, toneForStatus } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { listActivations } from '@/api/activations';
-import type { PrivilegeActivation } from '@/types';
+import type { PrivilegeActivation, PrivilegeActivationStatus } from '@/types';
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
@@ -24,6 +19,54 @@ const STATUS_OPTIONS = [
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
 ];
+
+/** All the plans one member has activated, rolled into a single list row. */
+interface MemberGroup {
+  id: string; // memberId
+  memberName: string;
+  memberPhone: string;
+  storeCode: string;
+  storeName: string;
+  plans: PrivilegeActivation[];
+  tiers: string[];
+  totalLoad: number;
+  totalCredited: number;
+  pending: number;
+  latestStatus: PrivilegeActivationStatus;
+}
+
+function groupByMember(rows: PrivilegeActivation[]): MemberGroup[] {
+  const map = new Map<string, MemberGroup>();
+  for (const r of rows) {
+    const key = r.memberId || r.memberPhone;
+    let g = map.get(key);
+    if (!g) {
+      g = {
+        id: key,
+        memberName: r.memberName,
+        memberPhone: r.memberPhone,
+        storeCode: r.storeCode,
+        storeName: r.storeName,
+        plans: [],
+        tiers: [],
+        totalLoad: 0,
+        totalCredited: 0,
+        pending: 0,
+        latestStatus: r.status,
+      };
+      map.set(key, g);
+    }
+    g.plans.push(r);
+    if (!g.tiers.includes(r.tier)) g.tiers.push(r.tier);
+    g.totalLoad += r.amount;
+    if (r.status === 'approved') g.totalCredited += r.credited;
+    if (r.status === 'pending') g.pending += 1;
+  }
+  // `rows` is already pending-first then newest, so the first plan seen is the
+  // one to show as the member's headline status.
+  for (const g of map.values()) g.latestStatus = g.plans[0].status;
+  return [...map.values()];
+}
 
 export default function ActivationsPage() {
   const { user } = useAuth();
@@ -48,7 +91,7 @@ export default function ActivationsPage() {
     ];
   }, [scoped]);
 
-  const filtered = useMemo(() => {
+  const filteredPlans = useMemo(() => {
     const q = search.trim().toLowerCase();
     return scoped.filter((row) => {
       const matchesQuery =
@@ -63,6 +106,8 @@ export default function ActivationsPage() {
     });
   }, [scoped, search, status, store]);
 
+  const members = useMemo(() => groupByMember(filteredPlans), [filteredPlans]);
+
   const counts = {
     pending: scoped.filter((r) => r.status === 'pending').length,
     approved: scoped.filter((r) => r.status === 'approved').length,
@@ -72,26 +117,32 @@ export default function ActivationsPage() {
     .filter((r) => r.status === 'pending')
     .reduce((sum, r) => sum + r.amount, 0);
 
-  const columns: Column<PrivilegeActivation>[] = [
+  const columns: Column<MemberGroup>[] = [
     {
       key: 'member',
       header: 'Member',
       render: (row) => (
         <div>
-          <p className="text-slate-800">{row.memberName}</p>
+          <p className="font-medium text-slate-800">{row.memberName}</p>
           <p className="text-xs text-slate-400">{row.memberPhone}</p>
         </div>
       ),
     },
     {
-      key: 'plan',
-      header: 'Plan',
+      key: 'plans',
+      header: 'Plans',
       render: (row) => (
-        <div>
-          <p className="font-medium text-slate-800">{row.tier}</p>
-          <p className="text-xs text-slate-400">
-            {row.cardNumber || '—'} · {formatDateTime(row.submittedAt)}
-          </p>
+        <div className="flex flex-wrap items-center gap-1">
+          {row.tiers.map((t) => (
+            <Badge key={t} tone="gray">
+              {t}
+            </Badge>
+          ))}
+          {row.plans.length > row.tiers.length && (
+            <span className="text-xs text-slate-400">
+              · {row.plans.length} total
+            </span>
+          )}
         </div>
       ),
     },
@@ -101,34 +152,39 @@ export default function ActivationsPage() {
           {
             key: 'branch',
             header: 'Branch',
-            render: (row: PrivilegeActivation) => row.storeName,
-          } as Column<PrivilegeActivation>,
+            render: (row: MemberGroup) => row.storeName,
+          } as Column<MemberGroup>,
         ]),
     {
       key: 'load',
-      header: 'Load',
-      render: (row) => formatCurrency(row.amount),
+      header: 'Total load',
+      render: (row) => formatCurrency(row.totalLoad),
       className: 'text-right',
     },
     {
       key: 'credited',
-      header: 'Credits',
-      render: (row) => formatCurrency(row.credited),
+      header: 'Credited',
+      render: (row) => formatCurrency(row.totalCredited),
       className: 'text-right',
     },
     {
       key: 'status',
       header: 'Status',
-      render: (row) => (
-        <Badge tone={toneForStatus(row.status)}>{titleCase(row.status)}</Badge>
-      ),
+      render: (row) =>
+        row.pending > 0 ? (
+          <Badge tone="amber">{row.pending} pending</Badge>
+        ) : (
+          <Badge tone={toneForStatus(row.latestStatus)}>
+            {titleCase(row.latestStatus)}
+          </Badge>
+        ),
     },
     {
       key: 'go',
       header: '',
       render: (row) => (
         <span className="text-xs font-medium text-brand-600">
-          {row.status === 'pending' && canReview ? 'Review' : 'Open'} →
+          {row.pending > 0 && canReview ? 'Review' : 'More'} →
         </span>
       ),
       className: 'text-right',
@@ -138,11 +194,11 @@ export default function ActivationsPage() {
   return (
     <>
       <PageHeader
-        title="Activations"
+        title="Privilege plans"
         subtitle={
           branchBound
-            ? 'Privilege plans submitted at your branch, awaiting approval.'
-            : 'Privilege plans members submitted, awaiting approval.'
+            ? 'Members who activated a plan at your branch — open one to see their cards.'
+            : 'Members who activated a privilege plan — open one to see their cards.'
         }
       />
 
@@ -173,11 +229,11 @@ export default function ActivationsPage() {
         </div>
         <DataTable
           columns={columns}
-          rows={filtered}
+          rows={members}
           loading={loading}
           error={error}
           empty="No activations match your filters."
-          onRowClick={(row) => navigate(`/activations/${row.id}`)}
+          onRowClick={(row) => navigate(`/activations/member/${row.id}`)}
         />
       </Card>
     </>

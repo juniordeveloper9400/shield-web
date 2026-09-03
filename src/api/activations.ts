@@ -13,6 +13,7 @@ function toActivation(r: Row): PrivilegeActivation {
   return {
     id: String(r.id),
     uuid: String(r.uuid),
+    memberId: String(r.member_id ?? ''),
     memberName: String(r.member_name ?? '—'),
     memberPhone: String(r.member_phone ?? ''),
     tier: String(r.tier_name ?? '—'),
@@ -37,6 +38,7 @@ function toActivation(r: Row): PrivilegeActivation {
 
 const ACTIVATION_COLUMNS = `
     wc.id, wc.uuid,
+    w.member_id AS member_id,
     m.name  AS member_name,
     m.phone AS member_phone,
     mt.name AS tier_name,
@@ -76,6 +78,22 @@ export async function getActivation(
     [id],
   );
   return rows[0] ? toActivation(rows[0]) : null;
+}
+
+/**
+ * Every privilege plan one member has activated (`app.wallet.member_id`),
+ * newest first — the cards shown on their user page and member-plans page.
+ */
+export async function listActivationsForMember(
+  memberId: string,
+): Promise<PrivilegeActivation[]> {
+  const rows = await query<Row>(
+    `SELECT ${ACTIVATION_COLUMNS}
+     WHERE w.member_id = $1
+     ORDER BY (wc.status = 'PENDING') DESC, wc.submitted_at DESC`,
+    [memberId],
+  );
+  return rows.map(toActivation);
 }
 
 /**

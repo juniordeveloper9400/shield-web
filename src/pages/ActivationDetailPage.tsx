@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DetailList } from '@/components/ui/DetailList';
 import { Icon } from '@/components/ui/Icon';
+import { PrivilegeCard } from '@/components/ui/PrivilegeCard';
 import {
   formatCurrency,
   formatDate,
@@ -40,7 +41,12 @@ export default function ActivationDetailPage() {
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const back = () => navigate('/activations');
+  const back = () =>
+    navigate(
+      selected?.memberId
+        ? `/activations/member/${selected.memberId}`
+        : '/activations',
+    );
 
   async function approve() {
     if (!canReview) {
@@ -94,7 +100,7 @@ export default function ActivationDetailPage() {
         subtitle="Privilege-plan activation review"
         actions={
           <Button variant="secondary" size="sm" onClick={back}>
-            ← Back to activations
+            ← Back
           </Button>
         }
       />
@@ -110,6 +116,23 @@ export default function ActivationDetailPage() {
           </p>
         ) : (
           <>
+            <div className="mb-4 max-w-sm">
+              <PrivilegeCard
+                tierKind={selected.tierKind}
+                tierName={selected.tier}
+                cardNumber={selected.cardNumber}
+                holder={selected.memberName}
+                amount={selected.amount}
+                bonus={selected.bonus}
+                status={titleCase(selected.status)}
+                footNote={
+                  selected.expiresOn
+                    ? `Expires ${formatDate(selected.expiresOn)}`
+                    : undefined
+                }
+              />
+            </div>
+
             <div className="mb-3">
               <Badge tone={toneForStatus(selected.status)}>
                 {titleCase(selected.status)}

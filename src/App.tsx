@@ -11,6 +11,7 @@ import OrdersPage from '@/pages/OrdersPage';
 import PrescriptionsPage from '@/pages/PrescriptionsPage';
 import ActivationsPage from '@/pages/ActivationsPage';
 import ActivationDetailPage from '@/pages/ActivationDetailPage';
+import MemberActivationsPage from '@/pages/MemberActivationsPage';
 import LabOrdersPage from '@/pages/LabOrdersPage';
 import AppointmentsPage from '@/pages/AppointmentsPage';
 import LabsPage from '@/pages/LabsPage';
@@ -87,6 +88,14 @@ export default function App() {
           element={
             <ProtectedRoute module="activations">
               <ActivationsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/activations/member/:memberId"
+          element={
+            <ProtectedRoute module="activations">
+              <MemberActivationsPage />
             </ProtectedRoute>
           }
         />
