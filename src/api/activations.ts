@@ -1,6 +1,10 @@
 import { sql, query } from '@/lib/db';
 import { fromEnum, iso, num } from '@/lib/mappers';
-import type { PrivilegeActivation, PrivilegeActivationStatus } from '@/types';
+import type {
+  PrivilegeActivation,
+  PrivilegeActivationStatus,
+  WalletActivity,
+} from '@/types';
 
 type Row = Record<string, unknown>;
 
@@ -17,8 +21,9 @@ export async function listActivations(): Promise<PrivilegeActivation[]> {
            mt.kind AS tier_kind,
            wc.amount, wc.bonus, wc.recharged_extra,
            wc.status, wc.card_number,
-           wc.receipt_reference, wc.receipt_file_name, wc.reviewer_note,
-           wc.submitted_at, wc.reviewed_at,
+           wc.receipt_reference, wc.receipt_file_name, wc.receipt_image,
+           wc.reviewer_note,
+           wc.submitted_at, wc.reviewed_at, wc.issued_on, wc.expires_on,
            s.code AS store_code,
            s.name AS store_name
     FROM app.wallet_card wc
@@ -45,10 +50,52 @@ export async function listActivations(): Promise<PrivilegeActivation[]> {
     cardNumber: String(r.card_number ?? ''),
     receiptReference: String(r.receipt_reference ?? ''),
     receiptFileName: String(r.receipt_file_name ?? ''),
+    receiptImage: String(r.receipt_image ?? ''),
     reviewerNote: String(r.reviewer_note ?? ''),
     submittedAt: iso(r.submitted_at) ?? new Date(0).toISOString(),
+    issuedOn: iso(r.issued_on) ?? '',
+    expiresOn: iso(r.expires_on) ?? '',
     reviewedAt: iso(r.reviewed_at),
   }));
+}
+
+/**
+ * A member's wallet at a glance — balance, points, and the recent ledger —
+ * looked up from the wallet card being reviewed. Lets a reviewer see what the
+ * plan will land on top of, and what has moved through the wallet already.
+ */
+export async function getWalletActivity(
+  walletCardId: string,
+): Promise<WalletActivity> {
+  const walletRows = (await sql`
+    SELECT w.balance, w.reward_points, w.opened_at
+    FROM app.wallet_card wc
+    JOIN app.wallet w ON w.id = wc.wallet_id
+    WHERE wc.id = ${walletCardId}
+  `) as Row[];
+
+  const entryRows = (await sql`
+    SELECT e.id, e.kind, e.label, e.amount, e.occurred_on
+    FROM app.wallet_card wc
+    JOIN app.wallet_entry e ON e.wallet_id = wc.wallet_id
+    WHERE wc.id = ${walletCardId}
+    ORDER BY e.occurred_on DESC, e.id DESC
+    LIMIT 25
+  `) as Row[];
+
+  const w = walletRows[0] ?? {};
+  return {
+    balance: num(w.balance),
+    rewardPoints: num(w.reward_points),
+    openedAt: iso(w.opened_at) ?? null,
+    entries: entryRows.map((r) => ({
+      id: String(r.id),
+      kind: fromEnum(String(r.kind ?? '')),
+      label: String(r.label ?? ''),
+      amount: num(r.amount),
+      occurredOn: iso(r.occurred_on) ?? '',
+    })),
+  };
 }
 
 /**

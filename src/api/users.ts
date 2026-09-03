@@ -1,10 +1,13 @@
 import { sql, query } from '@/lib/db';
-import { fromEnum, iso } from '@/lib/mappers';
+import { fromEnum, iso, num } from '@/lib/mappers';
 import type {
   AgentLevel,
   AgentOption,
   AppUser,
   InvestorPlanType,
+  MemberAddress,
+  MemberPatient,
+  UserDetail,
 } from '@/types';
 
 type Row = Record<string, unknown>;
@@ -47,6 +50,103 @@ export async function listUsers(): Promise<AppUser[]> {
       : '',
     investorCode: String(r.investor_code ?? ''),
   }));
+}
+
+/**
+ * The full profile for one member: the registration fields `listUsers` leaves
+ * out, plus every patient (`app.patient`) and delivery address
+ * (`app.member_address`) they have added. Loaded when the user's modal opens.
+ */
+export async function getUserDetail(userId: string): Promise<UserDetail> {
+  const profileRows = (await query<Row>(
+    `
+    SELECT u.gender, u.dob, u.address, u.place, u.pincode, u.state,
+           u.reward_points, u.referral_code, u.registration_completed_at,
+           r.name  AS referred_by_name,
+           r.phone AS referred_by_phone
+    FROM app.users u
+    LEFT JOIN app.users r ON r.id = u.referred_by_member_id
+    WHERE u.id = $1
+    LIMIT 1
+    `,
+    [userId],
+  )) as Row[];
+  const p = profileRows[0] ?? {};
+
+  const patientRows = (await query<Row>(
+    `
+    SELECT id, name, relation, gender, dob, phone, address, abha_id, created_at
+    FROM app.patient
+    WHERE member_id = $1 AND deleted_at IS NULL
+    ORDER BY created_at
+    `,
+    [userId],
+  )) as Row[];
+
+  const addressRows = (await query<Row>(
+    `
+    SELECT ma.id, ma.label, ma.house, ma.area, ma.landmark,
+           ma.city, ma.state, ma.pincode, ma.phone, ma.is_default,
+           ma.first_name, ma.last_name, ma.created_at,
+           pt.name AS patient_name
+    FROM app.member_address ma
+    LEFT JOIN app.patient pt ON pt.id = ma.patient_id
+    WHERE ma.member_id = $1 AND ma.deleted_at IS NULL
+    ORDER BY ma.is_default DESC, ma.created_at
+    `,
+    [userId],
+  )) as Row[];
+
+  const patients: MemberPatient[] = patientRows.map((r) => ({
+    id: String(r.id),
+    name: String(r.name ?? '—'),
+    relation: fromEnum(String(r.relation ?? '')),
+    gender: fromEnum(String(r.gender ?? '')),
+    dob: iso(r.dob) ?? '',
+    phone: String(r.phone ?? ''),
+    address: String(r.address ?? ''),
+    abhaId: String(r.abha_id ?? ''),
+    createdAt: iso(r.created_at) ?? '',
+  }));
+
+  const addresses: MemberAddress[] = addressRows.map((r) => {
+    const receiver = [r.first_name, r.last_name]
+      .map((x) => String(x ?? '').trim())
+      .filter(Boolean)
+      .join(' ');
+    return {
+      id: String(r.id),
+      label: fromEnum(String(r.label ?? 'home')),
+      receiver,
+      house: String(r.house ?? ''),
+      area: String(r.area ?? ''),
+      landmark: String(r.landmark ?? ''),
+      city: String(r.city ?? ''),
+      state: String(r.state ?? ''),
+      pincode: String(r.pincode ?? ''),
+      phone: String(r.phone ?? ''),
+      isDefault: r.is_default === true,
+      patientName: String(r.patient_name ?? ''),
+      createdAt: iso(r.created_at) ?? '',
+    };
+  });
+
+  return {
+    id: userId,
+    gender: fromEnum(String(p.gender ?? '')),
+    dob: iso(p.dob) ?? '',
+    address: String(p.address ?? ''),
+    place: String(p.place ?? ''),
+    pincode: String(p.pincode ?? ''),
+    state: String(p.state ?? ''),
+    rewardPoints: num(p.reward_points),
+    referralCode: String(p.referral_code ?? ''),
+    referredByName: String(p.referred_by_name ?? ''),
+    referredByPhone: String(p.referred_by_phone ?? ''),
+    registrationCompletedAt: iso(p.registration_completed_at) ?? '',
+    patients,
+    addresses,
+  };
 }
 
 /** Existing agents, for the "parent" picker when converting someone. */

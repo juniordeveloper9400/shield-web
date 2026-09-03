@@ -12,8 +12,13 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { Icon } from '@/components/ui/Icon';
 import { formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
-import { listStores, setStoreActive, updateStore } from '@/api/stores';
-import type { Store } from '@/types';
+import {
+  listStores,
+  setStoreActive,
+  updateStore,
+  createStore,
+} from '@/api/stores';
+import type { NewStore, Store } from '@/types';
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All branches' },
@@ -25,7 +30,40 @@ interface EditForm {
   name: string;
   phone: string;
   hours: string;
+  area: string;
+  city: string;
+  state: string;
   pincode: string;
+  latitude: string;
+  longitude: string;
+}
+
+const EMPTY_NEW: NewStore = {
+  code: '',
+  name: '',
+  area: '',
+  city: '',
+  state: 'Kerala',
+  pincode: '',
+  phone: '',
+  hours: '8:00 AM – 10:00 PM',
+  latitude: null,
+  longitude: null,
+  isActive: true,
+};
+
+/** "Melattur" → "SHD-MEL" as a starting code suggestion. */
+function suggestCode(area: string): string {
+  const letters = area.replace(/[^a-zA-Z]/g, '').toUpperCase();
+  return letters ? `SHD-${letters.slice(0, 3)}` : '';
+}
+
+/** A coordinate string ("10.03", "", "  ") → a number, or null. */
+function coord(v: string): number | null {
+  const t = v.trim();
+  if (!t) return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
 }
 
 export default function StoresPage() {
@@ -37,14 +75,72 @@ export default function StoresPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [form, setForm] = useState<EditForm>({
     name: '',
     phone: '',
     hours: '',
+    area: '',
+    city: '',
+    state: '',
     pincode: '',
+    latitude: '',
+    longitude: '',
   });
 
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState<NewStore>(EMPTY_NEW);
+  const [addError, setAddError] = useState<string | null>(null);
+  /** True once the admin has typed a code by hand — stop auto-suggesting it. */
+  const [codeTouched, setCodeTouched] = useState(false);
+
   const selected = rows.find((r) => r.id === selectedId) ?? null;
+
+  function openAdd() {
+    setDraft(EMPTY_NEW);
+    setAddError(null);
+    setCodeTouched(false);
+    setAdding(true);
+  }
+
+  function patchDraft(patch: Partial<NewStore>) {
+    setDraft((d) => {
+      const next = { ...d, ...patch };
+      // Keep the code tracking the area until the admin edits it directly.
+      if (!codeTouched && patch.area !== undefined) {
+        next.code = suggestCode(next.area);
+      }
+      return next;
+    });
+  }
+
+  async function saveNew() {
+    if (!draft.code.trim()) return setAddError('Give the branch a code.');
+    if (!draft.name.trim()) return setAddError('Give the branch a name.');
+    if (!draft.area.trim() || !draft.city.trim())
+      return setAddError('Area and city are required.');
+    if (!/^\d{6}$/.test(draft.pincode.trim()))
+      return setAddError('Pincode must be 6 digits.');
+    setSaving(true);
+    setAddError(null);
+    try {
+      const id = await createStore(draft);
+      if (!id) {
+        setAddError(
+          `The code ${draft.code.trim().toUpperCase()} is already in use.`,
+        );
+        return;
+      }
+      setAdding(false);
+      reload();
+    } catch (err) {
+      setAddError(
+        err instanceof Error ? err.message : 'Could not add the branch.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -68,11 +164,17 @@ export default function StoresPage() {
     if (!store) return;
     setSelectedId(id);
     setEditing(false);
+    setEditError(null);
     setForm({
       name: store.name,
       phone: store.phone,
       hours: store.hours,
+      area: store.area,
+      city: store.city,
+      state: store.state,
       pincode: store.pincode,
+      latitude: store.latitude == null ? '' : String(store.latitude),
+      longitude: store.longitude == null ? '' : String(store.longitude),
     });
   }
 
@@ -89,16 +191,30 @@ export default function StoresPage() {
 
   async function saveEdit() {
     if (!selected) return;
+    if (form.pincode.trim() && !/^\d{6}$/.test(form.pincode.trim())) {
+      setEditError('Pincode must be 6 digits.');
+      return;
+    }
     setSaving(true);
+    setEditError(null);
     try {
       await updateStore(selected.id, {
         name: form.name.trim() || selected.name,
         phone: form.phone.trim(),
         hours: form.hours.trim() || selected.hours,
+        area: form.area.trim() || selected.area,
+        city: form.city.trim() || selected.city,
+        state: form.state.trim() || selected.state,
         pincode: form.pincode.trim() || selected.pincode,
+        latitude: coord(form.latitude),
+        longitude: coord(form.longitude),
       });
       setEditing(false);
       reload();
+    } catch (err) {
+      setEditError(
+        err instanceof Error ? err.message : 'Could not save the branch.',
+      );
     } finally {
       setSaving(false);
     }
@@ -175,6 +291,11 @@ export default function StoresPage() {
       <PageHeader
         title="Stores"
         subtitle="SHIELD branches, their coverage and their details."
+        actions={
+          <Button variant="primary" onClick={openAdd}>
+            <Icon name="plus" className="h-4 w-4" /> Add branch
+          </Button>
+        }
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -268,6 +389,13 @@ export default function StoresPage() {
                 { label: 'Phone', value: selected.phone || '—' },
                 { label: 'Hours', value: selected.hours },
                 {
+                  label: 'Coordinates',
+                  value:
+                    selected.latitude != null && selected.longitude != null
+                      ? `${selected.latitude}, ${selected.longitude}`
+                      : '— (app ranks this branch by pincode)',
+                },
+                {
                   label: 'Members',
                   value: selected.memberCount.toLocaleString('en-IN'),
                 },
@@ -304,15 +432,197 @@ export default function StoresPage() {
                 className={inputClass}
               />
             </EditField>
-            <EditField label="Pincode">
+            <div className="grid grid-cols-2 gap-3">
+              <EditField label="Area">
+                <input
+                  value={form.area}
+                  onChange={(e) => setForm({ ...form, area: e.target.value })}
+                  className={inputClass}
+                />
+              </EditField>
+              <EditField label="City">
+                <input
+                  value={form.city}
+                  onChange={(e) => setForm({ ...form, city: e.target.value })}
+                  className={inputClass}
+                />
+              </EditField>
+              <EditField label="State">
+                <input
+                  value={form.state}
+                  onChange={(e) => setForm({ ...form, state: e.target.value })}
+                  className={inputClass}
+                />
+              </EditField>
+              <EditField label="Pincode">
+                <input
+                  value={form.pincode}
+                  onChange={(e) => setForm({ ...form, pincode: e.target.value })}
+                  className={inputClass}
+                  inputMode="numeric"
+                  maxLength={6}
+                />
+              </EditField>
+              <EditField label="Latitude — optional">
+                <input
+                  value={form.latitude}
+                  onChange={(e) => setForm({ ...form, latitude: e.target.value })}
+                  className={inputClass}
+                  inputMode="decimal"
+                  placeholder="10.9974"
+                />
+              </EditField>
+              <EditField label="Longitude — optional">
+                <input
+                  value={form.longitude}
+                  onChange={(e) =>
+                    setForm({ ...form, longitude: e.target.value })
+                  }
+                  className={inputClass}
+                  inputMode="decimal"
+                  placeholder="76.1889"
+                />
+              </EditField>
+            </div>
+            {editError && (
+              <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {editError}
+              </p>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={adding}
+        onClose={() => setAdding(false)}
+        title="Add branch"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              disabled={saving}
+              onClick={() => setAdding(false)}
+            >
+              Cancel
+            </Button>
+            <Button variant="primary" disabled={saving} onClick={saveNew}>
+              Create branch
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <EditField label="Branch name">
+            <input
+              value={draft.name}
+              onChange={(e) => patchDraft({ name: e.target.value })}
+              className={inputClass}
+              placeholder="SHIELD Pharmacy Melattur"
+            />
+          </EditField>
+          <div className="grid grid-cols-2 gap-3">
+            <EditField label="Code">
               <input
-                value={form.pincode}
-                onChange={(e) => setForm({ ...form, pincode: e.target.value })}
+                value={draft.code}
+                onChange={(e) => {
+                  setCodeTouched(true);
+                  patchDraft({ code: e.target.value.toUpperCase() });
+                }}
+                className={inputClass}
+                placeholder="SHD-MEL"
+              />
+            </EditField>
+            <EditField label="Phone">
+              <input
+                value={draft.phone}
+                onChange={(e) => patchDraft({ phone: e.target.value })}
                 className={inputClass}
               />
             </EditField>
+            <EditField label="Area">
+              <input
+                value={draft.area}
+                onChange={(e) => patchDraft({ area: e.target.value })}
+                className={inputClass}
+                placeholder="Melattur"
+              />
+            </EditField>
+            <EditField label="City">
+              <input
+                value={draft.city}
+                onChange={(e) => patchDraft({ city: e.target.value })}
+                className={inputClass}
+                placeholder="Malappuram"
+              />
+            </EditField>
+            <EditField label="State">
+              <input
+                value={draft.state}
+                onChange={(e) => patchDraft({ state: e.target.value })}
+                className={inputClass}
+              />
+            </EditField>
+            <EditField label="Pincode">
+              <input
+                value={draft.pincode}
+                onChange={(e) => patchDraft({ pincode: e.target.value })}
+                className={inputClass}
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="679326"
+              />
+            </EditField>
           </div>
-        )}
+          <EditField label="Hours">
+            <input
+              value={draft.hours}
+              onChange={(e) => patchDraft({ hours: e.target.value })}
+              className={inputClass}
+            />
+          </EditField>
+          <div className="grid grid-cols-2 gap-3">
+            <EditField label="Latitude — optional">
+              <input
+                value={draft.latitude ?? ''}
+                onChange={(e) =>
+                  patchDraft({ latitude: coord(e.target.value) })
+                }
+                className={inputClass}
+                inputMode="decimal"
+                placeholder="10.9974"
+              />
+            </EditField>
+            <EditField label="Longitude — optional">
+              <input
+                value={draft.longitude ?? ''}
+                onChange={(e) =>
+                  patchDraft({ longitude: coord(e.target.value) })
+                }
+                className={inputClass}
+                inputMode="decimal"
+                placeholder="76.1889"
+              />
+            </EditField>
+          </div>
+          <p className="text-xs text-slate-400">
+            Coordinates let the customer app rank this branch by distance;
+            leave them blank and it falls back to pincode matching.
+          </p>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={draft.isActive}
+              onChange={(e) => patchDraft({ isActive: e.target.checked })}
+            />
+            Active — visible in the app straight away
+          </label>
+          {addError && (
+            <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {addError}
+            </p>
+          )}
+        </div>
       </Modal>
     </>
   );

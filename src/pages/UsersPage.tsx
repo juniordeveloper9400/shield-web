@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
@@ -8,16 +8,22 @@ import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DetailList } from '@/components/ui/DetailList';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
-import { formatDateTime, titleCase } from '@/lib/format';
+import { formatDate, formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import {
   listUsers,
   listAgentOptions,
+  getUserDetail,
   convertToAgent,
   convertToInvestor,
   revokePersona,
 } from '@/api/users';
-import type { AgentLevel, AppUser, InvestorPlanType } from '@/types';
+import type {
+  AgentLevel,
+  AppUser,
+  InvestorPlanType,
+  UserDetail,
+} from '@/types';
 
 const PERSONA_OPTIONS = [
   { value: 'all', label: 'All personas' },
@@ -65,6 +71,29 @@ export default function UsersPage() {
   const [planType, setPlanType] = useState<InvestorPlanType>('yearly');
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
+
+  // The full profile + patients + addresses, loaded when a user's modal opens.
+  // `undefined` = loading, `null` = load failed.
+  const [detail, setDetail] = useState<UserDetail | null | undefined>(undefined);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setDetail(undefined);
+      return;
+    }
+    let cancelled = false;
+    setDetail(undefined);
+    getUserDetail(selectedId)
+      .then((d) => {
+        if (!cancelled) setDetail(d);
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -315,30 +344,212 @@ export default function UsersPage() {
             </div>
 
             {mode === 'view' && (
-              <DetailList
-                rows={[
-                  { label: 'Phone', value: selected.phone },
-                  { label: 'Email', value: selected.email || '—' },
-                  { label: 'Home branch', value: selected.homeStoreName },
-                  { label: 'Registered', value: selected.registered ? 'Yes' : 'No' },
-                  {
-                    label: 'Last login',
-                    value: selected.lastLoginAt
-                      ? formatDateTime(selected.lastLoginAt)
-                      : '—',
-                  },
-                  { label: 'Joined', value: formatDateTime(selected.createdAt) },
-                  ...(selected.persona === 'agent'
-                    ? [
-                        { label: 'Agent code', value: selected.agentCode },
-                        { label: 'Level', value: titleCase(selected.agentLevel || '—') },
-                      ]
-                    : []),
-                  ...(selected.persona === 'investor'
-                    ? [{ label: 'Investor code', value: selected.investorCode }]
-                    : []),
-                ]}
-              />
+              <>
+                <DetailList
+                  rows={[
+                    { label: 'Phone', value: selected.phone },
+                    { label: 'Email', value: selected.email || '—' },
+                    {
+                      label: 'Gender',
+                      value: detail?.gender ? titleCase(detail.gender) : '—',
+                    },
+                    {
+                      label: 'Date of birth',
+                      value: detail?.dob ? formatDate(detail.dob) : '—',
+                    },
+                    {
+                      label: 'Address',
+                      value:
+                        [detail?.address, detail?.place]
+                          .filter(Boolean)
+                          .join(', ') || '—',
+                    },
+                    {
+                      label: 'Pincode / State',
+                      value:
+                        [detail?.pincode, detail?.state]
+                          .filter(Boolean)
+                          .join(' · ') || '—',
+                    },
+                    { label: 'Home branch', value: selected.homeStoreName },
+                    {
+                      label: 'Reward points',
+                      value:
+                        detail === undefined
+                          ? '…'
+                          : String(detail?.rewardPoints ?? 0),
+                    },
+                    {
+                      label: 'Referral code',
+                      value: detail?.referralCode || '—',
+                    },
+                    {
+                      label: 'Referred by',
+                      value: detail?.referredByName
+                        ? `${detail.referredByName}${
+                            detail.referredByPhone
+                              ? ` · ${detail.referredByPhone}`
+                              : ''
+                          }`
+                        : '—',
+                    },
+                    {
+                      label: 'Registered',
+                      value: selected.registered
+                        ? detail?.registrationCompletedAt
+                          ? formatDateTime(detail.registrationCompletedAt)
+                          : 'Yes'
+                        : 'No',
+                    },
+                    {
+                      label: 'Last login',
+                      value: selected.lastLoginAt
+                        ? formatDateTime(selected.lastLoginAt)
+                        : '—',
+                    },
+                    {
+                      label: 'Joined',
+                      value: formatDateTime(selected.createdAt),
+                    },
+                    ...(selected.persona === 'agent'
+                      ? [
+                          { label: 'Agent code', value: selected.agentCode },
+                          {
+                            label: 'Level',
+                            value: titleCase(selected.agentLevel || '—'),
+                          },
+                        ]
+                      : []),
+                    ...(selected.persona === 'investor'
+                      ? [
+                          {
+                            label: 'Investor code',
+                            value: selected.investorCode,
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
+
+                <div className="mt-5">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Patients{' '}
+                    {detail && detail.patients.length > 0
+                      ? `(${detail.patients.length})`
+                      : ''}
+                  </p>
+                  {detail === undefined ? (
+                    <p className="text-sm text-slate-400">Loading…</p>
+                  ) : !detail || detail.patients.length === 0 ? (
+                    <p className="text-sm text-slate-400">
+                      No patients added.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {detail.patients.map((p) => (
+                        <div
+                          key={p.id}
+                          className="rounded-lg border border-slate-200 p-3 text-sm"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-slate-800">
+                              {p.name}
+                            </span>
+                            <span className="text-xs text-slate-400">
+                              {titleCase(p.relation || 'self')}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {[
+                              p.gender ? titleCase(p.gender) : '',
+                              p.dob ? formatDate(p.dob) : '',
+                              p.phone,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ') || '—'}
+                          </p>
+                          {p.abhaId && (
+                            <p className="mt-0.5 text-xs text-slate-400">
+                              ABHA: {p.abhaId}
+                            </p>
+                          )}
+                          {p.address && (
+                            <p className="mt-0.5 text-xs text-slate-400">
+                              {p.address}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-5">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Addresses{' '}
+                    {detail && detail.addresses.length > 0
+                      ? `(${detail.addresses.length})`
+                      : ''}
+                  </p>
+                  {detail === undefined ? (
+                    <p className="text-sm text-slate-400">Loading…</p>
+                  ) : !detail || detail.addresses.length === 0 ? (
+                    <p className="text-sm text-slate-400">
+                      No addresses added.
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {detail.addresses.map((a) => (
+                        <div
+                          key={a.id}
+                          className="rounded-lg border border-slate-200 p-3 text-sm"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
+                              {a.label || 'home'}
+                            </span>
+                            {a.isDefault && (
+                              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600">
+                                Default
+                              </span>
+                            )}
+                            {a.receiver && (
+                              <span className="font-medium text-slate-800">
+                                {a.receiver}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1 text-xs text-slate-600">
+                            {[
+                              a.house,
+                              a.area,
+                              a.landmark,
+                              [a.city, a.state].filter(Boolean).join(', '),
+                              a.pincode,
+                            ]
+                              .filter(Boolean)
+                              .join(', ')}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-400">
+                            {[
+                              a.phone,
+                              a.patientName ? `for ${a.patientName}` : '',
+                            ]
+                              .filter(Boolean)
+                              .join(' · ') || '—'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {detail === null && (
+                  <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    Could not load this member's full profile.
+                  </p>
+                )}
+              </>
             )}
 
             {mode === 'agent' && (

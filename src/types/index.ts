@@ -64,11 +64,31 @@ export interface Store {
   phone: string;
   hours: string;
   isActive: boolean;
+  /** Town-centre coordinates. Null until pinned; the app then falls back to
+   *  pincode ranking for this branch. */
+  latitude: number | null;
+  longitude: number | null;
   /** Members whose home branch this is. */
   memberCount: number;
   /** Orders billed to this branch, all-time. */
   orderCount: number;
   openedAt: string;
+}
+
+/** Fields the admin fills to open a new SHIELD branch. */
+export interface NewStore {
+  /** `SHD-…` — unique. Uppercased and trimmed on save. */
+  code: string;
+  name: string;
+  area: string;
+  city: string;
+  state: string;
+  pincode: string;
+  phone: string;
+  hours: string;
+  latitude: number | null;
+  longitude: number | null;
+  isActive: boolean;
 }
 
 /** A catalogue product's admin state — mirrors `app.product.status`. */
@@ -307,6 +327,66 @@ export interface AgentOption {
   level: AgentLevel;
 }
 
+/** A patient a member added — one row of `app.patient`. */
+export interface MemberPatient {
+  id: string;
+  name: string;
+  /** `app.patient_relation`, lowercased — self / spouse / child / … */
+  relation: string;
+  /** `app.gender`, lowercased. */
+  gender: string;
+  /** ISO date. */
+  dob: string;
+  phone: string;
+  address: string;
+  abhaId: string;
+  createdAt: string;
+}
+
+/** A delivery address a member saved — one row of `app.member_address`. */
+export interface MemberAddress {
+  id: string;
+  /** `app.address_label`, lowercased — home / work / other. */
+  label: string;
+  receiver: string;
+  house: string;
+  area: string;
+  landmark: string;
+  city: string;
+  state: string;
+  pincode: string;
+  phone: string;
+  isDefault: boolean;
+  /** Name of the linked `app.patient`, or '' when the address is not tied to one. */
+  patientName: string;
+  createdAt: string;
+}
+
+/**
+ * The full profile behind an [AppUser] — the registration fields the list does
+ * not carry, plus the patients and addresses the member added. Loaded lazily
+ * when the user's modal opens.
+ */
+export interface UserDetail {
+  id: string;
+  /** `app.gender`, lowercased, or ''. */
+  gender: string;
+  /** ISO date, or ''. */
+  dob: string;
+  address: string;
+  place: string;
+  pincode: string;
+  state: string;
+  rewardPoints: number;
+  referralCode: string;
+  referredByName: string;
+  referredByPhone: string;
+  /** ISO timestamp the member finished registration, or ''. */
+  registrationCompletedAt: string;
+  patients: MemberPatient[];
+  addresses: MemberAddress[];
+}
+
 /** `app.lab_booking_status`. */
 export type LabBookingStatus =
   | 'requested'
@@ -407,7 +487,32 @@ export interface PrivilegeActivation {
   cardNumber: string;
   receiptReference: string;
   receiptFileName: string;
+  /** `app.wallet_card.receipt_image` — a base64 data URI of the transfer
+   *  screenshot, or '' when the member submitted before images were captured. */
+  receiptImage: string;
   reviewerNote: string;
   submittedAt: string;
+  /** When the plan was taken out, and when its validity runs out. */
+  issuedOn: string;
+  expiresOn: string;
   reviewedAt?: string;
+}
+
+/** One line of a member's wallet ledger — `app.wallet_entry`. */
+export interface WalletActivityEntry {
+  id: string;
+  /** `ACTIVATION` · `BONUS` · `TOPUP` · `SPEND` · `POINTS_REDEEMED` · `AGENT_EARNINGS`. */
+  kind: string;
+  label: string;
+  /** Signed rupees — credits positive, debits negative. */
+  amount: number;
+  occurredOn: string;
+}
+
+/** A member's wallet at a glance, for the activation review panel. */
+export interface WalletActivity {
+  balance: number;
+  rewardPoints: number;
+  openedAt: string | null;
+  entries: WalletActivityEntry[];
 }

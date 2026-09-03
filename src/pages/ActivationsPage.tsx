@@ -11,14 +11,21 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DetailList } from '@/components/ui/DetailList';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { Icon } from '@/components/ui/Icon';
-import { formatCurrency, formatDateTime, titleCase, toneForStatus } from '@/lib/format';
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  titleCase,
+  toneForStatus,
+} from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import {
   approveActivation,
+  getWalletActivity,
   listActivations,
   rejectActivation,
 } from '@/api/activations';
-import type { PrivilegeActivation } from '@/types';
+import type { PrivilegeActivation, WalletActivity } from '@/types';
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
@@ -55,6 +62,12 @@ export default function ActivationsPage() {
   }, [scoped]);
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
+
+  // The member's wallet as it stands, loaded while a review is open.
+  const activity = useAsync<WalletActivity | null>(
+    () => (selectedId ? getWalletActivity(selectedId) : Promise.resolve(null)),
+    [selectedId],
+  );
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -314,6 +327,12 @@ export default function ActivationsPage() {
                   value: selected.receiptFileName || '—',
                 },
                 { label: 'Submitted', value: formatDateTime(selected.submittedAt) },
+                ...(selected.issuedOn
+                  ? [{ label: 'Plan issued', value: formatDate(selected.issuedOn) }]
+                  : []),
+                ...(selected.expiresOn
+                  ? [{ label: 'Plan expires', value: formatDate(selected.expiresOn) }]
+                  : []),
                 ...(selected.reviewedAt
                   ? [{ label: 'Reviewed', value: formatDateTime(selected.reviewedAt) }]
                   : []),
@@ -322,6 +341,125 @@ export default function ActivationsPage() {
                   : []),
               ]}
             />
+
+            {selected.receiptImage && (
+              <div className="mt-4">
+                <p className="mb-1.5 text-sm font-medium text-slate-700">
+                  Transfer receipt
+                </p>
+                <a
+                  href={selected.receiptImage}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block"
+                >
+                  <img
+                    src={selected.receiptImage}
+                    alt="Payment receipt"
+                    className="max-h-80 w-full rounded-lg border border-slate-200 bg-slate-50 object-contain"
+                  />
+                </a>
+                <p className="mt-1 text-xs text-slate-400">
+                  Tap to open full size in a new tab.
+                </p>
+              </div>
+            )}
+
+            <div className="mt-4">
+              <p className="mb-1.5 text-sm font-medium text-slate-700">
+                Member wallet
+              </p>
+              {activity.loading ? (
+                <p className="text-sm text-slate-400">Loading wallet…</p>
+              ) : activity.error ? (
+                <p className="text-sm text-rose-600">{activity.error}</p>
+              ) : activity.data ? (
+                <div className="rounded-lg border border-slate-200">
+                  <div className="flex flex-wrap gap-x-8 gap-y-1 border-b border-slate-200 px-3 py-2 text-sm">
+                    <span>
+                      <span className="text-slate-400">Balance </span>
+                      <span className="font-medium text-slate-800">
+                        {formatCurrency(activity.data.balance)}
+                      </span>
+                    </span>
+                    <span>
+                      <span className="text-slate-400">Points </span>
+                      <span className="font-medium text-slate-800">
+                        {activity.data.rewardPoints}
+                      </span>
+                    </span>
+                    <span>
+                      <span className="text-slate-400">Opened </span>
+                      <span className="font-medium text-slate-800">
+                        {activity.data.openedAt
+                          ? formatDate(activity.data.openedAt)
+                          : 'not yet'}
+                      </span>
+                    </span>
+                  </div>
+                  {activity.data.entries.length === 0 ? (
+                    <p className="px-3 py-3 text-sm text-slate-400">
+                      No wallet activity yet.
+                    </p>
+                  ) : (
+                    <ul className="divide-y divide-slate-100">
+                      {activity.data.entries.map((e) => (
+                        <li
+                          key={e.id}
+                          className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-slate-700">
+                              {e.label}
+                            </span>
+                            <span className="text-xs text-slate-400">
+                              {titleCase(e.kind)} · {formatDate(e.occurredOn)}
+                            </span>
+                          </span>
+                          <span
+                            className={
+                              e.amount < 0
+                                ? 'shrink-0 font-medium text-rose-600'
+                                : 'shrink-0 font-medium text-emerald-600'
+                            }
+                          >
+                            {e.amount < 0 ? '−' : '+'}
+                            {formatCurrency(Math.abs(e.amount))}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {selected.receiptImage ? (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  Transfer receipt
+                </p>
+                <a
+                  href={selected.receiptImage}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block overflow-hidden rounded-lg border border-slate-200"
+                >
+                  <img
+                    src={selected.receiptImage}
+                    alt="Transfer receipt uploaded by the member"
+                    className="max-h-96 w-full bg-slate-50 object-contain"
+                  />
+                </a>
+                <p className="mt-1 text-xs text-slate-400">
+                  Tap to open full size in a new tab.
+                </p>
+              </div>
+            ) : (
+              <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                No receipt image on file for this activation.
+              </p>
+            )}
 
             {rejecting && (
               <div className="mt-4">
