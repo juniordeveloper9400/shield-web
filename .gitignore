@@ -28,3 +28,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# Stray Flutter files that were committed here by mistake — this is the
+# React admin console, not the app.
+/shield agent_invester/
