@@ -425,6 +425,9 @@ export default function UserDetailPage() {
 
             {mode === 'agent' && (
               <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-slate-800">
+                  Convert to agent
+                </h3>
                 <p className="text-sm text-slate-500">
                   A new <span className="font-medium text-slate-700">SHD-AGT</span>{' '}
                   code is generated. The user keeps the app and gains the agent
@@ -482,6 +485,9 @@ export default function UserDetailPage() {
 
             {mode === 'investor' && (
               <div className="space-y-3">
+                <h3 className="text-sm font-semibold text-slate-800">
+                  Convert to investor
+                </h3>
                 <p className="text-sm text-slate-500">
                   A new <span className="font-medium text-slate-700">SHD-INV</span>{' '}
                   code is generated. The user keeps the app and gains the investor

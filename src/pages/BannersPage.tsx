@@ -255,46 +255,36 @@ export default function BannersPage() {
         }
       >
         <div className="space-y-4">
-          <EditField label="Banner image">
-            <div className="flex items-center gap-3">
-              {draft.image ? (
-                <img
-                  src={draft.image}
-                  alt=""
-                  className="h-16 w-28 rounded-lg border border-slate-200 object-cover"
-                />
-              ) : (
-                <div className="grid h-16 w-28 place-items-center rounded-lg border border-dashed border-slate-300 text-slate-300">
-                  <Icon name="banners" className="h-6 w-6" />
-                </div>
-              )}
-              <div className="flex flex-col gap-1">
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="text-xs text-slate-500 file:mr-2 file:rounded-md file:border-0 file:bg-brand-50 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-brand-700"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void handleImagePick(file);
-                  }}
-                />
-                <p className="text-xs text-slate-400">
-                  Landscape works best — it fills a 16:9 strip on the home screen.
-                </p>
-                {draft.image && (
-                  <button
-                    type="button"
-                    className="self-start text-xs font-medium text-rose-600"
-                    onClick={() => setDraft((d) => ({ ...d, image: '' }))}
-                  >
-                    Remove image
-                  </button>
-                )}
-              </div>
-            </div>
+          <EditField label="Preview — exactly how it lands on the app and web home screen">
+            <BannerPreview draft={draft} />
           </EditField>
 
-          <EditField label="Title (optional — not shown on the banner itself)">
+          <div className="flex items-center gap-3">
+            <input
+              type="file"
+              accept="image/*"
+              className="text-xs text-slate-500 file:mr-2 file:rounded-md file:border-0 file:bg-brand-50 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-brand-700"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleImagePick(file);
+              }}
+            />
+            {draft.image && (
+              <button
+                type="button"
+                className="text-xs font-medium text-rose-600"
+                onClick={() => setDraft((d) => ({ ...d, image: '' }))}
+              >
+                Remove image
+              </button>
+            )}
+          </div>
+          <p className="-mt-2 text-xs text-slate-400">
+            Landscape works best — it fills a 16:9 strip. Keep the bottom third
+            uncluttered; that is where the title, note and button sit.
+          </p>
+
+          <EditField label="Title — the bold headline on the banner (optional)">
             <input
               value={draft.title}
               onChange={(e) => setDraft((d) => ({ ...d, title: e.target.value }))}
@@ -303,17 +293,17 @@ export default function BannersPage() {
             />
           </EditField>
 
-          <EditField label="Internal note (optional)">
+          <EditField label="Note — a smaller line under the title (optional)">
             <input
               value={draft.subtitle}
               onChange={(e) => setDraft((d) => ({ ...d, subtitle: e.target.value }))}
               className={inputClass}
-              placeholder="e.g. Diwali campaign — remove after 15 Nov"
+              placeholder="Fast, secure delivery to your door"
             />
           </EditField>
 
           <div className="grid grid-cols-2 gap-3">
-            <EditField label="Button text (optional)">
+            <EditField label="Button text on the banner (optional)">
               <input
                 value={draft.cta}
                 onChange={(e) => setDraft((d) => ({ ...d, cta: e.target.value }))}
@@ -321,12 +311,12 @@ export default function BannersPage() {
                 placeholder="Shop now"
               />
             </EditField>
-            <EditField label="Opens (optional)">
+            <EditField label="Button opens (optional — a full link)">
               <input
                 value={draft.target}
                 onChange={(e) => setDraft((d) => ({ ...d, target: e.target.value }))}
                 className={inputClass}
-                placeholder="/products or a full link"
+                placeholder="https://…"
               />
             </EditField>
           </div>
@@ -350,6 +340,52 @@ export default function BannersPage() {
         </div>
       </Modal>
     </>
+  );
+}
+
+/**
+ * The exact rendering the app and web build give a slide: the image, a
+ * bottom-weighted scrim, and the title / note / button pinned bottom-left —
+ * so "best position" is not a guess, it is what the admin is looking at.
+ */
+function BannerPreview({ draft }: { draft: NewHomeBanner }) {
+  const hasCopy = Boolean(draft.title || draft.subtitle || draft.cta);
+  return (
+    <div className="relative aspect-video w-full overflow-hidden rounded-xl bg-slate-100">
+      {draft.image ? (
+        <img src={draft.image} alt="" className="h-full w-full object-cover" />
+      ) : (
+        <div className="grid h-full place-items-center text-slate-300">
+          <Icon name="banners" className="h-8 w-8" />
+        </div>
+      )}
+      <div
+        className="absolute inset-0"
+        style={{
+          background: `linear-gradient(to bottom, rgba(0,0,0,0) 35%, rgba(0,0,0,${hasCopy ? 0.62 : 0.32}) 100%)`,
+        }}
+      />
+      {hasCopy && (
+        <div className="absolute inset-x-4 bottom-3.5 flex flex-col items-start gap-0.5">
+          {draft.title && (
+            <p className="line-clamp-2 text-base font-extrabold leading-tight text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.45)]">
+              {draft.title}
+            </p>
+          )}
+          {draft.subtitle && (
+            <p className="line-clamp-2 text-xs font-medium text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.45)]">
+              {draft.subtitle}
+            </p>
+          )}
+          {draft.cta && (
+            <span className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-white px-3 py-1.5 text-xs font-extrabold text-brand-600">
+              {draft.cta}
+              <Icon name="external" className="h-3 w-3" />
+            </span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
