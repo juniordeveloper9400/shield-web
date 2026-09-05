@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { Card } from '@/components/ui/Card';
+import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DetailList } from '@/components/ui/DetailList';
@@ -199,146 +199,50 @@ export default function UserDetailPage() {
         }
       />
 
-      <Card className="p-5">
-        {user.loading ? (
+      {user.loading ? (
+        <Card className="p-5">
           <p className="py-14 text-center text-sm text-slate-400">Loading…</p>
-        ) : user.error ? (
+        </Card>
+      ) : user.error ? (
+        <Card className="p-5">
           <p className="py-14 text-center text-sm text-rose-500">{user.error}</p>
-        ) : !selected ? (
+        </Card>
+      ) : !selected ? (
+        <Card className="p-5">
           <p className="py-14 text-center text-sm text-slate-400">
             This member could not be found.
           </p>
-        ) : (
-          <>
-            <div className="mb-3 flex items-center gap-2">
-              <Badge tone={PERSONA_TONE[selected.persona]}>
-                {titleCase(selected.persona)}
-                {selected.persona === 'agent' && selected.agentCode
-                  ? ` · ${selected.agentCode}`
-                  : ''}
-                {selected.persona === 'investor' && selected.investorCode
-                  ? ` · ${selected.investorCode}`
-                  : ''}
-              </Badge>
-            </div>
+        </Card>
+      ) : (
+        <div className="space-y-6">
+          <div className="flex items-center gap-2">
+            <Badge tone={PERSONA_TONE[selected.persona]}>
+              {titleCase(selected.persona)}
+              {selected.persona === 'agent' && selected.agentCode
+                ? ` · ${selected.agentCode}`
+                : ''}
+              {selected.persona === 'investor' && selected.investorCode
+                ? ` · ${selected.investorCode}`
+                : ''}
+            </Badge>
+          </div>
 
-            {mode === 'view' && (
-              <>
-                <DetailList rows={detailRows} />
+          {detail.error && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              Could not load this member's full profile.
+            </p>
+          )}
 
-                <div className="mt-5">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Patients{' '}
-                    {detail.data && detail.data.patients.length > 0
-                      ? `(${detail.data.patients.length})`
-                      : ''}
-                  </p>
-                  {detail.loading ? (
-                    <p className="text-sm text-slate-400">Loading…</p>
-                  ) : !detail.data || detail.data.patients.length === 0 ? (
-                    <p className="text-sm text-slate-400">No patients added.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {detail.data.patients.map((p) => (
-                        <div
-                          key={p.id}
-                          className="rounded-lg border border-slate-200 p-3 text-sm"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium text-slate-800">
-                              {p.name}
-                            </span>
-                            <span className="text-xs text-slate-400">
-                              {titleCase(p.relation || 'self')}
-                            </span>
-                          </div>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            {[
-                              p.gender ? titleCase(p.gender) : '',
-                              p.dob ? formatDate(p.dob) : '',
-                              p.phone,
-                            ]
-                              .filter(Boolean)
-                              .join(' · ') || '—'}
-                          </p>
-                          {p.abhaId && (
-                            <p className="mt-0.5 text-xs text-slate-400">
-                              ABHA: {p.abhaId}
-                            </p>
-                          )}
-                          {p.address && (
-                            <p className="mt-0.5 text-xs text-slate-400">
-                              {p.address}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-5">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Addresses{' '}
-                    {detail.data && detail.data.addresses.length > 0
-                      ? `(${detail.data.addresses.length})`
-                      : ''}
-                  </p>
-                  {detail.loading ? (
-                    <p className="text-sm text-slate-400">Loading…</p>
-                  ) : !detail.data || detail.data.addresses.length === 0 ? (
-                    <p className="text-sm text-slate-400">No addresses added.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {detail.data.addresses.map((a) => (
-                        <div
-                          key={a.id}
-                          className="rounded-lg border border-slate-200 p-3 text-sm"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
-                              {a.label || 'home'}
-                            </span>
-                            {a.isDefault && (
-                              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600">
-                                Default
-                              </span>
-                            )}
-                            {a.receiver && (
-                              <span className="font-medium text-slate-800">
-                                {a.receiver}
-                              </span>
-                            )}
-                          </div>
-                          <p className="mt-1 text-xs text-slate-600">
-                            {[
-                              a.house,
-                              a.area,
-                              a.landmark,
-                              [a.city, a.state].filter(Boolean).join(', '),
-                              a.pincode,
-                            ]
-                              .filter(Boolean)
-                              .join(', ')}
-                          </p>
-                          <p className="mt-0.5 text-xs text-slate-400">
-                            {[a.phone, a.patientName ? `for ${a.patientName}` : '']
-                              .filter(Boolean)
-                              .join(' · ') || '—'}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-5">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Privilege plans{' '}
-                      {planRows.length > 0 ? `(${planRows.length})` : ''}
-                    </p>
-                    {planRows.length > 0 && (
+          {mode === 'view' && (
+            <>
+              {/* Privilege plans lead the page — it's the figure a support call
+                  or a follow-up almost always starts from. */}
+              <Card>
+                <CardHeader
+                  title={`Privilege plans${planRows.length > 0 ? ` (${planRows.length})` : ''}`}
+                  subtitle="Cards this member has activated, newest first."
+                  action={
+                    planRows.length > 0 && (
                       <Button
                         variant="secondary"
                         size="sm"
@@ -346,8 +250,10 @@ export default function UserDetailPage() {
                       >
                         More →
                       </Button>
-                    )}
-                  </div>
+                    )
+                  }
+                />
+                <div className="p-5">
                   {plans.loading ? (
                     <p className="text-sm text-slate-400">Loading…</p>
                   ) : planRows.length === 0 ? (
@@ -397,14 +303,131 @@ export default function UserDetailPage() {
                     </div>
                   )}
                 </div>
+              </Card>
 
-                {detail.error && (
-                  <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    Could not load this member's full profile.
-                  </p>
-                )}
+              <Card>
+                <CardHeader title="Profile" subtitle="Account and registration details." />
+                <div className="p-5">
+                  <DetailList rows={detailRows} />
+                </div>
+              </Card>
 
-                <div className="mt-5 flex flex-wrap gap-2 border-t border-slate-200 pt-4">
+              <Card>
+                <CardHeader
+                  title={`Patients${
+                    detail.data && detail.data.patients.length > 0
+                      ? ` (${detail.data.patients.length})`
+                      : ''
+                  }`}
+                  subtitle="People this member has added to the app."
+                />
+                <div className="p-5">
+                  {detail.loading ? (
+                    <p className="text-sm text-slate-400">Loading…</p>
+                  ) : !detail.data || detail.data.patients.length === 0 ? (
+                    <p className="text-sm text-slate-400">No patients added.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {detail.data.patients.map((p) => (
+                        <div
+                          key={p.id}
+                          className="rounded-lg border border-slate-200 p-3 text-sm"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-slate-800">
+                              {p.name}
+                            </span>
+                            <span className="text-xs text-slate-400">
+                              {titleCase(p.relation || 'self')}
+                            </span>
+                          </div>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {[
+                              p.gender ? titleCase(p.gender) : '',
+                              p.dob ? formatDate(p.dob) : '',
+                              p.phone,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ') || '—'}
+                          </p>
+                          {p.abhaId && (
+                            <p className="mt-0.5 text-xs text-slate-400">
+                              ABHA: {p.abhaId}
+                            </p>
+                          )}
+                          {p.address && (
+                            <p className="mt-0.5 text-xs text-slate-400">
+                              {p.address}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              <Card>
+                <CardHeader
+                  title={`Addresses${
+                    detail.data && detail.data.addresses.length > 0
+                      ? ` (${detail.data.addresses.length})`
+                      : ''
+                  }`}
+                  subtitle="Saved delivery addresses on this account."
+                />
+                <div className="p-5">
+                  {detail.loading ? (
+                    <p className="text-sm text-slate-400">Loading…</p>
+                  ) : !detail.data || detail.data.addresses.length === 0 ? (
+                    <p className="text-sm text-slate-400">No addresses added.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {detail.data.addresses.map((a) => (
+                        <div
+                          key={a.id}
+                          className="rounded-lg border border-slate-200 p-3 text-sm"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
+                              {a.label || 'home'}
+                            </span>
+                            {a.isDefault && (
+                              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600">
+                                Default
+                              </span>
+                            )}
+                            {a.receiver && (
+                              <span className="font-medium text-slate-800">
+                                {a.receiver}
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1 text-xs text-slate-600">
+                            {[
+                              a.house,
+                              a.area,
+                              a.landmark,
+                              [a.city, a.state].filter(Boolean).join(', '),
+                              a.pincode,
+                            ]
+                              .filter(Boolean)
+                              .join(', ')}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-400">
+                            {[a.phone, a.patientName ? `for ${a.patientName}` : '']
+                              .filter(Boolean)
+                              .join(' · ') || '—'}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </Card>
+
+              <Card className="p-5">
+                <div className="flex flex-wrap gap-2">
                   {selected.persona === 'member' ? (
                     <>
                       <Button variant="secondary" onClick={() => setMode('investor')}>
@@ -420,10 +443,12 @@ export default function UserDetailPage() {
                     </Button>
                   )}
                 </div>
-              </>
-            )}
+              </Card>
+            </>
+          )}
 
-            {mode === 'agent' && (
+          {mode === 'agent' && (
+            <Card className="p-5">
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-800">
                   Convert to agent
@@ -481,9 +506,11 @@ export default function UserDetailPage() {
                   </Button>
                 </div>
               </div>
-            )}
+            </Card>
+          )}
 
-            {mode === 'investor' && (
+          {mode === 'investor' && (
+            <Card className="p-5">
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold text-slate-800">
                   Convert to investor
@@ -562,16 +589,16 @@ export default function UserDetailPage() {
                   </Button>
                 </div>
               </div>
-            )}
+            </Card>
+          )}
 
-            {formError && (
-              <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
-                {formError}
-              </p>
-            )}
-          </>
-        )}
-      </Card>
+          {formError && (
+            <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              {formError}
+            </p>
+          )}
+        </div>
+      )}
     </>
   );
 }
