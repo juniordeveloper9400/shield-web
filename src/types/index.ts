@@ -29,6 +29,7 @@ export type ModuleKey =
   | 'lab_orders'
   | 'lab_tests'
   | 'appointments'
+  | 'accounts'
   | 'admins';
 
 export type AccountStatus = 'active' | 'suspended';
@@ -580,4 +581,70 @@ export interface NewCustomerReviewVideo {
   thumbnail: string;
   isActive: boolean;
   sort: number;
+}
+
+/**
+ * The money-in side of the Accounts page — every source of cash actually
+ * collected. Excludes cancelled orders/bookings/appointments and pending
+ * privilege-plan activations (nothing has changed hands yet on those).
+ */
+export interface RevenueBreakdown {
+  ordersTotal: number;
+  ordersCount: number;
+  labBookingsTotal: number;
+  labBookingsCount: number;
+  appointmentsTotal: number;
+  appointmentsCount: number;
+  privilegeLoadsTotal: number;
+  privilegeLoadsCount: number;
+  total: number;
+}
+
+/** The money-out side — payouts actually made, not merely requested. */
+export interface PayoutBreakdown {
+  agentWithdrawalsTotal: number;
+  agentWithdrawalsCount: number;
+  total: number;
+}
+
+/** The whole-app money-flow snapshot the Accounts page opens on. */
+export interface MoneyFlowSummary {
+  revenue: RevenueBreakdown;
+  payouts: PayoutBreakdown;
+  /** revenue.total − payouts.total. */
+  net: number;
+  /** Sum of every member wallet's balance — cash the app still owes out. */
+  walletLiability: number;
+  /** Requested but not yet paid — shown as a heads-up, not counted in payouts. */
+  pendingAgentWithdrawalsTotal: number;
+  pendingAgentWithdrawalsCount: number;
+}
+
+/** One bucket of the last-6-months money-flow chart. */
+export interface MonthlyMoneyFlow {
+  /** e.g. "Mar 2026". */
+  month: string;
+  in: number;
+  out: number;
+}
+
+/** What kind of event one row of the combined money-flow ledger is. */
+export type MoneyFlowKind =
+  | 'order'
+  | 'lab_booking'
+  | 'appointment'
+  | 'privilege_load'
+  | 'agent_payout';
+
+/** One row of the combined money-flow ledger — every source, one timeline. */
+export interface MoneyFlowEntry {
+  id: string;
+  kind: MoneyFlowKind;
+  direction: 'in' | 'out';
+  amount: number;
+  /** A short reference — order code, member/agent name, plan tier. */
+  label: string;
+  /** Who the money moved with. */
+  detail: string;
+  occurredAt: string;
 }

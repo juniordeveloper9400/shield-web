@@ -21,7 +21,8 @@ export type IconName =
   | 'external'
   | 'alert'
   | 'banners'
-  | 'videos';
+  | 'videos'
+  | 'accounts';
 
 const ICONS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -134,6 +135,12 @@ const ICONS: Record<IconName, ReactNode> = {
       <rect x="3" y="5" width="14" height="14" rx="2" />
       <path d="M17 9.5 21 7v10l-4-2.5" />
       <path d="M8.5 9v6l5-3-5-3Z" fill="currentColor" stroke="none" />
+    </>
+  ),
+  accounts: (
+    <>
+      <path d="M4 3v18h17" />
+      <path d="M7 15l4-4 3 3 6-7" />
     </>
   ),
 };

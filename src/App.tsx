@@ -17,6 +17,7 @@ import MemberActivationsPage from '@/pages/MemberActivationsPage';
 import LabOrdersPage from '@/pages/LabOrdersPage';
 import AppointmentsPage from '@/pages/AppointmentsPage';
 import LabsPage from '@/pages/LabsPage';
+import AccountsPage from '@/pages/AccountsPage';
 import AdminsPage from '@/pages/AdminsPage';
 import UsersPage from '@/pages/UsersPage';
 import UserDetailPage from '@/pages/UserDetailPage';
@@ -146,6 +147,14 @@ export default function App() {
           element={
             <ProtectedRoute module="appointments">
               <AppointmentsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/accounts"
+          element={
+            <ProtectedRoute module="accounts">
+              <AccountsPage />
             </ProtectedRoute>
           }
         />
