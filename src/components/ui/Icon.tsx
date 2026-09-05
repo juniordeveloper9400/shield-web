@@ -19,7 +19,9 @@ export type IconName =
   | 'check'
   | 'plus'
   | 'external'
-  | 'alert';
+  | 'alert'
+  | 'banners'
+  | 'videos';
 
 const ICONS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -118,6 +120,20 @@ const ICONS: Record<IconName, ReactNode> = {
     <>
       <path d="M12 9v4M12 17h.01" />
       <path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+    </>
+  ),
+  banners: (
+    <>
+      <rect x="3" y="4" width="18" height="14" rx="2" />
+      <circle cx="8.5" cy="9.5" r="1.5" />
+      <path d="M3 16.5 8.5 12l4 3.5 3-2.5L21 15" />
+    </>
+  ),
+  videos: (
+    <>
+      <rect x="3" y="5" width="14" height="14" rx="2" />
+      <path d="M17 9.5 21 7v10l-4-2.5" />
+      <path d="M8.5 9v6l5-3-5-3Z" fill="currentColor" stroke="none" />
     </>
   ),
 };

@@ -20,6 +20,8 @@ export type ModuleKey =
   | 'dashboard'
   | 'stores'
   | 'products'
+  | 'banners'
+  | 'customer_videos'
   | 'orders'
   | 'prescriptions'
   | 'activations'
@@ -517,4 +519,65 @@ export interface WalletActivity {
   rewardPoints: number;
   openedAt: string | null;
   entries: WalletActivityEntry[];
+}
+
+/**
+ * The home-screen hero banner — `app.home_banner` — shown at the top of the
+ * app and web build, below the search bar. Members see only `isActive` rows,
+ * nearest-to-front first by `sort`.
+ */
+export interface HomeBanner {
+  id: string;
+  title: string;
+  subtitle: string;
+  /** A data: URI (uploaded here) or an http(s) URL. */
+  image: string;
+  /** Button caption shown on the banner, e.g. "Shop now" — blank hides it. */
+  cta: string;
+  /** Where the CTA leads — a route the app recognises, or a full URL. */
+  target: string;
+  isActive: boolean;
+  /** Display order, lowest first. */
+  sort: number;
+  createdAt: string;
+}
+
+/** The editable fields of a [HomeBanner] — everything but the id and stamp. */
+export interface NewHomeBanner {
+  title: string;
+  subtitle: string;
+  image: string;
+  cta: string;
+  target: string;
+  isActive: boolean;
+  sort: number;
+}
+
+/**
+ * One clip in "What our customers have to say" on the home feed —
+ * `app.customer_review_video`. `videoUrl` is either a bundled app asset path
+ * (the clips seeded at launch) or an http(s) URL to a hosted video (anything
+ * an admin adds from here).
+ */
+export interface CustomerReviewVideo {
+  id: string;
+  name: string;
+  subtitle: string;
+  videoUrl: string;
+  /** A data: URI or an http(s) URL — the poster frame, or '' for none. */
+  thumbnail: string;
+  isActive: boolean;
+  /** Display order, lowest first. */
+  sort: number;
+  createdAt: string;
+}
+
+/** Fields the admin fills to add or edit a customer review clip. */
+export interface NewCustomerReviewVideo {
+  name: string;
+  subtitle: string;
+  videoUrl: string;
+  thumbnail: string;
+  isActive: boolean;
+  sort: number;
 }

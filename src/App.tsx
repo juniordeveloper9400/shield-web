@@ -7,6 +7,8 @@ import LoginPage from '@/pages/LoginPage';
 import DashboardPage from '@/pages/DashboardPage';
 import StoresPage from '@/pages/StoresPage';
 import ProductsPage from '@/pages/ProductsPage';
+import BannersPage from '@/pages/BannersPage';
+import CustomerVideosPage from '@/pages/CustomerVideosPage';
 import OrdersPage from '@/pages/OrdersPage';
 import PrescriptionsPage from '@/pages/PrescriptionsPage';
 import ActivationsPage from '@/pages/ActivationsPage';
@@ -64,6 +66,22 @@ export default function App() {
           element={
             <ProtectedRoute module="products">
               <ProductsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/banners"
+          element={
+            <ProtectedRoute module="banners">
+              <BannersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/customer-videos"
+          element={
+            <ProtectedRoute module="customer_videos">
+              <CustomerVideosPage />
             </ProtectedRoute>
           }
         />
