@@ -20,6 +20,8 @@ export type ModuleKey =
   | 'dashboard'
   | 'stores'
   | 'products'
+  | 'banners'
+  | 'customer_videos'
   | 'orders'
   | 'prescriptions'
   | 'activations'
@@ -27,6 +29,7 @@ export type ModuleKey =
   | 'lab_orders'
   | 'lab_tests'
   | 'appointments'
+  | 'accounts'
   | 'admins';
 
 export type AccountStatus = 'active' | 'suspended';
@@ -517,4 +520,131 @@ export interface WalletActivity {
   rewardPoints: number;
   openedAt: string | null;
   entries: WalletActivityEntry[];
+}
+
+/**
+ * The home-screen hero banner — `app.home_banner` — shown at the top of the
+ * app and web build, below the search bar. Members see only `isActive` rows,
+ * nearest-to-front first by `sort`.
+ */
+export interface HomeBanner {
+  id: string;
+  title: string;
+  subtitle: string;
+  /** A data: URI (uploaded here) or an http(s) URL. */
+  image: string;
+  /** Button caption shown on the banner, e.g. "Shop now" — blank hides it. */
+  cta: string;
+  /** Where the CTA leads — a route the app recognises, or a full URL. */
+  target: string;
+  isActive: boolean;
+  /** Display order, lowest first. */
+  sort: number;
+  createdAt: string;
+}
+
+/** The editable fields of a [HomeBanner] — everything but the id and stamp. */
+export interface NewHomeBanner {
+  title: string;
+  subtitle: string;
+  image: string;
+  cta: string;
+  target: string;
+  isActive: boolean;
+  sort: number;
+}
+
+/**
+ * One clip in "What our customers have to say" on the home feed —
+ * `app.customer_review_video`. `videoUrl` is either a bundled app asset path
+ * (the clips seeded at launch) or an http(s) URL to a hosted video (anything
+ * an admin adds from here).
+ */
+export interface CustomerReviewVideo {
+  id: string;
+  name: string;
+  subtitle: string;
+  videoUrl: string;
+  /** A data: URI or an http(s) URL — the poster frame, or '' for none. */
+  thumbnail: string;
+  isActive: boolean;
+  /** Display order, lowest first. */
+  sort: number;
+  createdAt: string;
+}
+
+/** Fields the admin fills to add or edit a customer review clip. */
+export interface NewCustomerReviewVideo {
+  name: string;
+  subtitle: string;
+  videoUrl: string;
+  thumbnail: string;
+  isActive: boolean;
+  sort: number;
+}
+
+/**
+ * The money-in side of the Accounts page — every source of cash actually
+ * collected. Excludes cancelled orders/bookings/appointments and pending
+ * privilege-plan activations (nothing has changed hands yet on those).
+ */
+export interface RevenueBreakdown {
+  ordersTotal: number;
+  ordersCount: number;
+  labBookingsTotal: number;
+  labBookingsCount: number;
+  appointmentsTotal: number;
+  appointmentsCount: number;
+  privilegeLoadsTotal: number;
+  privilegeLoadsCount: number;
+  total: number;
+}
+
+/** The money-out side — payouts actually made, not merely requested. */
+export interface PayoutBreakdown {
+  agentWithdrawalsTotal: number;
+  agentWithdrawalsCount: number;
+  total: number;
+}
+
+/** The whole-app money-flow snapshot the Accounts page opens on. */
+export interface MoneyFlowSummary {
+  revenue: RevenueBreakdown;
+  payouts: PayoutBreakdown;
+  /** revenue.total − payouts.total. */
+  net: number;
+  /** Sum of every member wallet's balance — cash the app still owes out. */
+  walletLiability: number;
+  /** Requested but not yet paid — shown as a heads-up, not counted in payouts. */
+  pendingAgentWithdrawalsTotal: number;
+  pendingAgentWithdrawalsCount: number;
+}
+
+/** One bucket of the last-6-months money-flow chart. */
+export interface MonthlyMoneyFlow {
+  /** e.g. "Mar 2026". */
+  month: string;
+  in: number;
+  out: number;
+}
+
+/** What kind of event one row of the combined money-flow ledger is. */
+export type MoneyFlowKind =
+  | 'order'
+  | 'lab_booking'
+  | 'appointment'
+  | 'privilege_load'
+  | 'agent_payout';
+
+/** One row of the combined money-flow ledger — every source, one timeline. */
+export interface MoneyFlowEntry {
+  id: string;
+  kind: MoneyFlowKind;
+  direction: 'in' | 'out';
+  amount: number;
+  /** A short reference — order code, member/agent name, plan tier. */
+  label: string;
+  /** Who the money moved with. */
+  detail: string;
+  occurredAt: string;
 }

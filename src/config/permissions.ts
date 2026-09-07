@@ -33,6 +33,20 @@ export const MODULES: NavItem[] = [
     description: 'Storefront & pharmacy shelf',
   },
   {
+    key: 'banners',
+    label: 'Home Banners',
+    path: '/banners',
+    icon: 'banners',
+    description: 'The hero banner on the app and web home screen',
+  },
+  {
+    key: 'customer_videos',
+    label: 'Customer Videos',
+    path: '/customer-videos',
+    icon: 'videos',
+    description: '"What our customers have to say" video reel',
+  },
+  {
     key: 'orders',
     label: 'Orders',
     path: '/orders',
@@ -75,6 +89,13 @@ export const MODULES: NavItem[] = [
     description: 'Clinic, tele & dietitian bookings',
   },
   {
+    key: 'accounts',
+    label: 'Accounts',
+    path: '/accounts',
+    icon: 'accounts',
+    description: 'Total money flow — revenue in, payouts out',
+  },
+  {
     key: 'users',
     label: 'Users',
     path: '/users',
@@ -100,6 +121,8 @@ const APP_MODULES: ModuleKey[] = [
   'dashboard',
   'stores',
   'products',
+  'banners',
+  'customer_videos',
   'orders',
   'prescriptions',
   'activations',
@@ -107,6 +130,7 @@ const APP_MODULES: ModuleKey[] = [
   'lab_orders',
   'lab_tests',
   'appointments',
+  'accounts',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
@@ -129,7 +153,7 @@ export const ROLE_SUMMARY: Record<Role, string> = {
   superadmin:
     'The whole view — every module, plus the Admins module that controls who can sign in.',
   admin:
-    'Runs the app: catalogue, users & agent / investor conversion, orders, prescriptions, privilege plans, labs and appointments.',
+    'Runs the app: catalogue, users & agent / investor conversion, orders, prescriptions, privilege plans, labs, appointments and the Accounts money-flow view.',
   pharmacy: 'Works one branch — its member orders and uploaded prescriptions.',
   lab: 'Handles member lab-test bookings and the package catalogue.',
   appointments: 'Handles the clinic, tele and dietitian appointment queue.',
