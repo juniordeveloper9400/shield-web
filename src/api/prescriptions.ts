@@ -1,4 +1,4 @@
-import { sql, query } from '@/lib/db';
+import { query } from '@/lib/db';
 import { fromEnum, iso, num } from '@/lib/mappers';
 import type {
   Prescription,
@@ -36,12 +36,14 @@ function toMedicine(r: Row): PrescriptionMedicine {
 }
 
 /**
- * Uploaded prescriptions, newest first. The branch is `app.prescription.store_id`
- * (set by the app at upload), then the branch on the linked
- * `app.prescription_order`, then the member's home branch as a last resort.
+ * Uploaded prescriptions, newest first, optionally narrowed to one member.
+ * The branch is `app.prescription.store_id` (set by the app at upload), then
+ * the branch on the linked `app.prescription_order`, then the member's home
+ * branch as a last resort.
  */
-export async function listPrescriptions(): Promise<Prescription[]> {
-  const rows = (await sql`
+async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
+  const rows = await query<Row>(
+    `
     SELECT rx.id, rx.code,
            m.name  AS member_name,
            m.phone AS member_phone,
@@ -65,8 +67,11 @@ export async function listPrescriptions(): Promise<Prescription[]> {
     ) pol ON true
     LEFT JOIN app.shield_store os  ON os.id = pol.store_id
     WHERE rx.deleted_at IS NULL
+      AND ($1::bigint IS NULL OR rx.member_id = $1::bigint)
     ORDER BY rx.created_at DESC
-  `) as Row[];
+    `,
+    [memberId ?? null],
+  );
 
   if (rows.length === 0) return [];
 
@@ -107,6 +112,23 @@ export async function listPrescriptions(): Promise<Prescription[]> {
     createdAt: iso(r.created_at) ?? new Date(0).toISOString(),
     medicines: medsByRx.get(String(r.id)) ?? [],
   }));
+}
+
+/** Every uploaded prescription, across every branch and member. */
+export async function listPrescriptions(): Promise<Prescription[]> {
+  return fetchPrescriptions();
+}
+
+/**
+ * One member's own prescriptions — the same rows {@link listPrescriptions}
+ * would show for them, scoped server-side. Used by the "Prescriptions" tab
+ * on the user detail page, so reviewing one member's scripts (and sending or
+ * updating their intake card) does not need a trip to the app-wide queue.
+ */
+export async function listPrescriptionsForMember(
+  memberId: string,
+): Promise<Prescription[]> {
+  return fetchPrescriptions(memberId);
 }
 
 export async function setPrescriptionStatus(

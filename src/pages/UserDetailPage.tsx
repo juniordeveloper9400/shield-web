@@ -27,7 +27,15 @@ import {
 } from '@/api/users';
 import { listActivationsForMember } from '@/api/activations';
 import { listMemberTransactions, moneyFlowKindLabel } from '@/api/accounts';
-import type { AgentLevel, InvestorPlanType, MoneyFlowEntry, MoneyFlowKind } from '@/types';
+import { listPrescriptionsForMember } from '@/api/prescriptions';
+import { PrescriptionReviewModal } from '@/components/prescriptions/PrescriptionReviewModal';
+import type {
+  AgentLevel,
+  InvestorPlanType,
+  MoneyFlowEntry,
+  MoneyFlowKind,
+  PrescriptionStatus,
+} from '@/types';
 
 const AGENT_LEVELS: AgentLevel[] = [
   'national',
@@ -44,7 +52,20 @@ const PERSONA_TONE = { member: 'gray', agent: 'green', investor: 'violet' } as c
 const fieldCls =
   'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500';
 
-type Tab = 'overview' | 'patients' | 'addresses' | 'plans' | 'transactions';
+type Tab =
+  | 'overview'
+  | 'patients'
+  | 'addresses'
+  | 'plans'
+  | 'transactions'
+  | 'prescriptions';
+
+const RX_STATUS_LABEL: Record<PrescriptionStatus, string> = {
+  awaiting_review: 'Awaiting review',
+  read: 'Read',
+  in_cart: 'In cart',
+  ordered: 'Ordered',
+};
 
 const TXN_KIND_TONE: Record<MoneyFlowKind, 'blue' | 'violet' | 'green' | 'amber' | 'red'> = {
   order: 'blue',
@@ -121,15 +142,21 @@ export default function UserDetailPage() {
   const agents = useAsync(listAgentOptions, []);
   const plans = useAsync(() => listActivationsForMember(id), [id]);
   const transactions = useAsync(() => listMemberTransactions(id), [id]);
+  const prescriptions = useAsync(() => listPrescriptionsForMember(id), [id]);
   const selected = user.data;
   const planRows = plans.data ?? [];
   const headlinePlan = planRows.find((p) => p.status === 'approved') ?? planRows[0];
   const txnRows = transactions.data ?? [];
+  const rxRows = prescriptions.data ?? [];
 
   const [tab, setTab] = useState<Tab>('overview');
   const [mode, setMode] = useState<'view' | 'agent' | 'investor'>('view');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // The prescription open in the review modal, for the Prescriptions tab.
+  const [selectedRxId, setSelectedRxId] = useState<string | null>(null);
+  const selectedRx = rxRows.find((r) => r.id === selectedRxId) ?? null;
 
   // Transaction history filters
   const [txnSearch, setTxnSearch] = useState('');
@@ -393,6 +420,11 @@ export default function UserDetailPage() {
                   },
                   { key: 'plans', label: 'Plan details', count: planRows.length },
                   {
+                    key: 'prescriptions',
+                    label: 'Prescriptions',
+                    count: rxRows.length,
+                  },
+                  {
                     key: 'transactions',
                     label: 'Transaction history',
                     count: txnRows.length,
@@ -431,20 +463,32 @@ export default function UserDetailPage() {
                         </p>
                       ) : (
                         <div className="max-w-xs">
-                          <PrivilegeCard
-                            tierKind={headlinePlan.tierKind}
-                            tierName={headlinePlan.tier}
-                            cardNumber={headlinePlan.cardNumber}
-                            holder={headlinePlan.memberName}
-                            amount={headlinePlan.amount}
-                            bonus={headlinePlan.bonus}
-                            status={titleCase(headlinePlan.status)}
-                            footNote={
-                              headlinePlan.expiresOn
-                                ? `Expires ${formatDate(headlinePlan.expiresOn)}`
-                                : undefined
-                            }
-                          />
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/activations/${headlinePlan.id}`)}
+                            className="group block text-left"
+                          >
+                            <PrivilegeCard
+                              tierKind={headlinePlan.tierKind}
+                              tierName={headlinePlan.tier}
+                              cardNumber={headlinePlan.cardNumber}
+                              holder={headlinePlan.memberName}
+                              amount={headlinePlan.amount}
+                              bonus={headlinePlan.bonus}
+                              status={titleCase(headlinePlan.status)}
+                              footNote={
+                                headlinePlan.expiresOn
+                                  ? `Expires ${formatDate(headlinePlan.expiresOn)}`
+                                  : undefined
+                              }
+                              className="transition group-hover:-translate-y-0.5 group-hover:shadow-lg"
+                            />
+                          </button>
+                          {headlinePlan.status === 'pending' && (
+                            <p className="mt-2 text-xs font-medium text-amber-700">
+                              Awaiting review — tap the card to approve or reject it.
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -610,42 +654,96 @@ export default function UserDetailPage() {
                       <div className="space-y-3">
                         {headlinePlan && (
                           <div className="max-w-xs">
-                            <PrivilegeCard
-                              tierKind={headlinePlan.tierKind}
-                              tierName={headlinePlan.tier}
-                              cardNumber={headlinePlan.cardNumber}
-                              holder={headlinePlan.memberName}
-                              amount={headlinePlan.amount}
-                              bonus={headlinePlan.bonus}
-                              status={titleCase(headlinePlan.status)}
-                              footNote={
-                                headlinePlan.expiresOn
-                                  ? `Expires ${formatDate(headlinePlan.expiresOn)}`
-                                  : undefined
+                            <button
+                              type="button"
+                              onClick={() =>
+                                navigate(`/activations/${headlinePlan.id}`)
                               }
-                            />
+                              className="group block text-left"
+                            >
+                              <PrivilegeCard
+                                tierKind={headlinePlan.tierKind}
+                                tierName={headlinePlan.tier}
+                                cardNumber={headlinePlan.cardNumber}
+                                holder={headlinePlan.memberName}
+                                amount={headlinePlan.amount}
+                                bonus={headlinePlan.bonus}
+                                status={titleCase(headlinePlan.status)}
+                                footNote={
+                                  headlinePlan.expiresOn
+                                    ? `Expires ${formatDate(headlinePlan.expiresOn)}`
+                                    : undefined
+                                }
+                                className="transition group-hover:-translate-y-0.5 group-hover:shadow-lg"
+                              />
+                            </button>
                           </div>
                         )}
                         <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
                           {planRows.map((p) => (
-                            <li
-                              key={p.id}
-                              className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                            >
-                              <span className="min-w-0">
-                                <span className="block truncate font-medium text-slate-800">
-                                  {p.tier} · {formatCurrency(p.amount)}
+                            <li key={p.id}>
+                              <button
+                                type="button"
+                                onClick={() => navigate(`/activations/${p.id}`)}
+                                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-slate-50"
+                              >
+                                <span className="min-w-0">
+                                  <span className="block truncate font-medium text-slate-800">
+                                    {p.tier} · {formatCurrency(p.amount)}
+                                  </span>
+                                  <span className="text-xs text-slate-400">
+                                    {p.cardNumber || '—'} · {formatDate(p.submittedAt)}
+                                  </span>
                                 </span>
-                                <span className="text-xs text-slate-400">
-                                  {p.cardNumber || '—'} · {formatDate(p.submittedAt)}
-                                </span>
-                              </span>
-                              <Badge tone={toneForStatus(p.status)}>
-                                {titleCase(p.status)}
-                              </Badge>
+                                <Badge tone={toneForStatus(p.status)}>
+                                  {titleCase(p.status)}
+                                </Badge>
+                              </button>
                             </li>
                           ))}
                         </ul>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              )}
+
+              {tab === 'prescriptions' && (
+                <Card>
+                  <CardHeader
+                    title={`Prescriptions${rxRows.length > 0 ? ` (${rxRows.length})` : ''}`}
+                    subtitle="Scripts this member has uploaded — open one to see the script and send or update its intake card."
+                  />
+                  <div className="p-5">
+                    {prescriptions.loading ? (
+                      <p className="text-sm text-slate-400">Loading…</p>
+                    ) : rxRows.length === 0 ? (
+                      <p className="text-sm text-slate-400">
+                        No prescriptions uploaded.
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {rxRows.map((rx) => (
+                          <button
+                            key={rx.id}
+                            type="button"
+                            onClick={() => setSelectedRxId(rx.id)}
+                            className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 text-left text-sm transition hover:border-brand-300 hover:bg-slate-50"
+                          >
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium text-slate-800">
+                                {rx.code} · {rx.patientName}
+                              </span>
+                              <span className="text-xs text-slate-400">
+                                {rx.doctor || 'No doctor named'} ·{' '}
+                                {formatDateTime(rx.createdAt)}
+                              </span>
+                            </span>
+                            <Badge tone={toneForStatus(rx.status)}>
+                              {RX_STATUS_LABEL[rx.status]}
+                            </Badge>
+                          </button>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -867,6 +965,12 @@ export default function UserDetailPage() {
               {formError}
             </p>
           )}
+
+          <PrescriptionReviewModal
+            prescription={selectedRx}
+            onClose={() => setSelectedRxId(null)}
+            onSaved={prescriptions.reload}
+          />
         </div>
       )}
     </>

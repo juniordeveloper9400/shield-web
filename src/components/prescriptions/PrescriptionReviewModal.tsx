@@ -1,0 +1,271 @@
+import { useEffect, useState } from 'react';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { DetailList } from '@/components/ui/DetailList';
+import { formatDateTime, toneForStatus } from '@/lib/format';
+import { savePrescriptionIntake, setPrescriptionStatus } from '@/api/prescriptions';
+import type { Prescription, PrescriptionMedicineInput, PrescriptionStatus } from '@/types';
+
+const inputClass =
+  'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+
+const EMPTY_ROW: PrescriptionMedicineInput = {
+  name: '',
+  pack: '',
+  intake: '',
+  totalUnits: 0,
+};
+
+const STATUS_LABEL: Record<PrescriptionStatus, string> = {
+  awaiting_review: 'Awaiting review',
+  read: 'Read',
+  in_cart: 'In cart',
+  ordered: 'Ordered',
+};
+
+/**
+ * The counter's view of one uploaded script: the image, its details, and the
+ * intake card editor — read the pack, dose and count off the script and send
+ * it, which is what lets the customer's app expand their prescription card.
+ *
+ * Shared between the app-wide Prescriptions queue and the "Prescriptions" tab
+ * on a member's own user page, so a script reviewed from either place goes
+ * through the exact same form.
+ */
+export function PrescriptionReviewModal({
+  prescription,
+  onClose,
+  onSaved,
+}: {
+  /** The prescription open in the modal. Null closes it. */
+  prescription: Prescription | null;
+  onClose: () => void;
+  /** Called after a successful save, so the caller's list re-reads the row. */
+  onSaved: () => void;
+}) {
+  const [draft, setDraft] = useState<PrescriptionMedicineInput[]>([]);
+  const [sending, setSending] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [imageOpen, setImageOpen] = useState(false);
+
+  // Load the open prescription's existing lines into the editor (or one blank
+  // row to start from).
+  useEffect(() => {
+    if (!prescription) {
+      setDraft([]);
+      setImageOpen(false);
+      return;
+    }
+    setDraft(
+      prescription.medicines.length > 0
+        ? prescription.medicines.map((m) => ({
+            name: m.name,
+            pack: m.pack,
+            intake: `${m.doseMorning}${m.doseAfternoon}${m.doseNight}`,
+            totalUnits: m.totalUnits,
+          }))
+        : [{ ...EMPTY_ROW }],
+    );
+    // Only when the open prescription changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prescription?.id]);
+
+  function patchRow(i: number, patch: Partial<PrescriptionMedicineInput>) {
+    setDraft((d) => d.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+  }
+
+  async function sendIntake() {
+    if (!prescription) return;
+    setSending(true);
+    try {
+      await savePrescriptionIntake(prescription.id, draft);
+      onSaved();
+      onClose();
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function changeStatus(next: PrescriptionStatus) {
+    if (!prescription) return;
+    setSaving(true);
+    try {
+      await setPrescriptionStatus(prescription.id, next);
+      onSaved();
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const draftHasRows = draft.some((r) => r.name.trim().length > 0);
+
+  return (
+    <>
+      <Modal
+        open={Boolean(prescription)}
+        onClose={onClose}
+        title={prescription ? prescription.code : ''}
+        footer={
+          prescription && (
+            <>
+              {prescription.status !== 'awaiting_review' && (
+                <Button
+                  variant="secondary"
+                  disabled={saving || sending}
+                  onClick={() => changeStatus('awaiting_review')}
+                >
+                  Back to awaiting
+                </Button>
+              )}
+              <Button
+                variant="primary"
+                disabled={sending || !draftHasRows}
+                onClick={sendIntake}
+              >
+                {sending
+                  ? 'Sending…'
+                  : prescription.medicines.length > 0
+                    ? 'Update intake card'
+                    : 'Send intake card'}
+              </Button>
+            </>
+          )
+        }
+      >
+        {prescription && (
+          <>
+            <div className="mb-3">
+              <Badge tone={toneForStatus(prescription.status)}>
+                {STATUS_LABEL[prescription.status]}
+              </Badge>
+            </div>
+
+            <div className="mb-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Uploaded script
+              </p>
+              {prescription.image ? (
+                <button
+                  type="button"
+                  onClick={() => setImageOpen(true)}
+                  className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
+                >
+                  <img
+                    src={prescription.image}
+                    alt={`Prescription ${prescription.code}`}
+                    className="max-h-72 w-full object-contain"
+                  />
+                </button>
+              ) : (
+                <div className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-400">
+                  No image was uploaded with this prescription.
+                </div>
+              )}
+            </div>
+
+            <DetailList
+              rows={[
+                { label: 'Member', value: prescription.memberName },
+                { label: 'Phone', value: prescription.memberPhone },
+                { label: 'Patient', value: prescription.patientName },
+                { label: 'Doctor', value: prescription.doctor || '—' },
+                { label: 'Branch', value: prescription.storeName },
+                { label: 'Duration', value: prescription.duration },
+                { label: 'Uploaded', value: formatDateTime(prescription.createdAt) },
+              ]}
+            />
+
+            <div className="mt-4">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Intake card
+                </p>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-brand-600"
+                  onClick={() => setDraft((d) => [...d, { ...EMPTY_ROW }])}
+                >
+                  + Add medicine
+                </button>
+              </div>
+              <p className="mb-2 text-xs text-slate-400">
+                Intake is the three-digit morning-afternoon-night code (e.g.
+                101). The customer's app expands their card when you send this.
+              </p>
+              <div className="space-y-2">
+                {draft.map((row, i) => (
+                  <div key={i} className="rounded-lg border border-slate-200 p-2.5">
+                    <div className="mb-1.5 flex items-center justify-between">
+                      <span className="text-xs font-medium text-slate-500">
+                        Medicine {i + 1}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-rose-600"
+                        onClick={() => setDraft((d) => d.filter((_, j) => j !== i))}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                    <input
+                      value={row.name}
+                      onChange={(e) => patchRow(i, { name: e.target.value })}
+                      placeholder="Medicine name"
+                      className={`${inputClass} mb-1.5`}
+                    />
+                    <div className="grid grid-cols-3 gap-1.5">
+                      <input
+                        value={row.pack}
+                        onChange={(e) => patchRow(i, { pack: e.target.value })}
+                        placeholder="Pack"
+                        className={inputClass}
+                      />
+                      <input
+                        value={row.intake}
+                        onChange={(e) => patchRow(i, { intake: e.target.value })}
+                        placeholder="Intake (101)"
+                        inputMode="numeric"
+                        maxLength={5}
+                        className={`${inputClass} text-center tracking-widest`}
+                      />
+                      <input
+                        value={row.totalUnits || ''}
+                        onChange={(e) =>
+                          patchRow(i, { totalUnits: Number(e.target.value) || 0 })
+                        }
+                        placeholder="Units"
+                        inputMode="numeric"
+                        className={`${inputClass} text-right`}
+                      />
+                    </div>
+                  </div>
+                ))}
+                {draft.length === 0 && (
+                  <p className="text-sm text-slate-400">
+                    No lines yet — add the medicines from the script above.
+                  </p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </Modal>
+
+      <Modal
+        open={imageOpen}
+        onClose={() => setImageOpen(false)}
+        title={prescription ? `${prescription.code} — script` : ''}
+      >
+        {prescription?.image && (
+          <img
+            src={prescription.image}
+            alt={`Prescription ${prescription.code}`}
+            className="max-h-[70vh] w-full object-contain"
+          />
+        )}
+      </Modal>
+    </>
+  );
+}
