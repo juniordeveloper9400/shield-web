@@ -4,6 +4,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { Tabs } from '@/components/ui/Tabs';
 import { DetailList } from '@/components/ui/DetailList';
 import { PrivilegeCard } from '@/components/ui/PrivilegeCard';
@@ -153,6 +154,9 @@ export default function UserDetailPage() {
   const [mode, setMode] = useState<'view' | 'agent' | 'investor'>('view');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // Confirm step for dropping an agent / investor back to a plain member — the
+  // delete cascades their downline, payouts and plan-change requests.
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
 
   // The prescription open in the review modal, for the Prescriptions tab.
   const [selectedRxId, setSelectedRxId] = useState<string | null>(null);
@@ -310,7 +314,10 @@ export default function UserDetailPage() {
     setFormError(null);
     try {
       await revokePersona(id);
-      back();
+      setConfirmRevoke(false);
+      // Stay on the page so the persona badge flips to "Member" in place.
+      user.reload();
+      detail.reload();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not revoke.');
     } finally {
@@ -349,9 +356,12 @@ export default function UserDetailPage() {
                     variant="danger"
                     size="sm"
                     disabled={saving}
-                    onClick={doRevoke}
+                    onClick={() => {
+                      setFormError(null);
+                      setConfirmRevoke(true);
+                    }}
                   >
-                    Revoke {titleCase(selected.persona)} — back to member
+                    Switch to member
                   </Button>
                 )}
               </>
@@ -971,6 +981,87 @@ export default function UserDetailPage() {
             onClose={() => setSelectedRxId(null)}
             onSaved={prescriptions.reload}
           />
+
+          <Modal
+            open={confirmRevoke}
+            onClose={() => {
+              if (!saving) setConfirmRevoke(false);
+            }}
+            title={`Switch ${selected.name} back to member?`}
+            footer={
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() => setConfirmRevoke(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={saving}
+                  onClick={doRevoke}
+                >
+                  {saving
+                    ? 'Switching…'
+                    : `Yes, remove ${titleCase(selected.persona)} access`}
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-3 text-sm text-slate-600">
+              <p>
+                This removes the{' '}
+                <span className="font-medium text-slate-800">
+                  {titleCase(selected.persona)}
+                </span>{' '}
+                role. The app login and member profile are kept — only the{' '}
+                {selected.persona} portal and the records below go.
+              </p>
+              {selected.persona === 'agent' ? (
+                <ul className="list-disc space-y-1 pl-5">
+                  <li>
+                    Agent code{' '}
+                    <span className="font-medium text-slate-800">
+                      {selected.agentCode || '—'}
+                    </span>{' '}
+                    is released; re-converting later issues a new one.
+                  </li>
+                  <li>
+                    Every customer they onboarded, and those customers' plan
+                    records, are deleted.
+                  </li>
+                  <li>
+                    Their withdrawal requests and commission-transfer history are
+                    deleted.
+                  </li>
+                  <li>Any sub-agents under them move to the top of the tree.</li>
+                </ul>
+              ) : (
+                <ul className="list-disc space-y-1 pl-5">
+                  <li>
+                    Investor code{' '}
+                    <span className="font-medium text-slate-800">
+                      {selected.investorCode || '—'}
+                    </span>{' '}
+                    is released; re-converting later issues a new one.
+                  </li>
+                  <li>
+                    Their unit holding, ROI and any plan-change requests are
+                    deleted.
+                  </li>
+                </ul>
+              )}
+              <p className="font-medium text-rose-600">This cannot be undone.</p>
+              {formError && (
+                <p className="rounded-lg bg-rose-50 px-3 py-2 text-rose-700">
+                  {formError}
+                </p>
+              )}
+            </div>
+          </Modal>
         </div>
       )}
     </>

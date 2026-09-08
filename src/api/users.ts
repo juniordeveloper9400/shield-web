@@ -193,7 +193,11 @@ export async function convertToAgent(
     INSERT INTO app.agent
       (member_id, code, name, phone, level, parent_id, area, approval_status)
     SELECT u.id,
-           'SHD-AGT-' || lpad(((SELECT count(*) FROM app.agent) + 1)::text, 3, '0'),
+           'SHD-AGT-' || lpad((
+             COALESCE(
+               (SELECT max(substring(code from '[0-9]+$')::int) FROM app.agent),
+               0
+             ) + 1)::text, 3, '0'),
            u.name, u.phone, $2::app.agent_level, $3, $4, 'APPROVED'
     FROM app.users u
     WHERE u.id = $1
@@ -226,7 +230,11 @@ export async function convertToInvestor(
       (member_id, code, name, phone, invested_store_id,
        total_units, unit_price, invested_since, roi_percent, plan_type)
     SELECT u.id,
-           'SHD-INV-' || lpad(((SELECT count(*) FROM app.investor) + 1)::text, 3, '0'),
+           'SHD-INV-' || lpad((
+             COALESCE(
+               (SELECT max(substring(code from '[0-9]+$')::int) FROM app.investor),
+               0
+             ) + 1)::text, 3, '0'),
            u.name, u.phone,
            (SELECT id FROM app.shield_store WHERE code = $2),
            $3, $4, current_date, $5, $6::app.investor_plan_type
