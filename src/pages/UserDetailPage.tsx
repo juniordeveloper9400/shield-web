@@ -4,8 +4,6 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
-import { SearchInput } from '@/components/ui/Filters';
 import { Tabs } from '@/components/ui/Tabs';
 import { DetailList } from '@/components/ui/DetailList';
 import { PrivilegeCard } from '@/components/ui/PrivilegeCard';
@@ -21,7 +19,6 @@ import {
   getUser,
   getUserDetail,
   listAgentOptions,
-  listUsers,
   convertToAgent,
   convertToInvestor,
   revokePersona,
@@ -62,33 +59,6 @@ export default function UserDetailPage() {
   const [mode, setMode] = useState<'view' | 'agent' | 'investor'>('view');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-
-  // "Switch user" — jump straight to another member without a trip back to
-  // the list, the way the reference console's header lets you move on.
-  const [switchOpen, setSwitchOpen] = useState(false);
-  const [switchQuery, setSwitchQuery] = useState('');
-  const allUsers = useAsync(listUsers, []);
-  const switchMatches = useMemo(() => {
-    const q = switchQuery.trim().toLowerCase();
-    const rows = (allUsers.data ?? []).filter((row) => row.id !== id);
-    if (!q) return rows.slice(0, 30);
-    return rows
-      .filter(
-        (row) =>
-          row.name.toLowerCase().includes(q) ||
-          row.phone.includes(q) ||
-          row.email.toLowerCase().includes(q),
-      )
-      .slice(0, 30);
-  }, [allUsers.data, switchQuery, id]);
-
-  function switchTo(userId: string) {
-    setSwitchOpen(false);
-    setSwitchQuery('');
-    setTab('overview');
-    setMode('view');
-    navigate(`/users/${userId}`);
-  }
 
   // Agent form
   const [level, setLevel] = useState<AgentLevel>('ward');
@@ -228,58 +198,43 @@ export default function UserDetailPage() {
         subtitle="App member profile, and agent / investor conversion."
         actions={
           <>
-            <Button variant="secondary" size="sm" onClick={() => setSwitchOpen(true)}>
-              Switch user
-            </Button>
+            {selected && mode === 'view' && (
+              <>
+                {selected.persona === 'member' ? (
+                  <>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setMode('investor')}
+                    >
+                      Switch to investor
+                    </Button>
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => setMode('agent')}
+                    >
+                      Switch to agent
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    disabled={saving}
+                    onClick={doRevoke}
+                  >
+                    Revoke {titleCase(selected.persona)} — back to member
+                  </Button>
+                )}
+              </>
+            )}
             <Button variant="secondary" size="sm" onClick={back}>
               ← Back to users
             </Button>
           </>
         }
       />
-
-      <Modal
-        open={switchOpen}
-        onClose={() => setSwitchOpen(false)}
-        title="Switch user"
-      >
-        <div className="space-y-3">
-          <SearchInput
-            value={switchQuery}
-            onChange={setSwitchQuery}
-            placeholder="Search name, phone, email…"
-          />
-          <div className="max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
-            {allUsers.loading ? (
-              <p className="p-4 text-center text-sm text-slate-400">Loading…</p>
-            ) : switchMatches.length === 0 ? (
-              <p className="p-4 text-center text-sm text-slate-400">No matches.</p>
-            ) : (
-              switchMatches.map((row) => (
-                <button
-                  key={row.id}
-                  type="button"
-                  onClick={() => switchTo(row.id)}
-                  className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50"
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-medium text-slate-800">
-                      {row.name}
-                    </span>
-                    <span className="text-xs text-slate-400">
-                      {row.phone}
-                      {row.email ? ` · ${row.email}` : ''}
-                    </span>
-                  </span>
-                  <Badge tone={PERSONA_TONE[row.persona]}>
-                    {titleCase(row.persona)}
-                  </Badge>
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      </Modal>
 
       {user.loading ? (
         <Card className="p-5">
@@ -391,28 +346,6 @@ export default function UserDetailPage() {
                     />
                     <div className="p-5">
                       <DetailList rows={detailRows} />
-                    </div>
-                  </Card>
-
-                  <Card className="p-5">
-                    <div className="flex flex-wrap gap-2">
-                      {selected.persona === 'member' ? (
-                        <>
-                          <Button
-                            variant="secondary"
-                            onClick={() => setMode('investor')}
-                          >
-                            Make investor
-                          </Button>
-                          <Button variant="primary" onClick={() => setMode('agent')}>
-                            Make agent
-                          </Button>
-                        </>
-                      ) : (
-                        <Button variant="danger" disabled={saving} onClick={doRevoke}>
-                          Revoke {titleCase(selected.persona)} — back to member
-                        </Button>
-                      )}
                     </div>
                   </Card>
                 </div>
