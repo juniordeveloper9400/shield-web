@@ -33,10 +33,15 @@ It manages:
 
 ## Auth & roles
 
-Every admin signs in with their **work email + password** (Firebase
-Email/Password, project `shield-zabnix`). The Firebase account proves *who*;
-the [`app.admin_user`](../backend/db/migrations/0001_admin_user.sql) row says
-*what they can do* — role, and for a Pharmacy Admin the one branch they work.
+The current implementation signs in against the credential list in
+[`src/config/admins.ts`](src/config/admins.ts) and stores the login id in browser
+`localStorage`. It does not currently use Firebase Email/Password or resolve
+identity from `app.admin_user`, so treat this as an internal development-only
+console. Do not publish the credential list or use this flow for production.
+
+The intended data model remains that an admin identity has a role and, for a
+Pharmacy Admin, one branch scope. Any production implementation must enforce
+that identity, role, and branch authorization on a server.
 
 | Role | Sees |
 | --- | --- |
@@ -46,33 +51,29 @@ the [`app.admin_user`](../backend/db/migrations/0001_admin_user.sql) row says
 | `appointments` | Dashboard, Appointments |
 
 The access matrix is [`ROLE_PERMISSIONS`](src/config/permissions.ts); the branch
-filter is `scopeToStore()` in the same file. `AuthContext` resolves the signed-in
-email to its `admin_user` row and drops the session if there is no active row.
+filter is `scopeToStore()` in the same file.
 
 ## First-time setup
 
-1. **Database** — the admin table:
+1. **Database** — the admin table may still be useful to future server-side auth:
    ```bash
    # from the repo root, with .env holding DATABASE_URL
    dart run backend/db/apply_migration.dart backend/db/migrations/0001_admin_user.sql --yes
    ```
-   (idempotent — safe to re-run).
+  (idempotent — safe to re-run). The current client-side login does not read it.
 
-2. **Firebase** — in the [console](https://console.firebase.google.com/):
-   register a **Web app** under Project settings → General, and enable
-   **Authentication → Sign-in method → Email/Password**.
+2. **Env** — create `.env.local` from `.env.example` when that template is
+  present in the checkout and fill in the Vite values required by the current
+  configuration. These values are bundled into the browser build.
 
-3. **Env** — `cp .env.example .env.local` and fill in `VITE_DATABASE_URL` and
-   the `VITE_FIREBASE_*` values from the Web app's "SDK setup and configuration".
+3. **Credentials** — the current login list is source-controlled in
+  `src/config/admins.ts`. Replace this implementation with server-side auth
+  before deploying outside a trusted internal environment.
 
-4. **First admin** — create the Super Admin login:
-   ```bash
-   npm install
-   node scripts/create-admin.mjs \
-     --email superadmin@shield.co.in --password 'choose-a-strong-one' \
-     --name "Your Name" --role superadmin
-   ```
-   Every other login is then added from the **Admins** page.
+Do not use the old Firebase/database provisioning flow or `scripts/create-admin.mjs`
+as a substitute for the current login flow. Replace the client-side credentials
+with server-side authentication before deployment outside a trusted internal
+environment.
 
 ## Run it
 
