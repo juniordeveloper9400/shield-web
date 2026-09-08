@@ -329,8 +329,14 @@ export default function UserDetailPage() {
                 )}
               </>
             )}
-            <Button variant="secondary" size="sm" onClick={back}>
-              ← Back to users
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={back}
+              aria-label="Back to users"
+              title="Back to users"
+            >
+              ←
             </Button>
           </>
         }
