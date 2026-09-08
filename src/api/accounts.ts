@@ -135,7 +135,80 @@ export async function listMoneyFlowEntries(limit = 50): Promise<MoneyFlowEntry[]
     [limit],
   );
 
-  return rows.map((r) => ({
+  return rows.map(toMoneyFlowEntry);
+}
+
+/**
+ * One member's own transaction history — the same five sources as
+ * {@link listMoneyFlowEntries} (order payments, lab and appointment fees,
+ * approved privilege-plan loads, and — when this member is also an agent —
+ * their paid commission withdrawals), scoped to just their rows. Used by the
+ * "Transaction history" tab on the user detail page.
+ *
+ * [detail] carries a short kind descriptor here rather than a name — the
+ * member is already the page it's on, so naming them again on every row
+ * would say nothing the "who" doesn't already answer.
+ */
+export async function listMemberTransactions(
+  memberId: string,
+  limit = 200,
+): Promise<MoneyFlowEntry[]> {
+  const rows = await query<Row>(
+    `
+    SELECT * FROM (
+      SELECT o.id::text AS id, 'order' AS kind, 'in' AS direction,
+             o.paid_total AS amount, o.placed_at AS occurred_at,
+             o.code AS label,
+             CASE o.kind WHEN 'PRESCRIPTION' THEN 'Prescription order' ELSE 'Standard order' END AS detail
+        FROM app."order" o
+       WHERE o.status <> 'CANCELLED' AND o.member_id = $1
+
+      UNION ALL
+
+      SELECT lb.id::text, 'lab_booking', 'in',
+             lb.total_price, lb.created_at,
+             'LB-' || lpad(lb.id::text, 4, '0'), 'Lab test booking'
+        FROM app.lab_booking lb
+       WHERE lb.status <> 'CANCELLED' AND lb.total_price > 0 AND lb.member_id = $1
+
+      UNION ALL
+
+      SELECT a.id::text, 'appointment', 'in',
+             a.fee, a.created_at,
+             COALESCE(a.doctor_name, 'Appointment'), 'Consultation fee'
+        FROM app.appointment a
+       WHERE a.status <> 'CANCELLED' AND a.fee IS NOT NULL AND a.fee > 0 AND a.member_id = $1
+
+      UNION ALL
+
+      SELECT wc.id::text, 'privilege_load', 'in',
+             wc.amount, COALESCE(wc.reviewed_at, wc.submitted_at),
+             mt.name, 'Privilege plan load'
+        FROM app.wallet_card wc
+        JOIN app.wallet w            ON w.id  = wc.wallet_id
+        JOIN app.membership_tier mt  ON mt.id = wc.tier_id
+       WHERE wc.status = 'APPROVED' AND w.member_id = $1
+
+      UNION ALL
+
+      SELECT aw.id::text, 'agent_payout', 'out',
+             aw.amount, COALESCE(aw.processed_on::timestamptz, aw.created_at),
+             'Agent payout', 'Commission withdrawal'
+        FROM app.agent_withdrawal aw
+        JOIN app.agent ag ON ag.id = aw.agent_id
+       WHERE aw.status = 'PAID' AND ag.member_id = $1
+    ) flow
+    ORDER BY occurred_at DESC
+    LIMIT $2
+    `,
+    [memberId, limit],
+  );
+
+  return rows.map(toMoneyFlowEntry);
+}
+
+function toMoneyFlowEntry(r: Row): MoneyFlowEntry {
+  return {
     id: `${r.kind}-${r.id}`,
     kind: r.kind as MoneyFlowKind,
     direction: r.direction as 'in' | 'out',
@@ -143,7 +216,7 @@ export async function listMoneyFlowEntries(limit = 50): Promise<MoneyFlowEntry[]
     label: String(r.label),
     detail: String(r.detail),
     occurredAt: iso(r.occurred_at) ?? new Date(0).toISOString(),
-  }));
+  };
 }
 
 /**

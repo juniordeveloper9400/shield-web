@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { Tabs } from '@/components/ui/Tabs';
 import { DetailList } from '@/components/ui/DetailList';
 import { PrivilegeCard } from '@/components/ui/PrivilegeCard';
+import { DataTable, type Column } from '@/components/ui/DataTable';
+import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import {
   formatCurrency,
   formatDate,
@@ -24,7 +26,8 @@ import {
   revokePersona,
 } from '@/api/users';
 import { listActivationsForMember } from '@/api/activations';
-import type { AgentLevel, InvestorPlanType } from '@/types';
+import { listMemberTransactions, moneyFlowKindLabel } from '@/api/accounts';
+import type { AgentLevel, InvestorPlanType, MoneyFlowEntry, MoneyFlowKind } from '@/types';
 
 const AGENT_LEVELS: AgentLevel[] = [
   'national',
@@ -41,7 +44,73 @@ const PERSONA_TONE = { member: 'gray', agent: 'green', investor: 'violet' } as c
 const fieldCls =
   'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500';
 
-type Tab = 'overview' | 'patients' | 'addresses' | 'plans';
+type Tab = 'overview' | 'patients' | 'addresses' | 'plans' | 'transactions';
+
+const TXN_KIND_TONE: Record<MoneyFlowKind, 'blue' | 'violet' | 'green' | 'amber' | 'red'> = {
+  order: 'blue',
+  lab_booking: 'violet',
+  appointment: 'green',
+  privilege_load: 'amber',
+  agent_payout: 'red',
+};
+
+const TXN_KIND_OPTIONS = [
+  { value: 'all', label: 'All types' },
+  { value: 'order', label: 'Orders' },
+  { value: 'lab_booking', label: 'Lab tests' },
+  { value: 'appointment', label: 'Appointments' },
+  { value: 'privilege_load', label: 'Privilege plan loads' },
+  { value: 'agent_payout', label: 'Agent payouts' },
+];
+
+const TXN_DIRECTION_OPTIONS = [
+  { value: 'all', label: 'In & out' },
+  { value: 'in', label: 'Money in' },
+  { value: 'out', label: 'Money out' },
+];
+
+const TXN_COLUMNS: Column<MoneyFlowEntry>[] = [
+  { key: 'when', header: 'Date', render: (row) => formatDateTime(row.occurredAt) },
+  {
+    key: 'type',
+    header: 'Type',
+    render: (row) => (
+      <Badge tone={TXN_KIND_TONE[row.kind]}>{moneyFlowKindLabel(row.kind)}</Badge>
+    ),
+  },
+  {
+    key: 'ref',
+    header: 'Reference',
+    render: (row) => (
+      <div>
+        <p className="text-slate-800">{row.label}</p>
+        <p className="text-xs text-slate-400">{row.detail}</p>
+      </div>
+    ),
+  },
+  {
+    key: 'direction',
+    header: 'Flow',
+    render: (row) => (
+      <Badge tone={row.direction === 'in' ? 'green' : 'red'}>
+        {row.direction === 'in' ? 'In' : 'Out'}
+      </Badge>
+    ),
+  },
+  {
+    key: 'amount',
+    header: 'Amount',
+    render: (row) => (
+      <span
+        className={`font-semibold ${row.direction === 'in' ? 'text-emerald-600' : 'text-rose-600'}`}
+      >
+        {row.direction === 'in' ? '+' : '−'}
+        {formatCurrency(row.amount)}
+      </span>
+    ),
+    className: 'text-right',
+  },
+];
 
 export default function UserDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
@@ -51,14 +120,45 @@ export default function UserDetailPage() {
   const detail = useAsync(() => getUserDetail(id), [id]);
   const agents = useAsync(listAgentOptions, []);
   const plans = useAsync(() => listActivationsForMember(id), [id]);
+  const transactions = useAsync(() => listMemberTransactions(id), [id]);
   const selected = user.data;
   const planRows = plans.data ?? [];
   const headlinePlan = planRows.find((p) => p.status === 'approved') ?? planRows[0];
+  const txnRows = transactions.data ?? [];
 
   const [tab, setTab] = useState<Tab>('overview');
   const [mode, setMode] = useState<'view' | 'agent' | 'investor'>('view');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // Transaction history filters
+  const [txnSearch, setTxnSearch] = useState('');
+  const [txnKind, setTxnKind] = useState('all');
+  const [txnDirection, setTxnDirection] = useState('all');
+  const filteredTxns = useMemo(() => {
+    const q = txnSearch.trim().toLowerCase();
+    return txnRows.filter((row) => {
+      const matchesQuery =
+        !q ||
+        row.label.toLowerCase().includes(q) ||
+        row.detail.toLowerCase().includes(q);
+      const matchesKind = txnKind === 'all' || row.kind === txnKind;
+      const matchesDirection = txnDirection === 'all' || row.direction === txnDirection;
+      return matchesQuery && matchesKind && matchesDirection;
+    });
+  }, [txnRows, txnSearch, txnKind, txnDirection]);
+  const txnTotals = useMemo(
+    () =>
+      txnRows.reduce(
+        (acc, row) => {
+          if (row.direction === 'in') acc.in += row.amount;
+          else acc.out += row.amount;
+          return acc;
+        },
+        { in: 0, out: 0 },
+      ),
+    [txnRows],
+  );
 
   // Agent form
   const [level, setLevel] = useState<AgentLevel>('ward');
@@ -286,6 +386,11 @@ export default function UserDetailPage() {
                     count: detail.data?.addresses.length,
                   },
                   { key: 'plans', label: 'Plan details', count: planRows.length },
+                  {
+                    key: 'transactions',
+                    label: 'Transaction history',
+                    count: txnRows.length,
+                  },
                 ]}
                 active={tab}
                 onChange={(key) => setTab(key as Tab)}
@@ -539,6 +644,69 @@ export default function UserDetailPage() {
                     )}
                   </div>
                 </Card>
+              )}
+
+              {tab === 'transactions' && (
+                <div className="space-y-6">
+                  <div className="grid gap-4 sm:grid-cols-3">
+                    <Card className="p-4">
+                      <p className="text-xs text-slate-500">Money in</p>
+                      <p className="mt-1 text-xl font-semibold text-emerald-600">
+                        {formatCurrency(txnTotals.in)}
+                      </p>
+                    </Card>
+                    <Card className="p-4">
+                      <p className="text-xs text-slate-500">Money out</p>
+                      <p className="mt-1 text-xl font-semibold text-rose-600">
+                        {formatCurrency(txnTotals.out)}
+                      </p>
+                    </Card>
+                    <Card className="p-4">
+                      <p className="text-xs text-slate-500">Net</p>
+                      <p className="mt-1 text-xl font-semibold text-slate-900">
+                        {formatCurrency(txnTotals.in - txnTotals.out)}
+                      </p>
+                    </Card>
+                  </div>
+
+                  <Card>
+                    <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">
+                          Transaction history
+                        </h3>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          Every order, lab test, appointment, plan load and agent
+                          payout on this account, one timeline.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <SearchInput
+                          value={txnSearch}
+                          onChange={setTxnSearch}
+                          placeholder="Search reference…"
+                        />
+                        <FilterSelect
+                          value={txnKind}
+                          onChange={setTxnKind}
+                          options={TXN_KIND_OPTIONS}
+                        />
+                        <FilterSelect
+                          value={txnDirection}
+                          onChange={setTxnDirection}
+                          options={TXN_DIRECTION_OPTIONS}
+                        />
+                      </div>
+                    </div>
+                    <DataTable<MoneyFlowEntry>
+                      columns={TXN_COLUMNS}
+                      rows={filteredTxns}
+                      loading={transactions.loading}
+                      error={transactions.error}
+                      empty="No transactions match your filters."
+                    />
+                  </Card>
+                </div>
               )}
             </>
           )}
