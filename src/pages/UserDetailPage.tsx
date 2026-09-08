@@ -4,6 +4,9 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { SearchInput } from '@/components/ui/Filters';
+import { Tabs } from '@/components/ui/Tabs';
 import { DetailList } from '@/components/ui/DetailList';
 import { PrivilegeCard } from '@/components/ui/PrivilegeCard';
 import {
@@ -18,6 +21,7 @@ import {
   getUser,
   getUserDetail,
   listAgentOptions,
+  listUsers,
   convertToAgent,
   convertToInvestor,
   revokePersona,
@@ -40,6 +44,8 @@ const PERSONA_TONE = { member: 'gray', agent: 'green', investor: 'violet' } as c
 const fieldCls =
   'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500';
 
+type Tab = 'overview' | 'patients' | 'addresses' | 'plans';
+
 export default function UserDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -52,9 +58,37 @@ export default function UserDetailPage() {
   const planRows = plans.data ?? [];
   const headlinePlan = planRows.find((p) => p.status === 'approved') ?? planRows[0];
 
+  const [tab, setTab] = useState<Tab>('overview');
   const [mode, setMode] = useState<'view' | 'agent' | 'investor'>('view');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // "Switch user" — jump straight to another member without a trip back to
+  // the list, the way the reference console's header lets you move on.
+  const [switchOpen, setSwitchOpen] = useState(false);
+  const [switchQuery, setSwitchQuery] = useState('');
+  const allUsers = useAsync(listUsers, []);
+  const switchMatches = useMemo(() => {
+    const q = switchQuery.trim().toLowerCase();
+    const rows = (allUsers.data ?? []).filter((row) => row.id !== id);
+    if (!q) return rows.slice(0, 30);
+    return rows
+      .filter(
+        (row) =>
+          row.name.toLowerCase().includes(q) ||
+          row.phone.includes(q) ||
+          row.email.toLowerCase().includes(q),
+      )
+      .slice(0, 30);
+  }, [allUsers.data, switchQuery, id]);
+
+  function switchTo(userId: string) {
+    setSwitchOpen(false);
+    setSwitchQuery('');
+    setTab('overview');
+    setMode('view');
+    navigate(`/users/${userId}`);
+  }
 
   // Agent form
   const [level, setLevel] = useState<AgentLevel>('ward');
@@ -193,11 +227,59 @@ export default function UserDetailPage() {
         title={selected ? selected.name : 'Member'}
         subtitle="App member profile, and agent / investor conversion."
         actions={
-          <Button variant="secondary" size="sm" onClick={back}>
-            ← Back to users
-          </Button>
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setSwitchOpen(true)}>
+              Switch user
+            </Button>
+            <Button variant="secondary" size="sm" onClick={back}>
+              ← Back to users
+            </Button>
+          </>
         }
       />
+
+      <Modal
+        open={switchOpen}
+        onClose={() => setSwitchOpen(false)}
+        title="Switch user"
+      >
+        <div className="space-y-3">
+          <SearchInput
+            value={switchQuery}
+            onChange={setSwitchQuery}
+            placeholder="Search name, phone, email…"
+          />
+          <div className="max-h-72 divide-y divide-slate-100 overflow-y-auto rounded-lg border border-slate-200">
+            {allUsers.loading ? (
+              <p className="p-4 text-center text-sm text-slate-400">Loading…</p>
+            ) : switchMatches.length === 0 ? (
+              <p className="p-4 text-center text-sm text-slate-400">No matches.</p>
+            ) : (
+              switchMatches.map((row) => (
+                <button
+                  key={row.id}
+                  type="button"
+                  onClick={() => switchTo(row.id)}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium text-slate-800">
+                      {row.name}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      {row.phone}
+                      {row.email ? ` · ${row.email}` : ''}
+                    </span>
+                  </span>
+                  <Badge tone={PERSONA_TONE[row.persona]}>
+                    {titleCase(row.persona)}
+                  </Badge>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      </Modal>
 
       {user.loading ? (
         <Card className="p-5">
@@ -235,34 +317,53 @@ export default function UserDetailPage() {
 
           {mode === 'view' && (
             <>
-              {/* Privilege plans lead the page — it's the figure a support call
-                  or a follow-up almost always starts from. */}
-              <Card>
-                <CardHeader
-                  title={`Privilege plans${planRows.length > 0 ? ` (${planRows.length})` : ''}`}
-                  subtitle="Cards this member has activated, newest first."
-                  action={
-                    planRows.length > 0 && (
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => navigate(`/activations/member/${id}`)}
-                      >
-                        More →
-                      </Button>
-                    )
-                  }
-                />
-                <div className="p-5">
-                  {plans.loading ? (
-                    <p className="text-sm text-slate-400">Loading…</p>
-                  ) : planRows.length === 0 ? (
-                    <p className="text-sm text-slate-400">
-                      No privilege plan activated.
-                    </p>
-                  ) : (
-                    <div className="space-y-3">
-                      {headlinePlan && (
+              <Tabs
+                items={[
+                  { key: 'overview', label: 'Overview' },
+                  {
+                    key: 'patients',
+                    label: 'Patient details',
+                    count: detail.data?.patients.length,
+                  },
+                  {
+                    key: 'addresses',
+                    label: 'Address details',
+                    count: detail.data?.addresses.length,
+                  },
+                  { key: 'plans', label: 'Plan details', count: planRows.length },
+                ]}
+                active={tab}
+                onChange={(key) => setTab(key as Tab)}
+              />
+
+              {tab === 'overview' && (
+                <div className="space-y-6">
+                  {/* The plan leads the tab — it's the figure a support call
+                      or a follow-up almost always starts from. */}
+                  <Card>
+                    <CardHeader
+                      title="Activate plan"
+                      subtitle="The privilege card currently active on this account."
+                      action={
+                        planRows.length > 0 && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setTab('plans')}
+                          >
+                            View all →
+                          </Button>
+                        )
+                      }
+                    />
+                    <div className="p-5">
+                      {plans.loading ? (
+                        <p className="text-sm text-slate-400">Loading…</p>
+                      ) : !headlinePlan ? (
+                        <p className="text-sm text-slate-400">
+                          No privilege plan activated.
+                        </p>
+                      ) : (
                         <div className="max-w-xs">
                           <PrivilegeCard
                             tierKind={headlinePlan.tierKind}
@@ -280,170 +381,232 @@ export default function UserDetailPage() {
                           />
                         </div>
                       )}
-                      <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
-                        {planRows.map((p) => (
-                          <li
-                            key={p.id}
-                            className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                    </div>
+                  </Card>
+
+                  <Card>
+                    <CardHeader
+                      title="Registration details"
+                      subtitle="Account and registration details."
+                    />
+                    <div className="p-5">
+                      <DetailList rows={detailRows} />
+                    </div>
+                  </Card>
+
+                  <Card className="p-5">
+                    <div className="flex flex-wrap gap-2">
+                      {selected.persona === 'member' ? (
+                        <>
+                          <Button
+                            variant="secondary"
+                            onClick={() => setMode('investor')}
                           >
-                            <span className="min-w-0">
-                              <span className="block truncate font-medium text-slate-800">
-                                {p.tier} · {formatCurrency(p.amount)}
+                            Make investor
+                          </Button>
+                          <Button variant="primary" onClick={() => setMode('agent')}>
+                            Make agent
+                          </Button>
+                        </>
+                      ) : (
+                        <Button variant="danger" disabled={saving} onClick={doRevoke}>
+                          Revoke {titleCase(selected.persona)} — back to member
+                        </Button>
+                      )}
+                    </div>
+                  </Card>
+                </div>
+              )}
+
+              {tab === 'patients' && (
+                <Card>
+                  <CardHeader
+                    title={`Patients${
+                      detail.data && detail.data.patients.length > 0
+                        ? ` (${detail.data.patients.length})`
+                        : ''
+                    }`}
+                    subtitle="People this member has added to the app."
+                  />
+                  <div className="p-5">
+                    {detail.loading ? (
+                      <p className="text-sm text-slate-400">Loading…</p>
+                    ) : !detail.data || detail.data.patients.length === 0 ? (
+                      <p className="text-sm text-slate-400">No patients added.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {detail.data.patients.map((p) => (
+                          <div
+                            key={p.id}
+                            className="rounded-lg border border-slate-200 p-3 text-sm"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-medium text-slate-800">
+                                {p.name}
                               </span>
                               <span className="text-xs text-slate-400">
-                                {p.cardNumber || '—'} · {formatDate(p.submittedAt)}
+                                {titleCase(p.relation || 'self')}
                               </span>
-                            </span>
-                            <Badge tone={toneForStatus(p.status)}>
-                              {titleCase(p.status)}
-                            </Badge>
-                          </li>
+                            </div>
+                            <p className="mt-0.5 text-xs text-slate-500">
+                              {[
+                                p.gender ? titleCase(p.gender) : '',
+                                p.dob ? formatDate(p.dob) : '',
+                                p.phone,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ') || '—'}
+                            </p>
+                            {p.abhaId && (
+                              <p className="mt-0.5 text-xs text-slate-400">
+                                ABHA: {p.abhaId}
+                              </p>
+                            )}
+                            {p.address && (
+                              <p className="mt-0.5 text-xs text-slate-400">
+                                {p.address}
+                              </p>
+                            )}
+                          </div>
                         ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </Card>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              )}
 
-              <Card>
-                <CardHeader title="Profile" subtitle="Account and registration details." />
-                <div className="p-5">
-                  <DetailList rows={detailRows} />
-                </div>
-              </Card>
-
-              <Card>
-                <CardHeader
-                  title={`Patients${
-                    detail.data && detail.data.patients.length > 0
-                      ? ` (${detail.data.patients.length})`
-                      : ''
-                  }`}
-                  subtitle="People this member has added to the app."
-                />
-                <div className="p-5">
-                  {detail.loading ? (
-                    <p className="text-sm text-slate-400">Loading…</p>
-                  ) : !detail.data || detail.data.patients.length === 0 ? (
-                    <p className="text-sm text-slate-400">No patients added.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {detail.data.patients.map((p) => (
-                        <div
-                          key={p.id}
-                          className="rounded-lg border border-slate-200 p-3 text-sm"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-medium text-slate-800">
-                              {p.name}
-                            </span>
-                            <span className="text-xs text-slate-400">
-                              {titleCase(p.relation || 'self')}
-                            </span>
-                          </div>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            {[
-                              p.gender ? titleCase(p.gender) : '',
-                              p.dob ? formatDate(p.dob) : '',
-                              p.phone,
-                            ]
-                              .filter(Boolean)
-                              .join(' · ') || '—'}
-                          </p>
-                          {p.abhaId && (
-                            <p className="mt-0.5 text-xs text-slate-400">
-                              ABHA: {p.abhaId}
-                            </p>
-                          )}
-                          {p.address && (
-                            <p className="mt-0.5 text-xs text-slate-400">
-                              {p.address}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </Card>
-
-              <Card>
-                <CardHeader
-                  title={`Addresses${
-                    detail.data && detail.data.addresses.length > 0
-                      ? ` (${detail.data.addresses.length})`
-                      : ''
-                  }`}
-                  subtitle="Saved delivery addresses on this account."
-                />
-                <div className="p-5">
-                  {detail.loading ? (
-                    <p className="text-sm text-slate-400">Loading…</p>
-                  ) : !detail.data || detail.data.addresses.length === 0 ? (
-                    <p className="text-sm text-slate-400">No addresses added.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {detail.data.addresses.map((a) => (
-                        <div
-                          key={a.id}
-                          className="rounded-lg border border-slate-200 p-3 text-sm"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
-                              {a.label || 'home'}
-                            </span>
-                            {a.isDefault && (
-                              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600">
-                                Default
+              {tab === 'addresses' && (
+                <Card>
+                  <CardHeader
+                    title={`Addresses${
+                      detail.data && detail.data.addresses.length > 0
+                        ? ` (${detail.data.addresses.length})`
+                        : ''
+                    }`}
+                    subtitle="Saved delivery addresses on this account."
+                  />
+                  <div className="p-5">
+                    {detail.loading ? (
+                      <p className="text-sm text-slate-400">Loading…</p>
+                    ) : !detail.data || detail.data.addresses.length === 0 ? (
+                      <p className="text-sm text-slate-400">No addresses added.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {detail.data.addresses.map((a) => (
+                          <div
+                            key={a.id}
+                            className="rounded-lg border border-slate-200 p-3 text-sm"
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
+                                {a.label || 'home'}
                               </span>
-                            )}
-                            {a.receiver && (
-                              <span className="font-medium text-slate-800">
-                                {a.receiver}
-                              </span>
-                            )}
+                              {a.isDefault && (
+                                <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-600">
+                                  Default
+                                </span>
+                              )}
+                              {a.receiver && (
+                                <span className="font-medium text-slate-800">
+                                  {a.receiver}
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1 text-xs text-slate-600">
+                              {[
+                                a.house,
+                                a.area,
+                                a.landmark,
+                                [a.city, a.state].filter(Boolean).join(', '),
+                                a.pincode,
+                              ]
+                                .filter(Boolean)
+                                .join(', ')}
+                            </p>
+                            <p className="mt-0.5 text-xs text-slate-400">
+                              {[a.phone, a.patientName ? `for ${a.patientName}` : '']
+                                .filter(Boolean)
+                                .join(' · ') || '—'}
+                            </p>
                           </div>
-                          <p className="mt-1 text-xs text-slate-600">
-                            {[
-                              a.house,
-                              a.area,
-                              a.landmark,
-                              [a.city, a.state].filter(Boolean).join(', '),
-                              a.pincode,
-                            ]
-                              .filter(Boolean)
-                              .join(', ')}
-                          </p>
-                          <p className="mt-0.5 text-xs text-slate-400">
-                            {[a.phone, a.patientName ? `for ${a.patientName}` : '']
-                              .filter(Boolean)
-                              .join(' · ') || '—'}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              )}
 
-              <Card className="p-5">
-                <div className="flex flex-wrap gap-2">
-                  {selected.persona === 'member' ? (
-                    <>
-                      <Button variant="secondary" onClick={() => setMode('investor')}>
-                        Make investor
-                      </Button>
-                      <Button variant="primary" onClick={() => setMode('agent')}>
-                        Make agent
-                      </Button>
-                    </>
-                  ) : (
-                    <Button variant="danger" disabled={saving} onClick={doRevoke}>
-                      Revoke {titleCase(selected.persona)} — back to member
-                    </Button>
-                  )}
-                </div>
-              </Card>
+              {tab === 'plans' && (
+                <Card>
+                  <CardHeader
+                    title={`Privilege plans${
+                      planRows.length > 0 ? ` (${planRows.length})` : ''
+                    }`}
+                    subtitle="Cards this member has activated, newest first."
+                    action={
+                      planRows.length > 0 && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => navigate(`/activations/member/${id}`)}
+                        >
+                          Full plans page →
+                        </Button>
+                      )
+                    }
+                  />
+                  <div className="p-5">
+                    {plans.loading ? (
+                      <p className="text-sm text-slate-400">Loading…</p>
+                    ) : planRows.length === 0 ? (
+                      <p className="text-sm text-slate-400">
+                        No privilege plan activated.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {headlinePlan && (
+                          <div className="max-w-xs">
+                            <PrivilegeCard
+                              tierKind={headlinePlan.tierKind}
+                              tierName={headlinePlan.tier}
+                              cardNumber={headlinePlan.cardNumber}
+                              holder={headlinePlan.memberName}
+                              amount={headlinePlan.amount}
+                              bonus={headlinePlan.bonus}
+                              status={titleCase(headlinePlan.status)}
+                              footNote={
+                                headlinePlan.expiresOn
+                                  ? `Expires ${formatDate(headlinePlan.expiresOn)}`
+                                  : undefined
+                              }
+                            />
+                          </div>
+                        )}
+                        <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+                          {planRows.map((p) => (
+                            <li
+                              key={p.id}
+                              className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate font-medium text-slate-800">
+                                  {p.tier} · {formatCurrency(p.amount)}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {p.cardNumber || '—'} · {formatDate(p.submittedAt)}
+                                </span>
+                              </span>
+                              <Badge tone={toneForStatus(p.status)}>
+                                {titleCase(p.status)}
+                              </Badge>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              )}
             </>
           )}
 
