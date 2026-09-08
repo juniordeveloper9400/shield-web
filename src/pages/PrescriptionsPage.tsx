@@ -5,7 +5,6 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { PrescriptionReviewModal } from '@/components/prescriptions/PrescriptionReviewModal';
@@ -115,12 +114,10 @@ export default function PrescriptionsPage() {
       ),
     },
     {
-      key: 'actions',
+      key: 'go',
       header: '',
-      render: (row) => (
-        <Button variant="secondary" size="sm" onClick={() => setSelectedId(row.id)}>
-          Open
-        </Button>
+      render: () => (
+        <span className="text-xs font-medium text-brand-600">Open →</span>
       ),
       className: 'text-right',
     },
@@ -164,6 +161,7 @@ export default function PrescriptionsPage() {
           loading={loading}
           error={error}
           empty="No prescriptions match your filters."
+          onRowClick={(row) => setSelectedId(row.id)}
         />
       </Card>
 
