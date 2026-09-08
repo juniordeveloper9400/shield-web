@@ -106,6 +106,7 @@ export function PrescriptionReviewModal({
       <Modal
         open={Boolean(prescription)}
         onClose={onClose}
+        size="xl"
         title={prescription ? prescription.code : ''}
         footer={
           prescription && (
@@ -135,14 +136,117 @@ export function PrescriptionReviewModal({
         }
       >
         {prescription && (
-          <>
-            <div className="mb-3">
-              <Badge tone={toneForStatus(prescription.status)}>
-                {STATUS_LABEL[prescription.status]}
-              </Badge>
+          <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,360px)]">
+            {/* Left — status, details and the intake-card editor. */}
+            <div className="order-2 md:order-1">
+              <div className="mb-3">
+                <Badge tone={toneForStatus(prescription.status)}>
+                  {STATUS_LABEL[prescription.status]}
+                </Badge>
+              </div>
+
+              <DetailList
+                rows={[
+                  { label: 'Member', value: prescription.memberName },
+                  { label: 'Phone', value: prescription.memberPhone },
+                  { label: 'Patient', value: prescription.patientName },
+                  { label: 'Doctor', value: prescription.doctor || '—' },
+                  { label: 'Branch', value: prescription.storeName },
+                  { label: 'Duration', value: prescription.duration },
+                  {
+                    label: 'Uploaded',
+                    value: formatDateTime(prescription.createdAt),
+                  },
+                ]}
+              />
+
+              <div className="mt-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Intake card
+                  </p>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-brand-600"
+                    onClick={() => setDraft((d) => [...d, { ...EMPTY_ROW }])}
+                  >
+                    + Add medicine
+                  </button>
+                </div>
+                <p className="mb-2 text-xs text-slate-400">
+                  Intake is the three-digit morning-afternoon-night code (e.g.
+                  101). The customer's app expands their card when you send
+                  this.
+                </p>
+                <div className="space-y-2">
+                  {draft.map((row, i) => (
+                    <div
+                      key={i}
+                      className="rounded-lg border border-slate-200 p-2.5"
+                    >
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <span className="text-xs font-medium text-slate-500">
+                          Medicine {i + 1}
+                        </span>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-rose-600"
+                          onClick={() =>
+                            setDraft((d) => d.filter((_, j) => j !== i))
+                          }
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <input
+                        value={row.name}
+                        onChange={(e) => patchRow(i, { name: e.target.value })}
+                        placeholder="Medicine name"
+                        className={`${inputClass} mb-1.5`}
+                      />
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <input
+                          value={row.pack}
+                          onChange={(e) => patchRow(i, { pack: e.target.value })}
+                          placeholder="Pack"
+                          className={inputClass}
+                        />
+                        <input
+                          value={row.intake}
+                          onChange={(e) =>
+                            patchRow(i, { intake: e.target.value })
+                          }
+                          placeholder="Intake (101)"
+                          inputMode="numeric"
+                          maxLength={5}
+                          className={`${inputClass} text-center tracking-widest`}
+                        />
+                        <input
+                          value={row.totalUnits || ''}
+                          onChange={(e) =>
+                            patchRow(i, {
+                              totalUnits: Number(e.target.value) || 0,
+                            })
+                          }
+                          placeholder="Units"
+                          inputMode="numeric"
+                          className={`${inputClass} text-right`}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {draft.length === 0 && (
+                    <p className="text-sm text-slate-400">
+                      No lines yet — add the medicines from the script.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div className="mb-4">
+            {/* Right — the uploaded script, held in view while the form
+                scrolls on the left. */}
+            <div className="order-1 md:order-2 md:sticky md:top-0 md:self-start">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Uploaded script
               </p>
@@ -155,101 +259,21 @@ export function PrescriptionReviewModal({
                   <img
                     src={prescription.image}
                     alt={`Prescription ${prescription.code}`}
-                    className="max-h-72 w-full object-contain"
+                    className="max-h-[60vh] w-full object-contain"
                   />
                 </button>
               ) : (
-                <div className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-400">
+                <div className="rounded-lg border border-dashed border-slate-300 px-3 py-10 text-center text-sm text-slate-400">
                   No image was uploaded with this prescription.
                 </div>
               )}
-            </div>
-
-            <DetailList
-              rows={[
-                { label: 'Member', value: prescription.memberName },
-                { label: 'Phone', value: prescription.memberPhone },
-                { label: 'Patient', value: prescription.patientName },
-                { label: 'Doctor', value: prescription.doctor || '—' },
-                { label: 'Branch', value: prescription.storeName },
-                { label: 'Duration', value: prescription.duration },
-                { label: 'Uploaded', value: formatDateTime(prescription.createdAt) },
-              ]}
-            />
-
-            <div className="mt-4">
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Intake card
+              {prescription.image && (
+                <p className="mt-1.5 text-xs text-slate-400">
+                  Tap the image to view it full size.
                 </p>
-                <button
-                  type="button"
-                  className="text-xs font-medium text-brand-600"
-                  onClick={() => setDraft((d) => [...d, { ...EMPTY_ROW }])}
-                >
-                  + Add medicine
-                </button>
-              </div>
-              <p className="mb-2 text-xs text-slate-400">
-                Intake is the three-digit morning-afternoon-night code (e.g.
-                101). The customer's app expands their card when you send this.
-              </p>
-              <div className="space-y-2">
-                {draft.map((row, i) => (
-                  <div key={i} className="rounded-lg border border-slate-200 p-2.5">
-                    <div className="mb-1.5 flex items-center justify-between">
-                      <span className="text-xs font-medium text-slate-500">
-                        Medicine {i + 1}
-                      </span>
-                      <button
-                        type="button"
-                        className="text-xs font-medium text-rose-600"
-                        onClick={() => setDraft((d) => d.filter((_, j) => j !== i))}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    <input
-                      value={row.name}
-                      onChange={(e) => patchRow(i, { name: e.target.value })}
-                      placeholder="Medicine name"
-                      className={`${inputClass} mb-1.5`}
-                    />
-                    <div className="grid grid-cols-3 gap-1.5">
-                      <input
-                        value={row.pack}
-                        onChange={(e) => patchRow(i, { pack: e.target.value })}
-                        placeholder="Pack"
-                        className={inputClass}
-                      />
-                      <input
-                        value={row.intake}
-                        onChange={(e) => patchRow(i, { intake: e.target.value })}
-                        placeholder="Intake (101)"
-                        inputMode="numeric"
-                        maxLength={5}
-                        className={`${inputClass} text-center tracking-widest`}
-                      />
-                      <input
-                        value={row.totalUnits || ''}
-                        onChange={(e) =>
-                          patchRow(i, { totalUnits: Number(e.target.value) || 0 })
-                        }
-                        placeholder="Units"
-                        inputMode="numeric"
-                        className={`${inputClass} text-right`}
-                      />
-                    </div>
-                  </div>
-                ))}
-                {draft.length === 0 && (
-                  <p className="text-sm text-slate-400">
-                    No lines yet — add the medicines from the script above.
-                  </p>
-                )}
-              </div>
+              )}
             </div>
-          </>
+          </div>
         )}
       </Modal>
 
