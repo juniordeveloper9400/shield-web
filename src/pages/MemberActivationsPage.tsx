@@ -1,35 +1,56 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
+import { canReviewActivations } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { PrivilegeCard } from '@/components/ui/PrivilegeCard';
 import {
   formatCurrency,
-  formatDate,
   formatDateTime,
   titleCase,
   toneForStatus,
 } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
-import { listActivationsForMember } from '@/api/activations';
+import { approveActivation, listActivationsForMember } from '@/api/activations';
 
 export default function MemberActivationsPage() {
   const { memberId = '' } = useParams<{ memberId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const canReview = user ? canReviewActivations(user.role) : false;
 
-  const { data, loading, error } = useAsync(
+  const { data, loading, error, reload } = useAsync(
     () => listActivationsForMember(memberId),
     [memberId],
   );
   const plans = useMemo(() => data ?? [], [data]);
   const member = plans[0];
 
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
   const totalLoad = plans.reduce((s, p) => s + p.amount, 0);
   const totalCredited = plans
     .filter((p) => p.status === 'approved')
     .reduce((s, p) => s + p.credited, 0);
+
+  async function approve(id: string) {
+    setSavingId(id);
+    setActionError(null);
+    try {
+      const ok = await approveActivation(id);
+      if (!ok) {
+        setActionError('This plan is no longer pending — reloading.');
+      }
+      reload();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not approve.');
+    } finally {
+      setSavingId(null);
+    }
+  }
 
   return (
     <>
@@ -40,7 +61,7 @@ export default function MemberActivationsPage() {
             ? `${member.memberPhone} · ${plans.length} privilege ${
                 plans.length === 1 ? 'plan' : 'plans'
               }`
-            : 'Privilege plans this member has activated'
+            : 'Privilege plans awaiting approval'
         }
         actions={
           <Button
@@ -76,48 +97,58 @@ export default function MemberActivationsPage() {
         </div>
       )}
 
-      <Card className="p-5">
+      {actionError && (
+        <p className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+          {actionError}
+        </p>
+      )}
+
+      <Card>
         {loading ? (
           <p className="py-14 text-center text-sm text-slate-400">Loading…</p>
         ) : error ? (
           <p className="py-14 text-center text-sm text-rose-500">{error}</p>
         ) : plans.length === 0 ? (
           <p className="py-14 text-center text-sm text-slate-400">
-            This member has not activated any privilege plan.
+            This member has no privilege plan awaiting approval.
           </p>
         ) : (
-          <div className="grid gap-5 md:grid-cols-2">
+          <ul className="divide-y divide-slate-100">
             {plans.map((p) => (
-              <button
+              <li
                 key={p.id}
-                onClick={() => navigate(`/activations/${p.id}`)}
-                className="group text-left"
+                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5"
               >
-                <PrivilegeCard
-                  tierKind={p.tierKind}
-                  tierName={p.tier}
-                  cardNumber={p.cardNumber}
-                  holder={p.memberName}
-                  amount={p.amount}
-                  bonus={p.bonus}
-                  status={titleCase(p.status)}
-                  footNote={
-                    p.expiresOn ? `Expires ${formatDate(p.expiresOn)}` : undefined
-                  }
-                  className="transition group-hover:-translate-y-0.5 group-hover:shadow-lg"
-                />
-                <div className="mt-2 flex items-center justify-between px-1 text-xs text-slate-500">
-                  <span className="flex items-center gap-2">
-                    <Badge tone={toneForStatus(p.status)}>
-                      {titleCase(p.status)}
-                    </Badge>
-                    {p.storeName}
-                  </span>
-                  <span>{formatDateTime(p.submittedAt)}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-slate-800">
+                    {p.tier} · {formatCurrency(p.amount)}
+                    <span className="ml-2 text-xs font-normal text-slate-400">
+                      +{formatCurrency(p.bonus)} bonus
+                    </span>
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    {p.cardNumber || '—'} · {p.storeName} ·{' '}
+                    {formatDateTime(p.submittedAt)}
+                  </p>
                 </div>
-              </button>
+
+                <Badge tone={toneForStatus(p.status)}>
+                  {titleCase(p.status)}
+                </Badge>
+
+                {p.status === 'pending' && canReview && (
+                  <Button
+                    variant="success"
+                    size="sm"
+                    disabled={savingId !== null}
+                    onClick={() => approve(p.id)}
+                  >
+                    {savingId === p.id ? 'Approving…' : 'Approve'}
+                  </Button>
+                )}
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </Card>
     </>

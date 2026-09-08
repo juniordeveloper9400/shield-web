@@ -194,11 +194,11 @@ export default function ActivationsPage() {
   return (
     <>
       <PageHeader
-        title="Privilege plans"
+        title="Privilege plan approvals"
         subtitle={
           branchBound
-            ? 'Members who activated a plan at your branch — open one to see their cards.'
-            : 'Members who activated a privilege plan — open one to see their cards.'
+            ? 'Members who activated a plan at your branch — open one to approve.'
+            : 'Members who activated a privilege plan — open one to approve.'
         }
       />
 
