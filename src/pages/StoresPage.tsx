@@ -36,6 +36,11 @@ interface EditForm {
   pincode: string;
   latitude: string;
   longitude: string;
+  mapsUrl: string;
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankIfsc: string;
+  bankName: string;
 }
 
 const EMPTY_NEW: NewStore = {
@@ -49,8 +54,37 @@ const EMPTY_NEW: NewStore = {
   hours: '8:00 AM – 10:00 PM',
   latitude: null,
   longitude: null,
+  mapsUrl: '',
+  bankAccountName: '',
+  bankAccountNumber: '',
+  bankIfsc: '',
+  bankName: '',
   isActive: true,
 };
+
+/** Indian IFSC — four letters, a zero, then six alphanumerics. */
+const IFSC_RE = /^[A-Z]{4}0[A-Z0-9]{6}$/;
+
+/** null when the branch's bank block is fine to save, else the reason. */
+function bankProblem(f: {
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankIfsc: string;
+  bankName: string;
+}): string | null {
+  const name = f.bankAccountName.trim();
+  const acct = f.bankAccountNumber.trim();
+  const ifsc = f.bankIfsc.trim().toUpperCase();
+  const bank = f.bankName.trim();
+  const any = name || acct || ifsc || bank;
+  if (!any) return null; // all blank — nothing to settle yet, that's allowed.
+  if (!name || !acct || !ifsc || !bank)
+    return 'Fill in all four bank fields, or clear them all.';
+  if (!/^\d{9,18}$/.test(acct))
+    return 'Account number must be 9–18 digits.';
+  if (!IFSC_RE.test(ifsc)) return 'IFSC looks wrong — e.g. SBIN0001234.';
+  return null;
+}
 
 /** "Melattur" → "SHD-MEL" as a starting code suggestion. */
 function suggestCode(area: string): string {
@@ -86,6 +120,11 @@ export default function StoresPage() {
     pincode: '',
     latitude: '',
     longitude: '',
+    mapsUrl: '',
+    bankAccountName: '',
+    bankAccountNumber: '',
+    bankIfsc: '',
+    bankName: '',
   });
 
   const [adding, setAdding] = useState(false);
@@ -121,6 +160,8 @@ export default function StoresPage() {
       return setAddError('Area and city are required.');
     if (!/^\d{6}$/.test(draft.pincode.trim()))
       return setAddError('Pincode must be 6 digits.');
+    const bankBad = bankProblem(draft);
+    if (bankBad) return setAddError(bankBad);
     setSaving(true);
     setAddError(null);
     try {
@@ -175,6 +216,11 @@ export default function StoresPage() {
       pincode: store.pincode,
       latitude: store.latitude == null ? '' : String(store.latitude),
       longitude: store.longitude == null ? '' : String(store.longitude),
+      mapsUrl: store.mapsUrl,
+      bankAccountName: store.bankAccountName,
+      bankAccountNumber: store.bankAccountNumber,
+      bankIfsc: store.bankIfsc,
+      bankName: store.bankName,
     });
   }
 
@@ -195,6 +241,11 @@ export default function StoresPage() {
       setEditError('Pincode must be 6 digits.');
       return;
     }
+    const bankBad = bankProblem(form);
+    if (bankBad) {
+      setEditError(bankBad);
+      return;
+    }
     setSaving(true);
     setEditError(null);
     try {
@@ -208,6 +259,11 @@ export default function StoresPage() {
         pincode: form.pincode.trim() || selected.pincode,
         latitude: coord(form.latitude),
         longitude: coord(form.longitude),
+        mapsUrl: form.mapsUrl.trim(),
+        bankAccountName: form.bankAccountName.trim(),
+        bankAccountNumber: form.bankAccountNumber.trim(),
+        bankIfsc: form.bankIfsc.trim().toUpperCase(),
+        bankName: form.bankName.trim(),
       });
       setEditing(false);
       reload();
@@ -396,6 +452,35 @@ export default function StoresPage() {
                       : '— (app ranks this branch by pincode)',
                 },
                 {
+                  label: 'Location link',
+                  value: selected.mapsUrl ? (
+                    <a
+                      href={selected.mapsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-brand-600 underline break-all"
+                    >
+                      Open in Maps
+                    </a>
+                  ) : (
+                    '—'
+                  ),
+                },
+                {
+                  label: 'Bank account',
+                  value: selected.bankAccountNumber ? (
+                    <div className="space-y-0.5">
+                      <p>{selected.bankAccountName}</p>
+                      <p className="font-mono">{selected.bankAccountNumber}</p>
+                      <p className="text-slate-500">
+                        {selected.bankName} · {selected.bankIfsc}
+                      </p>
+                    </div>
+                  ) : (
+                    '—'
+                  ),
+                },
+                {
                   label: 'Members',
                   value: selected.memberCount.toLocaleString('en-IN'),
                 },
@@ -484,6 +569,19 @@ export default function StoresPage() {
                 />
               </EditField>
             </div>
+            <EditField label="Location link — Google Maps, optional">
+              <input
+                value={form.mapsUrl}
+                onChange={(e) => setForm({ ...form, mapsUrl: e.target.value })}
+                className={inputClass}
+                inputMode="url"
+                placeholder="https://maps.app.goo.gl/…"
+              />
+            </EditField>
+            <BankFields
+              values={form}
+              onChange={(patch) => setForm({ ...form, ...patch })}
+            />
             {editError && (
               <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
                 {editError}
@@ -609,6 +707,19 @@ export default function StoresPage() {
             Coordinates let the customer app rank this branch by distance;
             leave them blank and it falls back to pincode matching.
           </p>
+          <EditField label="Location link — Google Maps, optional">
+            <input
+              value={draft.mapsUrl}
+              onChange={(e) => patchDraft({ mapsUrl: e.target.value })}
+              className={inputClass}
+              inputMode="url"
+              placeholder="https://maps.app.goo.gl/…"
+            />
+          </EditField>
+          <BankFields
+            values={draft}
+            onChange={(patch) => patchDraft(patch)}
+          />
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
@@ -637,5 +748,70 @@ function EditField({ label, children }: { label: string; children: ReactNode }) 
       <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
       {children}
     </label>
+  );
+}
+
+interface BankValues {
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankIfsc: string;
+  bankName: string;
+}
+
+/** The branch settlement-account block, shared by the add and edit forms.
+ *  All four fields go together — fill every one or leave every one blank. */
+function BankFields({
+  values,
+  onChange,
+}: {
+  values: BankValues;
+  onChange: (patch: Partial<BankValues>) => void;
+}) {
+  return (
+    <fieldset className="rounded-lg border border-slate-200 p-3">
+      <legend className="px-1 text-sm font-medium text-slate-700">
+        Bank account — for branch settlements
+      </legend>
+      <div className="mt-1 space-y-3">
+        <EditField label="Account holder name">
+          <input
+            value={values.bankAccountName}
+            onChange={(e) => onChange({ bankAccountName: e.target.value })}
+            className={inputClass}
+            placeholder="SHIELD Pharmacy Melattur"
+          />
+        </EditField>
+        <div className="grid grid-cols-2 gap-3">
+          <EditField label="Account number">
+            <input
+              value={values.bankAccountNumber}
+              onChange={(e) => onChange({ bankAccountNumber: e.target.value })}
+              className={inputClass}
+              inputMode="numeric"
+              placeholder="000000000000"
+            />
+          </EditField>
+          <EditField label="IFSC code">
+            <input
+              value={values.bankIfsc}
+              onChange={(e) =>
+                onChange({ bankIfsc: e.target.value.toUpperCase() })
+              }
+              className={inputClass}
+              maxLength={11}
+              placeholder="SBIN0001234"
+            />
+          </EditField>
+        </div>
+        <EditField label="Bank name">
+          <input
+            value={values.bankName}
+            onChange={(e) => onChange({ bankName: e.target.value })}
+            className={inputClass}
+            placeholder="State Bank of India"
+          />
+        </EditField>
+      </div>
+    </fieldset>
   );
 }

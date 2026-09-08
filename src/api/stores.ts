@@ -24,6 +24,11 @@ function toStore(r: Row): Store {
     isActive: Boolean(r.is_active),
     latitude: numOrNull(r.latitude),
     longitude: numOrNull(r.longitude),
+    mapsUrl: String(r.maps_url ?? ''),
+    bankAccountName: String(r.bank_account_name ?? ''),
+    bankAccountNumber: String(r.bank_account_number ?? ''),
+    bankIfsc: String(r.bank_ifsc ?? ''),
+    bankName: String(r.bank_name ?? ''),
     memberCount: num(r.member_count),
     orderCount: num(r.order_count),
     openedAt: iso(r.created_at) ?? new Date(0).toISOString(),
@@ -35,6 +40,8 @@ export async function listStores(): Promise<Store[]> {
   const rows = (await sql`
     SELECT s.id, s.code, s.name, s.area, s.city, s.state, s.pincode,
            s.phone, s.hours, s.is_active, s.latitude, s.longitude, s.created_at,
+           s.maps_url, s.bank_account_name, s.bank_account_number,
+           s.bank_ifsc, s.bank_name,
            (SELECT count(*) FROM app.users m
               WHERE m.home_store_id = s.id AND m.deleted_at IS NULL) AS member_count,
            (SELECT count(*) FROM app."order" o WHERE o.store_id = s.id) AS order_count
@@ -60,12 +67,19 @@ export async function updateStore(
     pincode: string;
     latitude: number | null;
     longitude: number | null;
+    mapsUrl: string;
+    bankAccountName: string;
+    bankAccountNumber: string;
+    bankIfsc: string;
+    bankName: string;
   },
 ): Promise<void> {
   await query(
     `UPDATE app.shield_store
        SET name = $2, phone = $3, hours = $4, area = $5, city = $6,
            state = $7, pincode = $8, latitude = $9, longitude = $10,
+           maps_url = $11, bank_account_name = $12, bank_account_number = $13,
+           bank_ifsc = $14, bank_name = $15,
            updated_at = now()
      WHERE id = $1`,
     [
@@ -79,6 +93,11 @@ export async function updateStore(
       patch.pincode,
       patch.latitude,
       patch.longitude,
+      patch.mapsUrl,
+      patch.bankAccountName,
+      patch.bankAccountNumber,
+      patch.bankIfsc,
+      patch.bankName,
     ],
   );
 }
@@ -94,9 +113,10 @@ export async function createStore(s: NewStore): Promise<string | null> {
     `
     INSERT INTO app.shield_store
       (code, name, area, city, state, pincode, phone, hours, is_active,
-       latitude, longitude, sort)
+       latitude, longitude, maps_url, bank_account_name, bank_account_number,
+       bank_ifsc, bank_name, sort)
     VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
        COALESCE((SELECT max(sort) + 1 FROM app.shield_store), 0))
     ON CONFLICT (code) DO NOTHING
     RETURNING id
@@ -113,6 +133,11 @@ export async function createStore(s: NewStore): Promise<string | null> {
       s.isActive,
       s.latitude,
       s.longitude,
+      s.mapsUrl.trim(),
+      s.bankAccountName.trim(),
+      s.bankAccountNumber.trim(),
+      s.bankIfsc.trim().toUpperCase(),
+      s.bankName.trim(),
     ],
   );
   return rows.length > 0 ? String(rows[0].id) : null;

@@ -144,7 +144,16 @@ export default function OrdersPage() {
       key: 'actions',
       header: '',
       render: (row) => (
-        <Button variant="secondary" size="sm" onClick={() => setSelectedId(row.id)}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={(e) => {
+            // The row itself now opens the same modal on click; stop this
+            // from also bubbling into that handler and firing it twice.
+            e.stopPropagation();
+            setSelectedId(row.id);
+          }}
+        >
           Manage
         </Button>
       ),
@@ -191,6 +200,7 @@ export default function OrdersPage() {
           loading={loading}
           error={error}
           empty="No orders match your filters."
+          onRowClick={(row) => setSelectedId(row.id)}
         />
       </Card>
 

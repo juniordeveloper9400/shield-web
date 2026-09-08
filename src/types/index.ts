@@ -71,6 +71,14 @@ export interface Store {
    *  pincode ranking for this branch. */
   latitude: number | null;
   longitude: number | null;
+  /** A pasted Google Maps share link for the shopfront. Blank until set;
+   *  the detail view and the app show an "Open in Maps" action when present. */
+  mapsUrl: string;
+  /** Settlement account for this branch. All four are blank until entered. */
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankIfsc: string;
+  bankName: string;
   /** Members whose home branch this is. */
   memberCount: number;
   /** Orders billed to this branch, all-time. */
@@ -91,6 +99,13 @@ export interface NewStore {
   hours: string;
   latitude: number | null;
   longitude: number | null;
+  /** Pasted Google Maps share link. Optional. */
+  mapsUrl: string;
+  /** Settlement account. All optional at creation. */
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankIfsc: string;
+  bankName: string;
   isActive: boolean;
 }
 
