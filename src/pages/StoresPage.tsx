@@ -100,6 +100,24 @@ function coord(v: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * null when the lat/lng pair is present and in range, else the reason.
+ * Every branch needs coordinates — the customer app ranks branches by real
+ * distance and can only fall back to pincode matching for one that has none.
+ */
+function coordProblem(latRaw: string, lngRaw: string): string | null {
+  const lat = latRaw.trim();
+  const lng = lngRaw.trim();
+  if (!lat || !lng) return "Add the branch's map coordinates (latitude & longitude).";
+  const la = Number(lat);
+  const lo = Number(lng);
+  if (!Number.isFinite(la) || la < -90 || la > 90)
+    return 'Latitude must be a number between −90 and 90.';
+  if (!Number.isFinite(lo) || lo < -180 || lo > 180)
+    return 'Longitude must be a number between −180 and 180.';
+  return null;
+}
+
 export default function StoresPage() {
   const { data, loading, error, reload } = useAsync(listStores, []);
   const rows = useMemo(() => data ?? [], [data]);
@@ -129,6 +147,10 @@ export default function StoresPage() {
 
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<NewStore>(EMPTY_NEW);
+  // Held as raw strings (like the edit form) so a half-typed or bad coordinate
+  // shows an error on save instead of silently becoming null.
+  const [addLat, setAddLat] = useState('');
+  const [addLng, setAddLng] = useState('');
   const [addError, setAddError] = useState<string | null>(null);
   /** True once the admin has typed a code by hand — stop auto-suggesting it. */
   const [codeTouched, setCodeTouched] = useState(false);
@@ -137,6 +159,8 @@ export default function StoresPage() {
 
   function openAdd() {
     setDraft(EMPTY_NEW);
+    setAddLat('');
+    setAddLng('');
     setAddError(null);
     setCodeTouched(false);
     setAdding(true);
@@ -160,12 +184,18 @@ export default function StoresPage() {
       return setAddError('Area and city are required.');
     if (!/^\d{6}$/.test(draft.pincode.trim()))
       return setAddError('Pincode must be 6 digits.');
+    const coordBad = coordProblem(addLat, addLng);
+    if (coordBad) return setAddError(coordBad);
     const bankBad = bankProblem(draft);
     if (bankBad) return setAddError(bankBad);
     setSaving(true);
     setAddError(null);
     try {
-      const id = await createStore(draft);
+      const id = await createStore({
+        ...draft,
+        latitude: coord(addLat),
+        longitude: coord(addLng),
+      });
       if (!id) {
         setAddError(
           `The code ${draft.code.trim().toUpperCase()} is already in use.`,
@@ -239,6 +269,11 @@ export default function StoresPage() {
     if (!selected) return;
     if (form.pincode.trim() && !/^\d{6}$/.test(form.pincode.trim())) {
       setEditError('Pincode must be 6 digits.');
+      return;
+    }
+    const coordBad = coordProblem(form.latitude, form.longitude);
+    if (coordBad) {
+      setEditError(coordBad);
       return;
     }
     const bankBad = bankProblem(form);
@@ -548,7 +583,7 @@ export default function StoresPage() {
                   maxLength={6}
                 />
               </EditField>
-              <EditField label="Latitude — optional">
+              <EditField label="Latitude — required">
                 <input
                   value={form.latitude}
                   onChange={(e) => setForm({ ...form, latitude: e.target.value })}
@@ -557,7 +592,7 @@ export default function StoresPage() {
                   placeholder="10.9974"
                 />
               </EditField>
-              <EditField label="Longitude — optional">
+              <EditField label="Longitude — required">
                 <input
                   value={form.longitude}
                   onChange={(e) =>
@@ -569,6 +604,11 @@ export default function StoresPage() {
                 />
               </EditField>
             </div>
+            <p className="text-xs text-slate-400">
+              The customer app ranks branches by distance from the shopper —
+              every branch needs coordinates. Copy them from the branch's pin in
+              Google Maps.
+            </p>
             <EditField label="Location link — Google Maps, optional">
               <input
                 value={form.mapsUrl}
@@ -680,23 +720,19 @@ export default function StoresPage() {
             />
           </EditField>
           <div className="grid grid-cols-2 gap-3">
-            <EditField label="Latitude — optional">
+            <EditField label="Latitude — required">
               <input
-                value={draft.latitude ?? ''}
-                onChange={(e) =>
-                  patchDraft({ latitude: coord(e.target.value) })
-                }
+                value={addLat}
+                onChange={(e) => setAddLat(e.target.value)}
                 className={inputClass}
                 inputMode="decimal"
                 placeholder="10.9974"
               />
             </EditField>
-            <EditField label="Longitude — optional">
+            <EditField label="Longitude — required">
               <input
-                value={draft.longitude ?? ''}
-                onChange={(e) =>
-                  patchDraft({ longitude: coord(e.target.value) })
-                }
+                value={addLng}
+                onChange={(e) => setAddLng(e.target.value)}
                 className={inputClass}
                 inputMode="decimal"
                 placeholder="76.1889"
@@ -704,8 +740,9 @@ export default function StoresPage() {
             </EditField>
           </div>
           <p className="text-xs text-slate-400">
-            Coordinates let the customer app rank this branch by distance;
-            leave them blank and it falls back to pincode matching.
+            The customer app ranks branches by distance from the shopper — every
+            branch needs coordinates. Copy them from the branch's pin in Google
+            Maps.
           </p>
           <EditField label="Location link — Google Maps, optional">
             <input
