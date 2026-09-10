@@ -99,6 +99,18 @@ export async function approveAgent(
       );
     }
   }
+  if (level === 'REGION') {
+    const dup = await query<Row>(
+      `SELECT 1 FROM app.agent
+       WHERE level = 'REGION' AND approval_status = 'APPROVED'
+         AND area_id = (SELECT requested_area_id FROM app.agent_request WHERE id = $1)
+       LIMIT 1`,
+      [id],
+    );
+    if (dup.length > 0) {
+      throw new Error('That region already has an approved agent.');
+    }
+  }
 
   const rows = await query<Row>(
     `
