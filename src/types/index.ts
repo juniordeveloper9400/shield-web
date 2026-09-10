@@ -233,6 +233,17 @@ export interface OrderLine {
   qty: number;
 }
 
+/** The payment receipt a member attached at checkout — `app.order_receipt`. */
+export interface OrderReceipt {
+  payerName: string;
+  reference: string;
+  amount: number;
+  fileName: string;
+  /** The photo itself, a `data:` URI. Empty when none was captured. */
+  image: string;
+  uploadedAt: string;
+}
+
 /** A member's order — `app."order"` + `app.order_line`. */
 export interface Order {
   id: string;
@@ -250,6 +261,11 @@ export interface Order {
   paymentMethod: string;
   placedAt: string;
   lines: OrderLine[];
+  /** The receipt the member submitted with this order, if any. */
+  receipt: OrderReceipt | null;
+  /** The invoice this store has sent back for the order, if any. */
+  billImage: string;
+  billedAt: string;
 }
 
 /** `app.prescription_status`. */
