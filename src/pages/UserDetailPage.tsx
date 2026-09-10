@@ -195,6 +195,18 @@ export default function UserDetailPage() {
   const [level, setLevel] = useState<AgentLevel>('ward');
   const [parentId, setParentId] = useState('');
   const [area, setArea] = useState('');
+
+  // Top of the tree is capped: one national agent, six regions. Counts come
+  // from the agent list the parent picker already loads.
+  const agentTierCounts = useMemo(() => {
+    const rows = agents.data ?? [];
+    return {
+      national: rows.filter((a) => a.level === 'national').length,
+      region: rows.filter((a) => a.level === 'region').length,
+    };
+  }, [agents.data]);
+  const nationalFull = agentTierCounts.national >= 1;
+  const regionFull = agentTierCounts.region >= 6;
   // Investor form
   const [storeCode, setStoreCode] = useState('');
   const [units, setUnits] = useState('1');
@@ -258,6 +270,16 @@ export default function UserDetailPage() {
   }, [selected, detail.data, detail.loading]);
 
   async function doConvertAgent() {
+    if (level === 'national' && nationalFull) {
+      setFormError('There is already a national agent — only one is allowed.');
+      return;
+    }
+    if (level === 'region' && regionFull) {
+      setFormError(
+        'All six regions already have an agent — no more region agents can be added.',
+      );
+      return;
+    }
     setSaving(true);
     setFormError(null);
     try {
@@ -339,6 +361,12 @@ export default function UserDetailPage() {
                     <Button
                       variant="secondary"
                       size="sm"
+                      disabled={!selected.registered}
+                      title={
+                        selected.registered
+                          ? undefined
+                          : 'Member must complete registration first'
+                      }
                       onClick={() => setMode('investor')}
                     >
                       Switch to investor
@@ -346,6 +374,12 @@ export default function UserDetailPage() {
                     <Button
                       variant="primary"
                       size="sm"
+                      disabled={!selected.registered}
+                      title={
+                        selected.registered
+                          ? undefined
+                          : 'Member must complete registration first'
+                      }
                       onClick={() => setMode('agent')}
                     >
                       Switch to agent
@@ -406,6 +440,14 @@ export default function UserDetailPage() {
                 : ''}
             </Badge>
           </div>
+
+          {selected.persona === 'member' && !selected.registered && (
+            <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+              This member has not completed registration yet, so they cannot be
+              converted to an agent or investor. The Switch buttons unlock once
+              registration is done.
+            </p>
+          )}
 
           {detail.error && (
             <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -843,12 +885,25 @@ export default function UserDetailPage() {
                     onChange={(e) => setLevel(e.target.value as AgentLevel)}
                     className={`mt-1 ${fieldCls}`}
                   >
-                    {AGENT_LEVELS.map((l) => (
-                      <option key={l} value={l}>
-                        {titleCase(l)}
-                      </option>
-                    ))}
+                    {AGENT_LEVELS.map((l) => {
+                      const full =
+                        (l === 'national' && nationalFull) ||
+                        (l === 'region' && regionFull);
+                      return (
+                        <option key={l} value={l} disabled={full}>
+                          {titleCase(l)}
+                          {full ? ' — already filled' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
+                  {(nationalFull || regionFull) && (
+                    <span className="mt-1 block text-xs font-normal normal-case text-slate-400">
+                      {nationalFull && 'A national agent already exists. '}
+                      {regionFull && 'All six regions are taken. '}
+                      Those levels can't be assigned again.
+                    </span>
+                  )}
                 </label>
                 <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Parent agent{' '}

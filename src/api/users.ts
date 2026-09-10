@@ -180,14 +180,62 @@ export async function listAgentOptions(): Promise<AgentOption[]> {
 }
 
 /**
+ * Throws when [userId] has not finished registration — a member can only be
+ * made an agent or investor once their `app.users` row has a
+ * `registration_completed_at`. Called after a convert INSERT touches no rows,
+ * so the caller can tell "not registered" apart from "already has a persona".
+ */
+async function assertRegistered(userId: string): Promise<void> {
+  const rows = await query<Row>(
+    `SELECT registration_completed_at IS NOT NULL AS registered
+     FROM app.users WHERE id = $1 AND deleted_at IS NULL`,
+    [userId],
+  );
+  if (rows[0] && rows[0].registered === false) {
+    throw new Error(
+      'This member has not completed registration yet — they cannot be ' +
+        'converted to an agent or investor.',
+    );
+  }
+}
+
+/**
  * Makes the user an agent: inserts one `app.agent` row linked to their
- * `app.users` id, with an auto `SHD-AGT-00N` code. No-op (returns null) if
- * they are already an agent or investor.
+ * `app.users` id, with an auto `SHD-AGT-00N` code. Only members who have
+ * completed registration are eligible. Returns null (no-op) when they are
+ * already an agent or investor; throws when registration is incomplete, when a
+ * national agent already exists, or when all six regions are taken.
  */
 export async function convertToAgent(
   userId: string,
   opts: { level: AgentLevel; parentId?: string | null; area?: string },
 ): Promise<string | null> {
+  const level = opts.level.toUpperCase();
+
+  // The top of the tree is fixed in shape: exactly one national agent, and at
+  // most six regions. Check before inserting so the admin gets a clear reason
+  // rather than a silent no-op.
+  if (level === 'NATIONAL' || level === 'REGION') {
+    const [tally] = await query<Row>(
+      `SELECT
+         count(*) FILTER (WHERE level = 'NATIONAL') AS national,
+         count(*) FILTER (WHERE level = 'REGION')   AS region
+       FROM app.agent`,
+    );
+    const nationalCount = Number(tally?.national ?? 0);
+    const regionCount = Number(tally?.region ?? 0);
+    if (level === 'NATIONAL' && nationalCount >= 1) {
+      throw new Error(
+        'There is already a national agent — only one is allowed.',
+      );
+    }
+    if (level === 'REGION' && regionCount >= 6) {
+      throw new Error(
+        'All six regions already have an agent — no more region agents can be added.',
+      );
+    }
+  }
+
   const rows = await query<Row>(
     `
     INSERT INTO app.agent
@@ -201,18 +249,24 @@ export async function convertToAgent(
            u.name, u.phone, $2::app.agent_level, $3, $4, 'APPROVED'
     FROM app.users u
     WHERE u.id = $1
+      AND u.registration_completed_at IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM app.agent    WHERE member_id = u.id)
       AND NOT EXISTS (SELECT 1 FROM app.investor WHERE member_id = u.id)
     RETURNING code
     `,
-    [userId, opts.level.toUpperCase(), opts.parentId ?? null, opts.area ?? ''],
+    [userId, level, opts.parentId ?? null, opts.area ?? ''],
   );
-  return rows.length > 0 ? String(rows[0].code) : null;
+  if (rows.length > 0) {
+    return String(rows[0].code);
+  }
+  await assertRegistered(userId);
+  return null;
 }
 
 /**
- * Makes the user an investor: inserts one `app.investor` row. No-op if they
- * are already an agent or investor.
+ * Makes the user an investor: inserts one `app.investor` row. Only members who
+ * have completed registration are eligible. Returns null (no-op) when they are
+ * already an agent or investor; throws when registration is incomplete.
  */
 export async function convertToInvestor(
   userId: string,
@@ -240,6 +294,7 @@ export async function convertToInvestor(
            $3, $4, current_date, $5, $6::app.investor_plan_type
     FROM app.users u
     WHERE u.id = $1
+      AND u.registration_completed_at IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM app.agent    WHERE member_id = u.id)
       AND NOT EXISTS (SELECT 1 FROM app.investor WHERE member_id = u.id)
     RETURNING code
@@ -253,7 +308,11 @@ export async function convertToInvestor(
       opts.planType.toUpperCase(),
     ],
   );
-  return rows.length > 0 ? String(rows[0].code) : null;
+  if (rows.length > 0) {
+    return String(rows[0].code);
+  }
+  await assertRegistered(userId);
+  return null;
 }
 
 /**
