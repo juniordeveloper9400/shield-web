@@ -4,20 +4,20 @@ import type { AgentLevel, PendingAgent } from '@/types';
 
 type Row = Record<string, unknown>;
 
-const PENDING_COLUMNS = `
-    a.id, a.code, a.name, a.phone, a.level, a.area,
-    a.first_name, a.middle_name, a.last_name, a.dob,
-    a.aadhaar, a.pan, a.address, a.pincode, a.place, a.account_number,
-    a.created_at,
+const REQUEST_COLUMNS = `
+    r.id, r.name, r.phone, r.requested_level AS level, r.requested_area AS area,
+    r.first_name, r.middle_name, r.last_name, r.dob,
+    r.aadhaar, r.pan, r.address, r.pincode, r.place, r.account_number,
+    r.created_at,
     pa.code AS parent_code, pa.name AS parent_name
-  FROM app.agent a
-  LEFT JOIN app.agent pa ON pa.id = a.parent_id
+  FROM app.agent_request r
+  LEFT JOIN app.agent pa ON pa.id = r.parent_agent_id
 `;
 
 function toPendingAgent(r: Row): PendingAgent {
   return {
     id: String(r.id),
-    code: String(r.code ?? ''),
+    code: `REQ-${String(r.id)}`,
     name: String(r.name ?? '—'),
     phone: String(r.phone ?? ''),
     level: fromEnum<AgentLevel>(String(r.level ?? 'ward')),
@@ -38,21 +38,21 @@ function toPendingAgent(r: Row): PendingAgent {
   };
 }
 
-/** Every agent registered from the app and still awaiting review, oldest first. */
+/** Every agent-registration request awaiting review, oldest first. */
 export async function listPendingAgents(): Promise<PendingAgent[]> {
   const rows = await query<Row>(
-    `SELECT ${PENDING_COLUMNS}
-     WHERE a.approval_status = 'PENDING'
-     ORDER BY a.created_at`,
+    `SELECT ${REQUEST_COLUMNS}
+     WHERE r.status = 'PENDING'
+     ORDER BY r.created_at`,
   );
   return rows.map(toPendingAgent);
 }
 
-/** One pending agent by `app.agent.id`, for the detail page. */
+/** One pending request by `app.agent_request.id`, for the detail page. */
 export async function getPendingAgent(id: string): Promise<PendingAgent | null> {
   const rows = await query<Row>(
-    `SELECT ${PENDING_COLUMNS}
-     WHERE a.id = $1 AND a.approval_status = 'PENDING'
+    `SELECT ${REQUEST_COLUMNS}
+     WHERE r.id = $1 AND r.status = 'PENDING'
      LIMIT 1`,
     [id],
   );
@@ -75,10 +75,11 @@ async function cappedTierCounts(): Promise<{ national: number; region: number }>
 }
 
 /**
- * Approves a pending agent: sets the level/parent/area the admin chose, flips
- * `approval_status` to `APPROVED` and switches the agent on. Returns `false`
- * (a safe no-op) when the row is no longer pending; throws when the tier is
- * already full — one national agent, six regions.
+ * Approves a request: creates the real `app.agent` row at the level / parent /
+ * area the admin confirmed, links it back onto the request, and marks the
+ * request APPROVED. Returns `false` (a safe no-op) when the request is no
+ * longer pending; throws when the tier is already full — one national agent,
+ * six regions.
  */
 export async function approveAgent(
   id: string,
@@ -100,24 +101,46 @@ export async function approveAgent(
   }
 
   const rows = await query<Row>(
-    `UPDATE app.agent
-       SET approval_status = 'APPROVED',
-           active          = true,
-           level           = $2::app.agent_level,
-           parent_id       = $3,
-           area            = $4,
-           reviewed_at     = now()
-     WHERE id = $1 AND approval_status = 'PENDING'
-     RETURNING id`,
+    `
+    WITH req AS (
+      UPDATE app.agent_request
+         SET status = 'APPROVED', reviewed_at = now(), updated_at = now()
+       WHERE id = $1 AND status = 'PENDING'
+       RETURNING *
+    ),
+    ins AS (
+      INSERT INTO app.agent (
+        code, name, phone, level, parent_id, area, area_id,
+        first_name, middle_name, last_name, dob, aadhaar, pan,
+        address, pincode, place, account_number, approval_status, active
+      )
+      SELECT
+        'SHD-AGT-' || lpad((
+          COALESCE(
+            (SELECT max(substring(code from '[0-9]+$')::int) FROM app.agent), 0
+          ) + 1)::text, 3, '0'),
+        r.name, r.phone, $2::app.agent_level, $3, $4, r.requested_area_id,
+        r.first_name, r.middle_name, r.last_name, r.dob, r.aadhaar, r.pan,
+        r.address, r.pincode, r.place, r.account_number, 'APPROVED', true
+      FROM req r
+      RETURNING id
+    ),
+    link AS (
+      UPDATE app.agent_request SET agent_id = (SELECT id FROM ins)
+       WHERE id = $1
+       RETURNING id
+    )
+    SELECT id FROM ins
+    `,
     [id, level, opts.parentId ?? null, opts.area ?? ''],
   );
   return rows.length > 0;
 }
 
 /**
- * Rejects a pending agent with a reason the recruiter sees in the app. Returns
- * `false` when the row is no longer pending. The row is kept (as `REJECTED`),
- * not deleted, and its slot frees up.
+ * Rejects a request with a reason the recruiter sees in the app. Returns
+ * `false` when the request is no longer pending. The request row is kept (as
+ * `REJECTED`) and no `app.agent` row is created, so the slot frees up.
  */
 export async function rejectAgent(id: string, note: string): Promise<boolean> {
   const reason = note.trim();
@@ -125,12 +148,10 @@ export async function rejectAgent(id: string, note: string): Promise<boolean> {
     throw new Error('A rejection needs a reason.');
   }
   const rows = await query<Row>(
-    `UPDATE app.agent
-       SET approval_status = 'REJECTED',
-           active          = false,
-           reviewer_note   = $2,
-           reviewed_at     = now()
-     WHERE id = $1 AND approval_status = 'PENDING'
+    `UPDATE app.agent_request
+       SET status = 'REJECTED', reviewer_note = $2,
+           reviewed_at = now(), updated_at = now()
+     WHERE id = $1 AND status = 'PENDING'
      RETURNING id`,
     [id, reason],
   );
