@@ -68,6 +68,13 @@ export const MODULES: NavItem[] = [
     description: 'Privilege-plan activations awaiting approval',
   },
   {
+    key: 'agent_approvals',
+    label: 'Agent approvals',
+    path: '/agent-approvals',
+    icon: 'users',
+    description: 'New agents awaiting a position & approval',
+  },
+  {
     key: 'lab_orders',
     label: 'Lab Orders',
     path: '/lab-orders',
@@ -126,6 +133,7 @@ const APP_MODULES: ModuleKey[] = [
   'orders',
   'prescriptions',
   'activations',
+  'agent_approvals',
   'users',
   'lab_orders',
   'lab_tests',
@@ -170,6 +178,15 @@ export function canAccess(role: Role, moduleKey: ModuleKey): boolean {
  * theirs to view, not use.
  */
 export function canReviewActivations(role: Role): boolean {
+  return role === 'superadmin' || role === 'admin';
+}
+
+/**
+ * Approving an agent — setting their level/position and letting them work — is
+ * for the app managers (Super Admin and Admin), the same as privilege-plan
+ * activations.
+ */
+export function canApproveAgents(role: Role): boolean {
   return role === 'superadmin' || role === 'admin';
 }
 

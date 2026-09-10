@@ -25,6 +25,7 @@ export type ModuleKey =
   | 'orders'
   | 'prescriptions'
   | 'activations'
+  | 'agent_approvals'
   | 'users'
   | 'lab_orders'
   | 'lab_tests'
@@ -359,6 +360,40 @@ export interface AgentOption {
   code: string;
   name: string;
   level: AgentLevel;
+}
+
+/** `app.agent_approval`, lowercased. */
+export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+/**
+ * An `app.agent` row registered from the app and awaiting an admin's review —
+ * the KYC the recruiter entered plus the level/parent they suggested. The
+ * admin confirms or changes the position and approves, or rejects with a
+ * reason.
+ */
+export interface PendingAgent {
+  id: string;
+  code: string;
+  name: string;
+  phone: string;
+  /** The tier the recruiter picked — the admin may change it. */
+  level: AgentLevel;
+  /** Free-text place / slot name the recruiter chose. */
+  area: string;
+  firstName: string;
+  middleName: string;
+  lastName: string;
+  dob: string;
+  aadhaar: string;
+  pan: string;
+  address: string;
+  pincode: string;
+  place: string;
+  accountNumber: string;
+  createdAt: string;
+  /** The parent agent this recruit reports to, from `app.agent.parent_id`. */
+  parentCode: string;
+  parentName: string;
 }
 
 /** A patient a member added — one row of `app.patient`. */

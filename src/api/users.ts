@@ -164,11 +164,16 @@ export async function getUserDetail(userId: string): Promise<UserDetail> {
   };
 }
 
-/** Existing agents, for the "parent" picker when converting someone. */
+/**
+ * Approved agents only, for the "parent" picker and the one-national /
+ * six-region caps. A pending or rejected registration is neither a valid
+ * parent nor a slot that counts as taken.
+ */
 export async function listAgentOptions(): Promise<AgentOption[]> {
   const rows = (await sql`
     SELECT id, code, name, level
     FROM app.agent
+    WHERE approval_status = 'APPROVED'
     ORDER BY level, code
   `) as Row[];
   return rows.map((r) => ({
