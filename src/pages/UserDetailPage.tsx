@@ -52,6 +52,11 @@ const AGENT_LEVELS: AgentLevel[] = [
 
 const PERSONA_TONE = { member: 'gray', agent: 'green', investor: 'violet' } as const;
 
+/** Mirrors `WalletService.minRedeemPoints` on the Flutter side — the fewest
+ *  reward points a member can move into their wallet in one go. Read-only
+ *  here; the redeem action itself only exists in the app. */
+const MIN_REDEEM_POINTS = 100;
+
 const fieldCls =
   'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500';
 
@@ -247,7 +252,16 @@ export default function UserDetailPage() {
       { label: 'Home branch', value: selected.homeStoreName },
       {
         label: 'Reward points',
-        value: detail.loading ? '…' : String(d?.rewardPoints ?? 0),
+        value: detail.loading ? (
+          '…'
+        ) : (
+          <span>
+            {d?.rewardPoints ?? 0}
+            <span className="ml-2 text-xs font-normal text-slate-400">
+              min {MIN_REDEEM_POINTS} to redeem to wallet
+            </span>
+          </span>
+        ),
       },
       { label: 'Referral code', value: d?.referralCode || '—' },
       {
