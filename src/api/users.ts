@@ -209,11 +209,21 @@ async function assertRegistered(userId: string): Promise<void> {
  * `app.users` id, with an auto `SHD-AGT-00N` code. Only members who have
  * completed registration are eligible. Returns null (no-op) when they are
  * already an agent or investor; throws when registration is incomplete, when a
- * national agent already exists, or when all six regions are taken.
+ * national agent already exists, when all six regions are taken, or when the
+ * chosen slot is already held by another approved agent.
  */
 export async function convertToAgent(
   userId: string,
-  opts: { level: AgentLevel; parentId?: string | null; area?: string },
+  opts: {
+    level: AgentLevel;
+    parentId?: string | null;
+    area?: string;
+    /** The `app.region` / `app.state` / … row this agent heads — required
+     *  for every level below national, same as the app's own registration
+     *  form. Without it the agent can never lock into a slot in the team
+     *  tree; see [Agent.areaId]'s doc on the Flutter side. */
+    areaId?: string | null;
+  },
 ): Promise<string | null> {
   const level = opts.level.toUpperCase();
 
@@ -241,17 +251,32 @@ export async function convertToAgent(
     }
   }
 
+  // A named slot holds exactly one agent. Refuse a second one into a slot an
+  // approved agent already occupies — the same rule the app's own
+  // registration screen enforces before it ever reaches this console.
+  if (opts.areaId) {
+    const dup = await query<Row>(
+      `SELECT 1 FROM app.agent
+       WHERE area_id = $1 AND approval_status = 'APPROVED'
+       LIMIT 1`,
+      [opts.areaId],
+    );
+    if (dup.length > 0) {
+      throw new Error('That position is already held by another agent.');
+    }
+  }
+
   const rows = await query<Row>(
     `
     INSERT INTO app.agent
-      (member_id, code, name, phone, level, parent_id, area, approval_status)
+      (member_id, code, name, phone, level, parent_id, area, area_id, approval_status)
     SELECT u.id,
            'SHD-AGT-' || lpad((
              COALESCE(
                (SELECT max(substring(code from '[0-9]+$')::int) FROM app.agent),
                0
              ) + 1)::text, 3, '0'),
-           u.name, u.phone, $2::app.agent_level, $3, $4, 'APPROVED'
+           u.name, u.phone, $2::app.agent_level, $3, $4, $5::uuid, 'APPROVED'
     FROM app.users u
     WHERE u.id = $1
       AND u.registration_completed_at IS NOT NULL
@@ -259,7 +284,7 @@ export async function convertToAgent(
       AND NOT EXISTS (SELECT 1 FROM app.investor WHERE member_id = u.id)
     RETURNING code
     `,
-    [userId, level, opts.parentId ?? null, opts.area ?? ''],
+    [userId, level, opts.parentId ?? null, opts.area ?? '', opts.areaId ?? null],
   );
   if (rows.length > 0) {
     return String(rows[0].code);

@@ -362,6 +362,13 @@ export interface AgentOption {
   level: AgentLevel;
 }
 
+/** One row of `app.region` / `app.state` / … — a pickable named slot. */
+export interface GeoSlot {
+  id: string;
+  name: string;
+  code: string;
+}
+
 /** `app.agent_approval`, lowercased. */
 export type AgentApprovalStatus = 'pending' | 'approved' | 'rejected';
 
