@@ -99,17 +99,23 @@ export async function approveAgent(
       );
     }
   }
-  if (level === 'REGION') {
-    const dup = await query<Row>(
-      `SELECT 1 FROM app.agent
-       WHERE level = 'REGION' AND approval_status = 'APPROVED'
-         AND area_id = (SELECT requested_area_id FROM app.agent_request WHERE id = $1)
-       LIMIT 1`,
-      [id],
-    );
-    if (dup.length > 0) {
-      throw new Error('That region already has an approved agent.');
-    }
+  // A named slot (region, or any state/district/assembly/lsgd/ward below it)
+  // holds exactly one agent. This used to check REGION only, which let two
+  // requests for the same state (or district, ...) both get approved into
+  // two separate app.agent rows heading the same slot -- the team tree then
+  // shows whichever one it happens to match first and silently drops the
+  // other. area_id alone is enough to detect the clash: it is NULL for a
+  // free-text-place agent (never matches) and otherwise unique to one row in
+  // one geo table, so no level filter is needed.
+  const dup = await query<Row>(
+    `SELECT 1 FROM app.agent
+     WHERE approval_status = 'APPROVED'
+       AND area_id = (SELECT requested_area_id FROM app.agent_request WHERE id = $1)
+     LIMIT 1`,
+    [id],
+  );
+  if (dup.length > 0) {
+    throw new Error('That position is already held by another agent.');
   }
 
   const rows = await query<Row>(
