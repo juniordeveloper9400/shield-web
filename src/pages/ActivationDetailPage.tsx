@@ -21,6 +21,7 @@ import {
   approveActivation,
   getActivation,
   getWalletActivity,
+  holdActivation,
   rejectActivation,
 } from '@/api/activations';
 
@@ -36,7 +37,9 @@ export default function ActivationDetailPage() {
   );
   const activity = useAsync(() => getWalletActivity(id), [id]);
 
-  const [rejecting, setRejecting] = useState(false);
+  // Reject and hold both need a note from the reviewer before they submit;
+  // this is which one that note is for, or null for the plain button row.
+  const [noteAction, setNoteAction] = useState<'reject' | 'hold' | null>(null);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -91,13 +94,41 @@ export default function ActivationDetailPage() {
     }
   }
 
+  async function hold() {
+    if (!canReview) {
+      setActionError('Only a Super Admin can hold activations.');
+      return;
+    }
+    if (!note.trim()) {
+      setActionError('Give the member a reason it is on hold.');
+      return;
+    }
+    setSaving(true);
+    setActionError(null);
+    try {
+      const ok = await holdActivation(id, note);
+      if (!ok) {
+        setActionError('This activation is no longer pending — reloading.');
+        reload();
+        return;
+      }
+      setNoteAction(null);
+      setNote('');
+      reload();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not hold.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
         title={
           selected ? `${selected.tier} · ${selected.memberName}` : 'Activation'
         }
-        subtitle="Privilege-plan activation review"
+        subtitle="Health Pass plan activation review"
         actions={
           <Button variant="secondary" size="sm" onClick={back}>
             ← Back
@@ -276,74 +307,96 @@ export default function ActivationDetailPage() {
               ) : null}
             </div>
 
-            {selected.status === 'pending' && canReview && (
-              <div className="mt-5 border-t border-slate-200 pt-4">
-                {rejecting ? (
-                  <>
-                    <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                      Reason for rejection
-                    </label>
-                    <textarea
-                      value={note}
-                      onChange={(e) => setNote(e.target.value)}
-                      rows={3}
-                      placeholder="The member sees this in their wallet, e.g. 'Receipt amount does not match the plan.'"
-                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-                    />
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        variant="secondary"
-                        disabled={saving}
-                        onClick={() => {
-                          setRejecting(false);
-                          setActionError(null);
-                        }}
-                      >
-                        Back
-                      </Button>
+            {(selected.status === 'pending' || selected.status === 'on_hold') &&
+              canReview && (
+                <div className="mt-5 border-t border-slate-200 pt-4">
+                  {noteAction ? (
+                    <>
+                      <label className="mb-1.5 block text-sm font-medium text-slate-700">
+                        {noteAction === 'reject'
+                          ? 'Reason for rejection'
+                          : 'Reason it is on hold'}
+                      </label>
+                      <textarea
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        rows={3}
+                        placeholder={
+                          noteAction === 'reject'
+                            ? "The member sees this in their wallet, e.g. 'Receipt amount does not match the plan.'"
+                            : "The member sees this in their wallet, e.g. 'Please re-upload a clearer receipt photo.'"
+                        }
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                      />
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          variant="secondary"
+                          disabled={saving}
+                          onClick={() => {
+                            setNoteAction(null);
+                            setNote('');
+                            setActionError(null);
+                          }}
+                        >
+                          Back
+                        </Button>
+                        <Button
+                          variant={noteAction === 'reject' ? 'danger' : 'secondary'}
+                          disabled={saving}
+                          onClick={noteAction === 'reject' ? reject : hold}
+                        >
+                          {noteAction === 'reject'
+                            ? 'Confirm rejection'
+                            : 'Confirm hold'}
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
                       <Button
                         variant="danger"
                         disabled={saving}
-                        onClick={reject}
+                        onClick={() => setNoteAction('reject')}
                       >
-                        Confirm rejection
+                        Reject
+                      </Button>
+                      {selected.status === 'pending' && (
+                        <Button
+                          variant="secondary"
+                          disabled={saving}
+                          onClick={() => setNoteAction('hold')}
+                        >
+                          Hold
+                        </Button>
+                      )}
+                      <Button variant="success" disabled={saving} onClick={approve}>
+                        <Icon name="check" className="h-4 w-4" /> Approve &amp; credit
                       </Button>
                     </div>
-                  </>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      variant="danger"
-                      disabled={saving}
-                      onClick={() => setRejecting(true)}
-                    >
-                      Reject
-                    </Button>
-                    <Button variant="success" disabled={saving} onClick={approve}>
-                      <Icon name="check" className="h-4 w-4" /> Approve &amp; credit
-                    </Button>
-                  </div>
-                )}
+                  )}
 
-                {!rejecting && (
-                  <p className="mt-3 text-xs text-slate-400">
-                    Approving writes the activation and bonus to the member's
-                    wallet ledger and adds {formatCurrency(selected.credited)} to
-                    their balance.
-                  </p>
-                )}
-              </div>
-            )}
+                  {!noteAction && (
+                    <p className="mt-3 text-xs text-slate-400">
+                      Approving writes the activation and bonus to the member's
+                      wallet ledger and adds {formatCurrency(selected.credited)} to
+                      their balance.
+                      {selected.status === 'pending' &&
+                        ' Not ready to decide yet? Hold it with a note instead of leaving it silently pending.'}
+                    </p>
+                  )}
+                </div>
+              )}
 
-            {selected.status === 'pending' && !canReview && (
-              <p className="mt-4 flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 ring-1 ring-inset ring-slate-200">
-                <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  This activation is awaiting review. Only a Super Admin can
-                  approve or reject it.
-                </span>
-              </p>
-            )}
+            {(selected.status === 'pending' || selected.status === 'on_hold') &&
+              !canReview && (
+                <p className="mt-4 flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 ring-1 ring-inset ring-slate-200">
+                  <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    This activation is awaiting review. Only a Super Admin can
+                    approve, reject, or hold it.
+                  </span>
+                </p>
+              )}
 
             {actionError && (
               <div className="mt-3 flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">

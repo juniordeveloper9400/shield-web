@@ -21,6 +21,7 @@ export type ModuleKey =
   | 'stores'
   | 'products'
   | 'banners'
+  | 'category_banners'
   | 'customer_videos'
   | 'orders'
   | 'prescriptions'
@@ -129,6 +130,71 @@ export interface ProductSubcategory {
   id: string;
   categorySlug: string;
   label: string;
+}
+
+/**
+ * One sub-category, fully editable — the "Category banners" page's view of an
+ * `app.product_subcategory` row, nested under its `CategoryGroupAdmin`.
+ */
+export interface SubcategoryAdmin {
+  id: string;
+  label: string;
+  /** One of the closed icon vocabulary in `src/lib/categoryIcons.ts`. */
+  iconName: string;
+  /** A resized JPEG data URI, or '' for none (falls back to the icon). */
+  image: string;
+  offer: string;
+  sort: number;
+}
+
+/**
+ * One category group, fully editable — `app.product_category` plus its
+ * `app.product_subcategory` rows. What the "Category banners" console page
+ * lists and edits; the app reads the same table read-only via
+ * `CategoryRepository`.
+ */
+export interface CategoryGroupAdmin {
+  id: string;
+  slug: string;
+  title: string;
+  /** Pre-wrapped chip caption on the home strip, e.g. "Personal\nCare". */
+  tabLabel: string;
+  iconName: string;
+  /** Chip artwork on the home strip — a resized JPEG data URI, or ''. */
+  image: string;
+  /** The promotional banner shown at the top of this group's listing — a
+   *  resized JPEG data URI, or '' for none. */
+  bannerImage: string;
+  /** One of the named pastel tints in `src/lib/categoryIcons.ts`. */
+  panelTint: string;
+  offer: string;
+  sort: number;
+  isActive: boolean;
+  subcategories: SubcategoryAdmin[];
+}
+
+/** The editable fields of a [CategoryGroupAdmin] — everything but the id and
+ *  its subcategories, which are saved separately. */
+export interface NewCategoryGroup {
+  slug: string;
+  title: string;
+  tabLabel: string;
+  iconName: string;
+  image: string;
+  bannerImage: string;
+  panelTint: string;
+  offer: string;
+  sort: number;
+  isActive: boolean;
+}
+
+/** The editable fields of a [SubcategoryAdmin] — everything but the id. */
+export interface NewSubcategory {
+  label: string;
+  iconName: string;
+  image: string;
+  offer: string;
+  sort: number;
 }
 
 /** One question/answer pair for a product's detail-page FAQ (`app.product_faq`). */
@@ -561,7 +627,12 @@ export type PrivilegeActivationStatus =
   | 'approved'
   | 'partially_approved'
   | 'rejected'
-  | 'cancelled';
+  | 'cancelled'
+  /** Neither approved nor rejected yet — the admin needs something more from
+   *  the member (a clearer receipt, a matching amount) before deciding.
+   *  Still actionable: approving or rejecting from here works the same as
+   *  from `pending`. */
+  | 'on_hold';
 
 /**
  * A privilege-plan activation a member submitted from the app — one row of

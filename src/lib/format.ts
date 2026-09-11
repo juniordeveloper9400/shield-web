@@ -46,6 +46,7 @@ const STATUS_TONE: Record<string, Tone> = {
   completed: 'green',
   pending: 'amber',
   requested: 'amber',
+  on_hold: 'violet',
   rejected: 'red',
   cancelled: 'red',
   suspended: 'red',

@@ -16,6 +16,7 @@ import type { PrivilegeActivation, PrivilegeActivationStatus } from '@/types';
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
   { value: 'pending', label: 'Pending' },
+  { value: 'on_hold', label: 'On hold' },
   { value: 'approved', label: 'Approved' },
   { value: 'rejected', label: 'Rejected' },
 ];
@@ -32,6 +33,7 @@ interface MemberGroup {
   totalLoad: number;
   totalCredited: number;
   pending: number;
+  onHold: number;
   latestStatus: PrivilegeActivationStatus;
 }
 
@@ -52,6 +54,7 @@ function groupByMember(rows: PrivilegeActivation[]): MemberGroup[] {
         totalLoad: 0,
         totalCredited: 0,
         pending: 0,
+        onHold: 0,
         latestStatus: r.status,
       };
       map.set(key, g);
@@ -61,9 +64,11 @@ function groupByMember(rows: PrivilegeActivation[]): MemberGroup[] {
     g.totalLoad += r.amount;
     if (r.status === 'approved') g.totalCredited += r.credited;
     if (r.status === 'pending') g.pending += 1;
+    if (r.status === 'on_hold') g.onHold += 1;
   }
-  // `rows` is already pending-first then newest, so the first plan seen is the
-  // one to show as the member's headline status.
+  // `rows` is already pending-then-on-hold-first then newest (see
+  // listActivations), so the first plan seen is the one to show as the
+  // member's headline status.
   for (const g of map.values()) g.latestStatus = g.plans[0].status;
   return [...map.values()];
 }
@@ -110,6 +115,7 @@ export default function ActivationsPage() {
 
   const counts = {
     pending: scoped.filter((r) => r.status === 'pending').length,
+    onHold: scoped.filter((r) => r.status === 'on_hold').length,
     approved: scoped.filter((r) => r.status === 'approved').length,
     rejected: scoped.filter((r) => r.status === 'rejected').length,
   };
@@ -173,6 +179,8 @@ export default function ActivationsPage() {
       render: (row) =>
         row.pending > 0 ? (
           <Badge tone="amber">{row.pending} pending</Badge>
+        ) : row.onHold > 0 ? (
+          <Badge tone="violet">{row.onHold} on hold</Badge>
         ) : (
           <Badge tone={toneForStatus(row.latestStatus)}>
             {titleCase(row.latestStatus)}
@@ -184,7 +192,7 @@ export default function ActivationsPage() {
       header: '',
       render: (row) => (
         <span className="text-xs font-medium text-brand-600">
-          {row.pending > 0 && canReview ? 'Review' : 'More'} →
+          {(row.pending > 0 || row.onHold > 0) && canReview ? 'Review' : 'More'} →
         </span>
       ),
       className: 'text-right',
@@ -194,7 +202,7 @@ export default function ActivationsPage() {
   return (
     <>
       <PageHeader
-        title="Privilege plan approvals"
+        title="Health Pass plan approvals"
         subtitle={
           branchBound
             ? 'Members who activated a plan at your branch — open one to approve.'
@@ -202,8 +210,9 @@ export default function ActivationsPage() {
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Pending" value={counts.pending} icon="alert" tone="amber" />
+        <StatCard label="On hold" value={counts.onHold} tone="violet" />
         <StatCard
           label="Pending value"
           value={formatCurrency(pendingValue)}

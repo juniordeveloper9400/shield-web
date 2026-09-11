@@ -64,7 +64,9 @@ const ACTIVATION_COLUMNS = `
 export async function listActivations(): Promise<PrivilegeActivation[]> {
   const rows = await query<Row>(
     `SELECT ${ACTIVATION_COLUMNS}
-     ORDER BY (wc.status = 'PENDING') DESC, wc.submitted_at DESC`,
+     ORDER BY
+       CASE wc.status WHEN 'PENDING' THEN 0 WHEN 'ON_HOLD' THEN 1 ELSE 2 END,
+       wc.submitted_at DESC`,
   );
   return rows.map(toActivation);
 }
@@ -90,7 +92,9 @@ export async function listActivationsForMember(
   const rows = await query<Row>(
     `SELECT ${ACTIVATION_COLUMNS}
      WHERE w.member_id = $1
-     ORDER BY (wc.status = 'PENDING') DESC, wc.submitted_at DESC`,
+     ORDER BY
+       CASE wc.status WHEN 'PENDING' THEN 0 WHEN 'ON_HOLD' THEN 1 ELSE 2 END,
+       wc.submitted_at DESC`,
     [memberId],
   );
   return rows.map(toActivation);
@@ -136,10 +140,10 @@ export async function getWalletActivity(
 }
 
 /**
- * Approves a pending activation in one statement: flips the card to
- * `APPROVED`, writes the `ACTIVATION` + `BONUS` ledger lines, credits the
- * wallet balance (load + bonus) and stamps `opened_at`. A no-op — and returns
- * `false` — if the card is not `PENDING` (already decided, or a stale id).
+ * Approves a pending (or on-hold) activation in one statement: flips the
+ * card to `APPROVED`, writes the `ACTIVATION` + `BONUS` ledger lines, credits
+ * the wallet balance (load + bonus) and stamps `opened_at`. A no-op — and
+ * returns `false` — if the card is already decided (or a stale id).
  */
 export async function approveActivation(id: string): Promise<boolean> {
   const rows = await query<Row>(
@@ -147,7 +151,7 @@ export async function approveActivation(id: string): Promise<boolean> {
     WITH card AS (
       UPDATE app.wallet_card
          SET status = 'APPROVED', reviewed_at = now()
-       WHERE id = $1 AND status = 'PENDING'
+       WHERE id = $1 AND status IN ('PENDING', 'ON_HOLD')
        RETURNING id, wallet_id, tier_id, amount, bonus
     ),
     tier AS (
@@ -181,8 +185,9 @@ export async function approveActivation(id: string): Promise<boolean> {
 }
 
 /**
- * Rejects a pending activation with a reason the member sees in their wallet.
- * Nothing is credited. Returns `false` if the card was not `PENDING`.
+ * Rejects a pending (or on-hold) activation with a reason the member sees in
+ * their wallet. Nothing is credited. Returns `false` if the card was already
+ * decided.
  */
 export async function rejectActivation(
   id: string,
@@ -194,6 +199,33 @@ export async function rejectActivation(
     `
     UPDATE app.wallet_card
        SET status = 'REJECTED', reviewer_note = $2, reviewed_at = now()
+     WHERE id = $1 AND status IN ('PENDING', 'ON_HOLD')
+     RETURNING id
+    `,
+    [id, trimmed],
+  );
+  return rows.length > 0;
+}
+
+/**
+ * Neither approves nor rejects — parks a pending activation with a note (the
+ * member sees it in their wallet, same as a rejection reason) so a reviewer
+ * who needs more from the member before deciding has somewhere to put that
+ * down, distinct from silently leaving it untouched in the pending queue.
+ * Still fully reversible: [approveActivation] / [rejectActivation] both
+ * accept an `ON_HOLD` card the same as a `PENDING` one. Returns `false` if
+ * the card was not `PENDING` (already decided, or already on hold).
+ */
+export async function holdActivation(
+  id: string,
+  note: string,
+): Promise<boolean> {
+  const trimmed = note.trim();
+  if (!trimmed) throw new Error('Give the member a reason it is on hold.');
+  const rows = await query<Row>(
+    `
+    UPDATE app.wallet_card
+       SET status = 'ON_HOLD', reviewer_note = $2, reviewed_at = now()
      WHERE id = $1 AND status = 'PENDING'
      RETURNING id
     `,
