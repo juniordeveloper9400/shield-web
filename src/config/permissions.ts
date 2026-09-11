@@ -40,6 +40,13 @@ export const MODULES: NavItem[] = [
     description: 'The hero banner on the app and web home screen',
   },
   {
+    key: 'category_banners',
+    label: 'Category Banners',
+    path: '/category-banners',
+    icon: 'banners',
+    description: 'Per-category banner, icon & sub-categories',
+  },
+  {
     key: 'customer_videos',
     label: 'Customer Videos',
     path: '/customer-videos',
@@ -62,10 +69,10 @@ export const MODULES: NavItem[] = [
   },
   {
     key: 'activations',
-    label: 'Privilege plan approvals',
+    label: 'Health Pass plan approvals',
     path: '/activations',
     icon: 'wallet',
-    description: 'Privilege-plan activations awaiting approval',
+    description: 'Health Pass plan activations awaiting approval',
   },
   {
     key: 'agent_approvals',
@@ -129,6 +136,7 @@ const APP_MODULES: ModuleKey[] = [
   'stores',
   'products',
   'banners',
+  'category_banners',
   'customer_videos',
   'orders',
   'prescriptions',

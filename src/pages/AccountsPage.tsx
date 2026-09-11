@@ -20,7 +20,7 @@ const KIND_OPTIONS: { value: string; label: string }[] = [
   { value: 'order', label: 'Orders' },
   { value: 'lab_booking', label: 'Lab tests' },
   { value: 'appointment', label: 'Appointments' },
-  { value: 'privilege_load', label: 'Privilege plan loads' },
+  { value: 'privilege_load', label: 'Health Pass plan loads' },
   { value: 'agent_payout', label: 'Agent payouts' },
 ];
 
@@ -224,7 +224,7 @@ export default function AccountsPage() {
               barClassName="bg-emerald-500"
             />
             <BreakdownRow
-              label="Privilege plan loads"
+              label="Health Pass plan loads"
               count={s?.revenue.privilegeLoadsCount ?? 0}
               amount={s?.revenue.privilegeLoadsTotal ?? 0}
               share={

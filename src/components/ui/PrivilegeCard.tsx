@@ -62,7 +62,7 @@ export function PrivilegeCard({
       >
         <div className="flex items-start justify-between gap-2">
           <span className="text-[11px] tracking-wide">
-            <span className="font-extrabold">Privilege</span> card
+            <span className="font-extrabold">Health Pass</span> card
           </span>
           <div className="flex items-center gap-2">
             {status && (

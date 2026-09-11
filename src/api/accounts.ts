@@ -67,7 +67,7 @@ const KIND_LABEL: Record<MoneyFlowKind, string> = {
   order: 'Order payment',
   lab_booking: 'Lab test payment',
   appointment: 'Appointment fee',
-  privilege_load: 'Privilege plan load',
+  privilege_load: 'Health Pass plan load',
   agent_payout: 'Agent payout',
 };
 
@@ -183,7 +183,7 @@ export async function listMemberTransactions(
 
       SELECT wc.id::text, 'privilege_load', 'in',
              wc.amount, COALESCE(wc.reviewed_at, wc.submitted_at),
-             mt.name, 'Privilege plan load'
+             mt.name, 'Health Pass plan load'
         FROM app.wallet_card wc
         JOIN app.wallet w            ON w.id  = wc.wallet_id
         JOIN app.membership_tier mt  ON mt.id = wc.tier_id

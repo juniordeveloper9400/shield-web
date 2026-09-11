@@ -8,6 +8,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Tabs } from '@/components/ui/Tabs';
 import { DetailList } from '@/components/ui/DetailList';
 import { PrivilegeCard } from '@/components/ui/PrivilegeCard';
+import { ReceiptThumb } from '@/components/ui/ReceiptThumb';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import {
@@ -82,7 +83,7 @@ const TXN_KIND_OPTIONS = [
   { value: 'order', label: 'Orders' },
   { value: 'lab_booking', label: 'Lab tests' },
   { value: 'appointment', label: 'Appointments' },
-  { value: 'privilege_load', label: 'Privilege plan loads' },
+  { value: 'privilege_load', label: 'Health Pass plan loads' },
   { value: 'agent_payout', label: 'Agent payouts' },
 ];
 
@@ -698,7 +699,7 @@ export default function UserDetailPage() {
               {tab === 'plans' && (
                 <Card>
                   <CardHeader
-                    title={`Privilege plans${
+                    title={`Health Pass plans${
                       planRows.length > 0 ? ` (${planRows.length})` : ''
                     }`}
                     subtitle="Cards this member has activated, newest first."
@@ -752,11 +753,18 @@ export default function UserDetailPage() {
                         )}
                         <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
                           {planRows.map((p) => (
-                            <li key={p.id}>
+                            <li
+                              key={p.id}
+                              className="flex items-center gap-3 px-3 py-2"
+                            >
+                              <ReceiptThumb
+                                image={p.receiptImage}
+                                title={`${p.tier} — payment receipt`}
+                              />
                               <button
                                 type="button"
                                 onClick={() => navigate(`/activations/${p.id}`)}
-                                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition hover:bg-slate-50"
+                                className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-left text-sm transition hover:bg-slate-50"
                               >
                                 <span className="min-w-0">
                                   <span className="block truncate font-medium text-slate-800">

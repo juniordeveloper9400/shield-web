@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { ReceiptThumb } from '@/components/ui/ReceiptThumb';
 import {
   formatCurrency,
   formatDateTime,
@@ -61,7 +62,7 @@ export default function MemberActivationsPage() {
             ? `${member.memberPhone} · ${plans.length} privilege ${
                 plans.length === 1 ? 'plan' : 'plans'
               }`
-            : 'Privilege plans awaiting approval'
+            : 'Health Pass plans awaiting approval'
         }
         actions={
           <Button
@@ -119,6 +120,11 @@ export default function MemberActivationsPage() {
                 key={p.id}
                 className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5"
               >
+                <ReceiptThumb
+                  image={p.receiptImage}
+                  title={`${p.tier} · ${p.memberName} — payment receipt`}
+                />
+
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-slate-800">
                     {p.tier} · {formatCurrency(p.amount)}
@@ -135,6 +141,14 @@ export default function MemberActivationsPage() {
                 <Badge tone={toneForStatus(p.status)}>
                   {titleCase(p.status)}
                 </Badge>
+
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => navigate(`/activations/${p.id}`)}
+                >
+                  Details
+                </Button>
 
                 {p.status === 'pending' && canReview && (
                   <Button
