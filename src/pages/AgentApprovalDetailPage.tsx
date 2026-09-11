@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DetailList } from '@/components/ui/DetailList';
 import { Icon } from '@/components/ui/Icon';
+import { GeoSlotPicker } from '@/components/agents/GeoSlotPicker';
 import { formatDate, formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { approveAgent, getPendingAgent, rejectAgent } from '@/api/agents';
@@ -41,7 +42,14 @@ export default function AgentApprovalDetailPage() {
 
   const [level, setLevel] = useState<AgentLevel>('ward');
   const [parentId, setParentId] = useState('');
-  const [area, setArea] = useState('');
+  // Only asked for when [level] is changed away from what the recruiter
+  // requested — the request's own requested_area_id already names a real
+  // slot at the *requested* level, and approveAgent falls back to it
+  // automatically when this stays unset, but that id would name the wrong
+  // kind of place once the level itself changes.
+  const [position, setPosition] = useState<{ areaId: string | null; area: string }>(
+    { areaId: null, area: '' },
+  );
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -51,7 +59,6 @@ export default function AgentApprovalDetailPage() {
   useEffect(() => {
     if (!selected) return;
     setLevel(selected.level);
-    setArea(selected.area);
   }, [selected]);
   useEffect(() => {
     if (!selected || !agents.data) return;
@@ -86,13 +93,23 @@ export default function AgentApprovalDetailPage() {
       );
       return;
     }
+    const levelChanged = selected && level !== selected.level;
+    if (levelChanged && level !== 'national' && !position.areaId) {
+      setActionError(`Choose which ${level} this agent heads.`);
+      return;
+    }
     setSaving(true);
     setActionError(null);
     try {
       const ok = await approveAgent(id, {
         level,
         parentId: parentId || null,
-        area: area.trim(),
+        // Unchanged from what was requested: keep the recruiter's own
+        // area / requested_area_id (areaId left unset so the server falls
+        // back to it) rather than overwriting an already-correct value
+        // with whatever happens to be sitting in `position` unrelated.
+        area: levelChanged ? position.area : selected?.area ?? '',
+        areaId: levelChanged ? position.areaId : undefined,
       });
       if (!ok) {
         setActionError('This agent is no longer pending — reloading.');
@@ -250,16 +267,17 @@ export default function AgentApprovalDetailPage() {
                       ))}
                     </select>
                   </label>
-                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Position / area{' '}
-                    <span className="font-normal text-slate-400">— optional</span>
-                    <input
-                      value={area}
-                      onChange={(e) => setArea(e.target.value)}
-                      className={`mt-1 ${fieldCls}`}
-                      placeholder="e.g. Melattur ward"
-                    />
-                  </label>
+                  {selected && level === selected.level ? (
+                    <p className="text-xs text-slate-500">
+                      Position: <span className="font-medium text-slate-700">
+                        {selected.area || '—'}
+                      </span>{' '}
+                      — as requested. Change the level above to pick a
+                      different one.
+                    </p>
+                  ) : (
+                    <GeoSlotPicker level={level} onChange={setPosition} />
+                  )}
                 </div>
 
                 <div className="mt-4">

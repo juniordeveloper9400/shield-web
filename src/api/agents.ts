@@ -1,6 +1,6 @@
 import { query } from '@/lib/db';
 import { fromEnum, iso } from '@/lib/mappers';
-import type { AgentLevel, PendingAgent } from '@/types';
+import type { AgentLevel, AgentRow, PendingAgent } from '@/types';
 
 type Row = Record<string, unknown>;
 
@@ -83,7 +83,18 @@ async function cappedTierCounts(): Promise<{ national: number; region: number }>
  */
 export async function approveAgent(
   id: string,
-  opts: { level: AgentLevel; parentId?: string | null; area?: string },
+  opts: {
+    level: AgentLevel;
+    parentId?: string | null;
+    area?: string;
+    /** The confirmed slot id. Falls back to the request's own
+     *  `requested_area_id` when omitted -- but pass this whenever the admin
+     *  picked a position on this screen (via the geo picker), especially
+     *  when they changed the level from what was requested: the original
+     *  `requested_area_id` names a slot at the *requested* level and can no
+     *  longer be trusted once the level itself has changed. */
+    areaId?: string | null;
+  },
 ): Promise<boolean> {
   const level = opts.level.toUpperCase();
   if (level === 'NATIONAL' || level === 'REGION') {
@@ -110,9 +121,12 @@ export async function approveAgent(
   const dup = await query<Row>(
     `SELECT 1 FROM app.agent
      WHERE approval_status = 'APPROVED'
-       AND area_id = (SELECT requested_area_id FROM app.agent_request WHERE id = $1)
+       AND area_id = COALESCE(
+         $2::uuid,
+         (SELECT requested_area_id FROM app.agent_request WHERE id = $1)
+       )
      LIMIT 1`,
-    [id],
+    [id, opts.areaId ?? null],
   );
   if (dup.length > 0) {
     throw new Error('That position is already held by another agent.');
@@ -137,7 +151,8 @@ export async function approveAgent(
           COALESCE(
             (SELECT max(substring(code from '[0-9]+$')::int) FROM app.agent), 0
           ) + 1)::text, 3, '0'),
-        r.name, r.phone, $2::app.agent_level, $3, $4, r.requested_area_id,
+        r.name, r.phone, $2::app.agent_level, $3, $4,
+        COALESCE($5::uuid, r.requested_area_id),
         r.first_name, r.middle_name, r.last_name, r.dob, r.aadhaar, r.pan,
         r.address, r.pincode, r.place, r.account_number, 'APPROVED', true
       FROM req r
@@ -150,7 +165,7 @@ export async function approveAgent(
     )
     SELECT id FROM ins
     `,
-    [id, level, opts.parentId ?? null, opts.area ?? ''],
+    [id, level, opts.parentId ?? null, opts.area ?? '', opts.areaId ?? null],
   );
   return rows.length > 0;
 }
@@ -174,4 +189,129 @@ export async function rejectAgent(id: string, note: string): Promise<boolean> {
     [id, reason],
   );
   return rows.length > 0;
+}
+
+// ---- the live roster ("All agents") -----------------------------------
+//
+// Distinct from the approval queue above: these are agents actually working
+// today, not requests waiting to be decided. Editing one re-assigns their
+// level/parent/position with the same rules approving a request enforces;
+// "removing" one switches them off (`active = false`) rather than deleting
+// the row outright, which would either orphan their downline (`parent_id`
+// is `ON DELETE SET NULL`) or fail against whatever customer/withdrawal
+// history references them, depending on the schema's own delete rules for
+// those tables. An admin who genuinely needs the row gone can still do that
+// directly against the database; this view only ever switches one off.
+
+const AGENT_COLUMNS = `
+    a.id, a.code, a.name, a.phone, a.level, a.area, a.area_id::text AS area_id,
+    a.active, a.parent_id::text AS parent_id, a.created_at,
+    pa.code AS parent_code, pa.name AS parent_name
+  FROM app.agent a
+  LEFT JOIN app.agent pa ON pa.id = a.parent_id
+`;
+
+function toAgentRow(r: Row): AgentRow {
+  return {
+    id: String(r.id),
+    code: String(r.code ?? ''),
+    name: String(r.name ?? '—'),
+    phone: String(r.phone ?? ''),
+    level: fromEnum<AgentLevel>(String(r.level ?? 'ward')),
+    area: String(r.area ?? ''),
+    areaId: r.area_id ? String(r.area_id) : null,
+    active: r.active === true || r.active === 'true',
+    parentId: r.parent_id ? String(r.parent_id) : null,
+    parentCode: String(r.parent_code ?? ''),
+    parentName: String(r.parent_name ?? ''),
+    createdAt: iso(r.created_at) ?? new Date(0).toISOString(),
+  };
+}
+
+/** Every approved agent — the whole live roster, not just who is pending. */
+export async function listApprovedAgents(): Promise<AgentRow[]> {
+  const rows = await query<Row>(
+    `SELECT ${AGENT_COLUMNS}
+     WHERE a.approval_status = 'APPROVED'
+     ORDER BY a.level, a.code`,
+  );
+  return rows.map(toAgentRow);
+}
+
+/** One approved agent by `app.agent.id`, for the edit page. */
+export async function getApprovedAgent(id: string): Promise<AgentRow | null> {
+  const rows = await query<Row>(
+    `SELECT ${AGENT_COLUMNS}
+     WHERE a.id = $1 AND a.approval_status = 'APPROVED'
+     LIMIT 1`,
+    [id],
+  );
+  return rows[0] ? toAgentRow(rows[0]) : null;
+}
+
+/**
+ * Re-assigns an already-approved agent's level, parent, and named slot — the
+ * same rules as approving a request (one national, six regions, one agent
+ * per slot), with this agent's own current row excluded from every check so
+ * confirming their existing position again never refuses itself.
+ */
+export async function updateAgentPosition(
+  id: string,
+  opts: {
+    level: AgentLevel;
+    parentId?: string | null;
+    area?: string;
+    areaId?: string | null;
+  },
+): Promise<void> {
+  const level = opts.level.toUpperCase();
+  if (level === 'NATIONAL' || level === 'REGION') {
+    const [tally] = await query<Row>(
+      `SELECT
+         count(*) FILTER (WHERE level = 'NATIONAL' AND id != $1) AS national,
+         count(*) FILTER (WHERE level = 'REGION' AND id != $1)   AS region
+       FROM app.agent
+       WHERE approval_status = 'APPROVED'`,
+      [id],
+    );
+    const nationalCount = Number(tally?.national ?? 0);
+    const regionCount = Number(tally?.region ?? 0);
+    if (level === 'NATIONAL' && nationalCount >= 1) {
+      throw new Error(
+        'There is already a national agent — only one is allowed.',
+      );
+    }
+    if (level === 'REGION' && regionCount >= 6) {
+      throw new Error(
+        'All six regions already have an agent — no more region agents can be added.',
+      );
+    }
+  }
+  if (opts.areaId) {
+    const dup = await query<Row>(
+      `SELECT 1 FROM app.agent
+       WHERE area_id = $2 AND approval_status = 'APPROVED' AND id != $1
+       LIMIT 1`,
+      [id, opts.areaId],
+    );
+    if (dup.length > 0) {
+      throw new Error('That position is already held by another agent.');
+    }
+  }
+  await query(
+    `UPDATE app.agent
+       SET level = $2::app.agent_level, parent_id = $3, area = $4,
+           area_id = $5::uuid, updated_at = now()
+     WHERE id = $1`,
+    [id, level, opts.parentId ?? null, opts.area ?? '', opts.areaId ?? null],
+  );
+}
+
+/** Switches an agent on or off. See this section's own doc for why this,
+ *  not a delete, is what "remove" means here. */
+export async function setAgentActive(id: string, active: boolean): Promise<void> {
+  await query(
+    `UPDATE app.agent SET active = $2, updated_at = now() WHERE id = $1`,
+    [id, active],
+  );
 }

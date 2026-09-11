@@ -403,6 +403,32 @@ export interface PendingAgent {
   parentName: string;
 }
 
+/**
+ * One approved `app.agent` row — the "All agents" management view, distinct
+ * from [PendingAgent]: this is who is actually live in the tree today,
+ * not who is waiting to join it.
+ */
+export interface AgentRow {
+  id: string;
+  code: string;
+  name: string;
+  phone: string;
+  level: AgentLevel;
+  /** Display name of the named slot this agent heads (a zone, a district, …
+   *  a place name for a free-text `place` agent). */
+  area: string;
+  /** The real slot id [area] names, or null for the national agent or one on
+   *  a free-text place. See `Agent.areaId`'s doc on the Flutter side. */
+  areaId: string | null;
+  /** Switched off by an admin — the safe "remove" this view offers instead
+   *  of a hard delete. */
+  active: boolean;
+  parentId: string | null;
+  parentCode: string;
+  parentName: string;
+  createdAt: string;
+}
+
 /** A patient a member added — one row of `app.patient`. */
 export interface MemberPatient {
   id: string;

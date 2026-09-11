@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -30,10 +30,9 @@ import { listActivationsForMember } from '@/api/activations';
 import { listMemberTransactions, moneyFlowKindLabel } from '@/api/accounts';
 import { listPrescriptionsForMember } from '@/api/prescriptions';
 import { PrescriptionReviewModal } from '@/components/prescriptions/PrescriptionReviewModal';
-import { GEO_TIER_ORDER, listSlots, type GeoTier } from '@/api/geo';
+import { GeoSlotPicker } from '@/components/agents/GeoSlotPicker';
 import type {
   AgentLevel,
-  GeoSlot,
   InvestorPlanType,
   MoneyFlowEntry,
   MoneyFlowKind,
@@ -197,121 +196,16 @@ export default function UserDetailPage() {
   const [level, setLevel] = useState<AgentLevel>('ward');
   const [parentId, setParentId] = useState('');
 
-  // The named slot (region → … → ward) this agent will head. Every level
-  // below national is required to pick one — the same rule the app's own
-  // registration screen enforces — so a converted agent locks into a real
-  // position in the team tree instead of floating with no area at all.
-  const emptyChain: Record<GeoTier, string> = {
-    region: '',
-    state: '',
-    district: '',
-    assembly: '',
-    lsgd: '',
-    ward: '',
-  };
-  const [chain, setChain] = useState<Record<GeoTier, string>>(emptyChain);
-  const [chainOptions, setChainOptions] = useState<Record<GeoTier, GeoSlot[]>>({
-    region: [],
-    state: [],
-    district: [],
-    assembly: [],
-    lsgd: [],
-    ward: [],
-  });
-
-  // The tiers this level's picker needs, in order — none for national, just
-  // "region" for a region agent, "region, state" for a state agent, and so on.
-  const neededTiers = useMemo<GeoTier[]>(
-    () =>
-      level === 'national'
-        ? []
-        : GEO_TIER_ORDER.slice(0, GEO_TIER_ORDER.indexOf(level as GeoTier) + 1),
-    [level],
+  // The named slot (region → … → ward) this agent will head, reported by
+  // <GeoSlotPicker> below. Every level below national is required to pick
+  // one — the same rule the app's own registration screen enforces — so a
+  // converted agent locks into a real position in the team tree instead of
+  // floating with no area at all.
+  const [position, setPosition] = useState<{ areaId: string | null; area: string }>(
+    { areaId: null, area: '' },
   );
-
-  /** Sets [tier]'s pick and clears everything below it — its own children's
-   *  options are no longer valid once the tier they hang off changes. */
-  function pickTier(tier: GeoTier, value: string) {
-    setChain((prev) => {
-      const next = { ...prev, [tier]: value };
-      GEO_TIER_ORDER.slice(GEO_TIER_ORDER.indexOf(tier) + 1).forEach((t) => {
-        next[t] = '';
-      });
-      return next;
-    });
-  }
-
-  // A different level needs a differently-shaped chain — start clean.
-  useEffect(() => {
-    setChain(emptyChain);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [level]);
-
-  useEffect(() => {
-    if (!neededTiers.includes('region')) return;
-    listSlots('region', null).then((opts) =>
-      setChainOptions((prev) => ({ ...prev, region: opts })),
-    );
-  }, [neededTiers]);
-  useEffect(() => {
-    if (!neededTiers.includes('state')) return;
-    if (!chain.region) {
-      setChainOptions((prev) => ({ ...prev, state: [] }));
-      return;
-    }
-    listSlots('state', chain.region).then((opts) =>
-      setChainOptions((prev) => ({ ...prev, state: opts })),
-    );
-  }, [neededTiers, chain.region]);
-  useEffect(() => {
-    if (!neededTiers.includes('district')) return;
-    if (!chain.state) {
-      setChainOptions((prev) => ({ ...prev, district: [] }));
-      return;
-    }
-    listSlots('district', chain.state).then((opts) =>
-      setChainOptions((prev) => ({ ...prev, district: opts })),
-    );
-  }, [neededTiers, chain.state]);
-  useEffect(() => {
-    if (!neededTiers.includes('assembly')) return;
-    if (!chain.district) {
-      setChainOptions((prev) => ({ ...prev, assembly: [] }));
-      return;
-    }
-    listSlots('assembly', chain.district).then((opts) =>
-      setChainOptions((prev) => ({ ...prev, assembly: opts })),
-    );
-  }, [neededTiers, chain.district]);
-  useEffect(() => {
-    if (!neededTiers.includes('lsgd')) return;
-    if (!chain.assembly) {
-      setChainOptions((prev) => ({ ...prev, lsgd: [] }));
-      return;
-    }
-    listSlots('lsgd', chain.assembly).then((opts) =>
-      setChainOptions((prev) => ({ ...prev, lsgd: opts })),
-    );
-  }, [neededTiers, chain.assembly]);
-  useEffect(() => {
-    if (!neededTiers.includes('ward')) return;
-    if (!chain.lsgd) {
-      setChainOptions((prev) => ({ ...prev, ward: [] }));
-      return;
-    }
-    listSlots('ward', chain.lsgd).then((opts) =>
-      setChainOptions((prev) => ({ ...prev, ward: opts })),
-    );
-  }, [neededTiers, chain.lsgd]);
-
-  // What the agent heads: the id/name of the slot at their own level — null
-  // for national, which has none.
-  const areaTier = level === 'national' ? null : (level as GeoTier);
-  const areaId = areaTier ? chain[areaTier] || null : null;
-  const areaName =
-    areaTier && areaId
-      ? chainOptions[areaTier].find((s) => s.id === areaId)?.name ?? ''
-      : '';
+  const areaId = position.areaId;
+  const areaName = position.area;
 
   // Top of the tree is capped: one national agent, six regions. Counts come
   // from the agent list the parent picker already loads.
@@ -398,11 +292,10 @@ export default function UserDetailPage() {
       return;
     }
     // Every level below national heads a real, named slot — same as the
-    // app's own registration screen. Refuse to submit until the whole chain
-    // down to this agent's own tier is picked.
-    const missing = neededTiers.find((tier) => !chain[tier]);
-    if (missing) {
-      setFormError(`Choose which ${missing} this agent heads.`);
+    // app's own registration screen. Refuse to submit until GeoSlotPicker
+    // has resolved one.
+    if (level !== 'national' && !areaId) {
+      setFormError(`Choose which ${level} this agent heads.`);
       return;
     }
     setSaving(true);
@@ -1047,43 +940,7 @@ export default function UserDetailPage() {
                     ))}
                   </select>
                 </label>
-                {neededTiers.length > 0 && (
-                  <div className="space-y-3 rounded-lg border border-slate-200 p-3">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                      Position — the named slot this agent heads
-                    </p>
-                    {neededTiers.map((tier, i) => {
-                      const parentTier = i > 0 ? neededTiers[i - 1] : null;
-                      const locked = parentTier != null && !chain[parentTier];
-                      return (
-                        <label
-                          key={tier}
-                          className="block text-xs font-semibold uppercase tracking-wide text-slate-500"
-                        >
-                          {titleCase(tier)}
-                          <select
-                            value={chain[tier]}
-                            onChange={(e) => pickTier(tier, e.target.value)}
-                            disabled={locked}
-                            className={`mt-1 ${fieldCls} disabled:bg-slate-50 disabled:text-slate-400`}
-                          >
-                            <option value="">
-                              {locked
-                                ? `Choose a ${parentTier} first`
-                                : `Pick a ${tier}`}
-                            </option>
-                            {chainOptions[tier].map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {s.name}
-                                {s.code ? ` (${s.code})` : ''}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
+                <GeoSlotPicker level={level} onChange={setPosition} />
                 <div className="flex flex-wrap gap-2 pt-1">
                   <Button variant="secondary" onClick={() => setMode('view')}>
                     Back
