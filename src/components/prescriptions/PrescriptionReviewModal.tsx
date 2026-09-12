@@ -20,7 +20,6 @@ import {
   addCustomRouteTime,
   loadCustomRouteTimes,
   ROUTE_TIME_PRESETS,
-  type RoutePreset,
 } from '@/lib/routeTimes';
 import {
   savePrescriptionIntake,
@@ -206,11 +205,12 @@ export function PrescriptionReviewModal({
     applyFrequency(i, { code: trimmed, description: '', intakeCode: null });
   }
 
-  // Route / timing presets (SL/PR/IV/OU-drops/AF-AC/SOS/…) — always inserted
-  // as text into Route & time, same as a non-fitting frequency.
-  const [customRouteTimes, setCustomRouteTimes] = useState<RoutePreset[]>(() =>
-    loadCustomRouteTimes(),
-  );
+  // "Route & time" dropdown options: the standard shorthand (SL, IV, SOS, …)
+  // plus whatever a reviewer has added before on this browser — same idea
+  // and pattern as Type above.
+  const [customRouteTimes, setCustomRouteTimes] = useState<
+    { code: string; description: string }[]
+  >(() => loadCustomRouteTimes());
   const routeTimeOptions = useMemo(
     () => [...ROUTE_TIME_PRESETS, ...customRouteTimes],
     [customRouteTimes],
@@ -219,35 +219,20 @@ export function PrescriptionReviewModal({
     null,
   );
   const [newRouteTimeValue, setNewRouteTimeValue] = useState('');
-  // Same reasoning as selectedFrequency above -- keeps the Route & time
-  // preset dropdown showing what was picked instead of resetting.
-  const [selectedRouteTime, setSelectedRouteTime] = useState<
-    Record<number, string>
-  >({});
-
-  function applyRouteTime(i: number, preset: RoutePreset) {
-    appendRouteTime(
-      i,
-      preset.description ? `${preset.code} — ${preset.description}` : preset.code,
-    );
-  }
 
   function confirmNewRouteTime(i: number) {
     const trimmed = newRouteTimeValue.trim();
     setAddingRouteTimeFor(null);
     setNewRouteTimeValue('');
     if (!trimmed) return;
-    const updated = addCustomRouteTime(trimmed, '');
-    setCustomRouteTimes(updated);
-    setSelectedRouteTime((m) => ({ ...m, [i]: trimmed }));
-    applyRouteTime(i, { code: trimmed, description: '' });
+    setCustomRouteTimes(addCustomRouteTime(trimmed, ''));
+    patchRow(i, { routeTime: trimmed });
   }
 
   // Load the open prescription's existing lines into the editor (or one blank
   // row to start from).
   useEffect(() => {
     setSelectedFrequency({});
-    setSelectedRouteTime({});
     setDetailsError(null);
     if (!prescription) {
       setDraft([]);
@@ -307,7 +292,6 @@ export function PrescriptionReviewModal({
       return next;
     };
     setSelectedFrequency(reindex);
-    setSelectedRouteTime(reindex);
   }
 
   /** Rotates by [delta] degrees and saves it immediately — a reviewer
@@ -682,26 +666,25 @@ export function PrescriptionReviewModal({
                         </div>
                       )}
                       <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                        Route &amp; time preset
+                        Route &amp; time
                       </p>
                       <div className="flex items-center gap-1.5">
                         <select
-                          value={selectedRouteTime[i] ?? ''}
-                          onChange={(e) => {
-                            setSelectedRouteTime((m) => ({
-                              ...m,
-                              [i]: e.target.value,
-                            }));
-                            const preset = routeTimeOptions.find(
-                              (r) => r.code === e.target.value,
-                            );
-                            if (preset) applyRouteTime(i, preset);
-                          }}
-                          className={`${inputClass} flex-1 ${
-                            selectedRouteTime[i] ? '' : 'text-slate-500'
-                          }`}
+                          value={row.routeTime}
+                          onChange={(e) =>
+                            patchRow(i, { routeTime: e.target.value })
+                          }
+                          className={`${inputClass} flex-1`}
                         >
-                          <option value="">SL, IV, OU drops, SOS, …</option>
+                          <option value="">Choose route &amp; time</option>
+                          {/* An old free-text value, or a compound one built
+                              up before this was a dropdown, still shows
+                              selected via this synthetic option, rather than
+                              silently reverting to blank. */}
+                          {row.routeTime &&
+                            !routeTimeOptions.some(
+                              (r) => r.code === row.routeTime,
+                            ) && <option value={row.routeTime}>{row.routeTime}</option>}
                           {routeTimeOptions.map((r) => (
                             <option key={r.code} value={r.code}>
                               {r.code}
@@ -735,7 +718,7 @@ export function PrescriptionReviewModal({
                                 setAddingRouteTimeFor(null);
                               }
                             }}
-                            placeholder="New route/time (e.g. Nebulized)"
+                            placeholder="New route/time (e.g. Oral, after food)"
                             className={inputClass}
                           />
                           <Button
@@ -754,17 +737,6 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
-                        Route &amp; time
-                      </p>
-                      <input
-                        value={row.routeTime}
-                        onChange={(e) =>
-                          patchRow(i, { routeTime: e.target.value })
-                        }
-                        placeholder="e.g. Oral, after food"
-                        className={inputClass}
-                      />
                     </div>
                   ))}
                   {draft.length === 0 && (
