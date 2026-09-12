@@ -1,5 +1,5 @@
 import { query } from '@/lib/db';
-import { fromEnum, iso, num } from '@/lib/mappers';
+import { fromEnum, iso, num, toEnum } from '@/lib/mappers';
 import type {
   Prescription,
   PrescriptionMedicine,
@@ -33,6 +33,7 @@ function toMedicine(r: Row): PrescriptionMedicine {
     doseNight: num(r.dose_night),
     totalUnits: num(r.total_units),
     routeTime: String(r.route_time ?? ''),
+    status: fromEnum(String(r.status ?? 'AVAILABLE')),
   };
 }
 
@@ -80,7 +81,8 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
   const ids = rows.map((r) => String(r.id));
   const medRows = await query<Row>(
     `SELECT prescription_id, name, pack,
-            dose_morning, dose_afternoon, dose_night, total_units, route_time
+            dose_morning, dose_afternoon, dose_night, total_units, route_time,
+            status
        FROM app.prescription_medicine
       WHERE prescription_id = ANY($1::bigint[])
       ORDER BY sort, id`,
@@ -265,8 +267,9 @@ export async function savePrescriptionIntake(
     await query(
       `INSERT INTO app.prescription_medicine
          (prescription_id, sort, name, pack,
-          dose_morning, dose_afternoon, dose_night, total_units, route_time)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          dose_morning, dose_afternoon, dose_night, total_units, route_time,
+          status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::app.prescription_medicine_status)`,
       [
         id,
         i,
@@ -277,6 +280,7 @@ export async function savePrescriptionIntake(
         night,
         Math.max(0, Math.round(rows[i].totalUnits) || 0),
         rows[i].routeTime.trim(),
+        toEnum(rows[i].status || 'available'),
       ],
     );
   }

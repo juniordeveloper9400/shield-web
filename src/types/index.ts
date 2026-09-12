@@ -341,6 +341,17 @@ export type PrescriptionStatus =
   | 'in_cart'
   | 'ordered';
 
+/**
+ * `app.prescription_medicine_status` — whether the pharmacist actually has
+ * this line on hand, migration 0024. Set and changed from the console's
+ * intake-card editor like any other field on the row; purely an internal
+ * note for the counter, never read or shown by the member's own app.
+ */
+export type PrescriptionMedicineStatus =
+  | 'available'
+  | 'out_of_stock'
+  | 'not_possible';
+
 /** One row of `app.prescription_medicine` (dose is morning-afternoon-night). */
 export interface PrescriptionMedicine {
   name: string;
@@ -354,6 +365,7 @@ export interface PrescriptionMedicine {
   totalUnits: number;
   /** How and when to take it, e.g. "Oral, after food" — `route_time`. */
   routeTime: string;
+  status: PrescriptionMedicineStatus;
 }
 
 /** One row the pharmacist enters on the intake card in the console. */
@@ -367,6 +379,8 @@ export interface PrescriptionMedicineInput {
   totalUnits: number;
   /** "Route & time" in the form, e.g. "Oral, after food". */
   routeTime: string;
+  /** "Stock status" in the form — admin-only, never shown to the member. */
+  status: PrescriptionMedicineStatus;
 }
 
 /** An uploaded prescription — `app.prescription` + `app.prescription_medicine`. */

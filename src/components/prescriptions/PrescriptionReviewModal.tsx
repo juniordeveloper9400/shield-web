@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Badge } from '@/components/ui/Badge';
+import { Badge, type Tone } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
@@ -37,6 +37,7 @@ import type {
   MemberPatient,
   Prescription,
   PrescriptionMedicineInput,
+  PrescriptionMedicineStatus,
   PrescriptionStatus,
 } from '@/types';
 
@@ -60,12 +61,29 @@ const RELATION_OPTIONS: { value: string; label: string }[] = [
   { value: 'other', label: 'Other' },
 ];
 
+/** `PrescriptionMedicineStatus` — a pharmacist-only note on each medicine
+ *  line, changeable any time it's edited; never shown in the member's app. */
+const STOCK_STATUS_LABEL: Record<PrescriptionMedicineStatus, string> = {
+  available: 'Stock available',
+  out_of_stock: 'Out of stock',
+  not_possible: 'Not possible',
+};
+const STOCK_STATUS_TONE: Record<PrescriptionMedicineStatus, Tone> = {
+  available: 'green',
+  out_of_stock: 'amber',
+  not_possible: 'red',
+};
+const STOCK_STATUS_OPTIONS = (
+  Object.keys(STOCK_STATUS_LABEL) as PrescriptionMedicineStatus[]
+).map((value) => ({ value, label: STOCK_STATUS_LABEL[value] }));
+
 const EMPTY_ROW: PrescriptionMedicineInput = {
   name: '',
   pack: '',
   intake: '',
   totalUnits: 0,
   routeTime: '',
+  status: 'available',
 };
 
 const STATUS_LABEL: Record<PrescriptionStatus, string> = {
@@ -336,6 +354,7 @@ export function PrescriptionReviewModal({
             intake: `${m.doseMorning}${m.doseAfternoon}${m.doseNight}`,
             totalUnits: m.totalUnits,
             routeTime: m.routeTime,
+            status: m.status,
           }))
         : [{ ...EMPTY_ROW }],
     );
@@ -789,6 +808,32 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                        Stock status
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={row.status}
+                          onChange={(e) =>
+                            patchRow(i, {
+                              status: e.target.value as PrescriptionMedicineStatus,
+                            })
+                          }
+                          className={`${inputClass} flex-1`}
+                        >
+                          {STOCK_STATUS_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                        <Badge tone={STOCK_STATUS_TONE[row.status]}>
+                          {STOCK_STATUS_LABEL[row.status]}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">
+                        For the counter only — never shown in the member's app.
+                      </p>
                     </div>
                   ))}
                   {draft.length === 0 && (
