@@ -26,8 +26,12 @@ import {
   savePrescriptionIntake,
   setPrescriptionImageRotation,
   setPrescriptionStatus,
+  updatePrescriptionBranch,
   updatePrescriptionDetails,
 } from '@/api/prescriptions';
+import { updateMemberContact, updatePatientName } from '@/api/users';
+import { listStores } from '@/api/stores';
+import { useAsync } from '@/lib/useAsync';
 import type { Prescription, PrescriptionMedicineInput, PrescriptionStatus } from '@/types';
 
 const inputClass =
@@ -82,6 +86,10 @@ export function PrescriptionReviewModal({
   const [saving, setSaving] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
 
+  // Every branch, for the "Branch" dropdown on the Details step.
+  const { data: storeRows } = useAsync(listStores, []);
+  const stores = storeRows ?? [];
+
   // One section at a time rather than one long scroll through both: the
   // intake card first, against the uploaded script held in view alongside
   // it; the prescription's own details second, once the script itself is
@@ -95,6 +103,16 @@ export function PrescriptionReviewModal({
   const [doctor, setDoctor] = useState('');
   const [durationToken, setDurationToken] = useState('');
   const [customDays, setCustomDays] = useState(0);
+  // Member name/phone and the patient's name are the account's and the saved
+  // patient profile's own — editing these here writes straight to those rows
+  // (see updateMemberContact / updatePatientName), so the fix shows up
+  // everywhere they're named, not just on this prescription. Branch is a
+  // direct override of which store this script is filled at.
+  const [memberName, setMemberName] = useState('');
+  const [memberPhone, setMemberPhone] = useState('');
+  const [patientName, setPatientName] = useState('');
+  const [storeId, setStoreId] = useState('');
+  const [detailsError, setDetailsError] = useState<string | null>(null);
   // Degrees clockwise, one of 0/90/180/270 — a script photographed sideways or
   // upside down is common enough to need fixing. Starts from whatever was
   // last saved for this prescription (app.prescription.image_rotation), not
@@ -230,6 +248,7 @@ export function PrescriptionReviewModal({
   useEffect(() => {
     setSelectedFrequency({});
     setSelectedRouteTime({});
+    setDetailsError(null);
     if (!prescription) {
       setDraft([]);
       setImageOpen(false);
@@ -238,6 +257,10 @@ export function PrescriptionReviewModal({
       setDoctor('');
       setDurationToken('');
       setCustomDays(0);
+      setMemberName('');
+      setMemberPhone('');
+      setPatientName('');
+      setStoreId('');
       return;
     }
     setDraft(
@@ -256,6 +279,10 @@ export function PrescriptionReviewModal({
     setDoctor(prescription.doctor);
     setDurationToken(prescription.durationToken);
     setCustomDays(prescription.customDays);
+    setMemberName(prescription.memberName);
+    setMemberPhone(prescription.memberPhone);
+    setPatientName(prescription.patientName);
+    setStoreId(prescription.storeId);
     // Only when the open prescription changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prescription?.id]);
@@ -298,12 +325,38 @@ export function PrescriptionReviewModal({
     }
   }
 
-  /** The final action, from the Details step: saves the doctor/duration
-   *  correction alongside the intake card in one go and closes. */
+  /** The final action, from the Details step: saves every correction on this
+   *  screen — the member's own name/phone, the patient's name, the pinned
+   *  branch, and the doctor/duration — alongside the intake card in one go,
+   *  then closes. */
   async function sendIntake() {
     if (!prescription) return;
+    if (!memberName.trim() || !memberPhone.trim()) {
+      setDetailsError('Member name and phone cannot be blank.');
+      return;
+    }
+    if (!patientName.trim()) {
+      setDetailsError('Patient name cannot be blank.');
+      return;
+    }
     setSending(true);
+    setDetailsError(null);
     try {
+      // The member's account fields are shared with every other order,
+      // wallet entry and script on it — check the phone isn't already
+      // someone else's before writing anything else.
+      const contactSaved = await updateMemberContact(prescription.memberId, {
+        name: memberName,
+        phone: memberPhone,
+      });
+      if (!contactSaved) {
+        setDetailsError(
+          `${memberPhone.trim()} is already used by a different account — pick a different number.`,
+        );
+        return;
+      }
+      await updatePatientName(prescription.patientId, patientName);
+      await updatePrescriptionBranch(prescription.id, storeId || null);
       await updatePrescriptionDetails(prescription.id, {
         doctor,
         durationToken,
@@ -312,6 +365,10 @@ export function PrescriptionReviewModal({
       await savePrescriptionIntake(prescription.id, draft);
       onSaved();
       onClose();
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error ? err.message : 'Could not save these details.',
+      );
     } finally {
       setSending(false);
     }
@@ -721,10 +778,59 @@ export function PrescriptionReviewModal({
                 <>
                   <DetailList
                     rows={[
-                      { label: 'Member', value: prescription.memberName },
-                      { label: 'Phone', value: prescription.memberPhone },
-                      { label: 'Patient', value: prescription.patientName },
-                      { label: 'Branch', value: prescription.storeName },
+                      {
+                        label: 'Member',
+                        value: (
+                          <input
+                            value={memberName}
+                            onChange={(e) => setMemberName(e.target.value)}
+                            placeholder="Member's name"
+                            className={inputClass}
+                          />
+                        ),
+                      },
+                      {
+                        label: 'Phone',
+                        value: (
+                          <input
+                            value={memberPhone}
+                            onChange={(e) => setMemberPhone(e.target.value)}
+                            placeholder="10-digit phone"
+                            inputMode="tel"
+                            className={inputClass}
+                          />
+                        ),
+                      },
+                      {
+                        label: 'Patient',
+                        value: (
+                          <input
+                            value={patientName}
+                            onChange={(e) => setPatientName(e.target.value)}
+                            placeholder="Patient's name"
+                            className={inputClass}
+                          />
+                        ),
+                      },
+                      {
+                        label: 'Branch',
+                        value: (
+                          <select
+                            value={storeId}
+                            onChange={(e) => setStoreId(e.target.value)}
+                            className={inputClass}
+                          >
+                            <option value="">
+                              Not set — {prescription.storeName}
+                            </option>
+                            {stores.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name} ({s.code})
+                              </option>
+                            ))}
+                          </select>
+                        ),
+                      },
                       {
                         label: 'Uploaded',
                         value: formatDateTime(prescription.createdAt),
@@ -774,6 +880,11 @@ export function PrescriptionReviewModal({
                       },
                     ]}
                   />
+                  {detailsError && (
+                    <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                      {detailsError}
+                    </p>
+                  )}
                 </>
               )}
             </div>

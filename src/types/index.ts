@@ -373,8 +373,16 @@ export interface PrescriptionMedicineInput {
 export interface Prescription {
   id: string;
   code: string;
+  /** `app.prescription.member_id` — editing [memberName] / [memberPhone]
+   *  writes straight to that member's `app.users` row, so the correction
+   *  shows everywhere on their account, not just this prescription. */
+  memberId: string;
   memberName: string;
   memberPhone: string;
+  /** `app.prescription.patient_id` — editing [patientName] writes to that
+   *  saved patient profile, so it also changes how they're named on that
+   *  patient's other prescriptions and addresses. */
+  patientId: string;
   patientName: string;
   doctor: string;
   fileName: string;
@@ -393,6 +401,11 @@ export interface Prescription {
    *  count rather than one of the five fixed spans. */
   customDays: number;
   status: PrescriptionStatus;
+  /** The branch actually pinned on `app.prescription.store_id`, or '' when
+   *  unset — [storeCode] / [storeName] below fall further back to the pickup
+   *  order's branch, then the member's home branch, but this is the id an
+   *  edit to the branch dropdown writes to. */
+  storeId: string;
   storeCode: string;
   storeName: string;
   createdAt: string;

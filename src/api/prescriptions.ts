@@ -46,6 +46,7 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
   const rows = await query<Row>(
     `
     SELECT rx.id, rx.code,
+           rx.member_id, rx.patient_id, rx.store_id AS assigned_store_id,
            m.name  AS member_name,
            m.phone AS member_phone,
            pt.name AS patient_name,
@@ -100,8 +101,10 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
   return rows.map((r) => ({
     id: String(r.id),
     code: String(r.code),
+    memberId: String(r.member_id ?? ''),
     memberName: String(r.member_name ?? '—'),
     memberPhone: String(r.member_phone ?? ''),
+    patientId: String(r.patient_id ?? ''),
     patientName: String(r.patient_name ?? '—'),
     doctor: String(r.doctor ?? ''),
     fileName: String(r.file_name ?? ''),
@@ -111,6 +114,7 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
     durationToken: r.duration ? fromEnum(String(r.duration)) : '',
     customDays: num(r.custom_days),
     status: fromEnum<PrescriptionStatus>(String(r.status)),
+    storeId: String(r.assigned_store_id ?? ''),
     storeCode: String(r.store_code ?? ''),
     storeName: String(r.store_name ?? '—'),
     createdAt: iso(r.created_at) ?? new Date(0).toISOString(),
@@ -174,6 +178,23 @@ export async function updatePrescriptionDetails(
       opts.durationToken.trim() ? opts.durationToken.toUpperCase() : null,
       Math.max(0, Math.round(opts.customDays) || 0),
     ],
+  );
+}
+
+/**
+ * Pins (or clears) the branch this prescription is filled at —
+ * `app.prescription.store_id` directly, overriding the pickup-order /
+ * home-branch fallback {@link fetchPrescriptions} otherwise falls back to for
+ * [Prescription.storeCode] / [Prescription.storeName]. `null` clears it back
+ * to that fallback chain.
+ */
+export async function updatePrescriptionBranch(
+  id: string,
+  storeId: string | null,
+): Promise<void> {
+  await query(
+    `UPDATE app.prescription SET store_id = $2, updated_at = now() WHERE id = $1`,
+    [id, storeId],
   );
 }
 

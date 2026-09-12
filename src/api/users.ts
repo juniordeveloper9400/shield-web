@@ -166,6 +166,49 @@ export async function getUserDetail(userId: string): Promise<UserDetail> {
 }
 
 /**
+ * Corrects a member's own name/phone directly on `app.users` — used from the
+ * prescription review flow when what they typed at registration turns out
+ * wrong. This is their account's actual name/phone, so the fix shows
+ * everywhere on it (orders, wallet, other scripts), not just the one
+ * prescription being reviewed. Returns `false`, changing nothing, when
+ * [phone] already belongs to a different account.
+ */
+export async function updateMemberContact(
+  memberId: string,
+  input: { name: string; phone: string },
+): Promise<boolean> {
+  const rows = await query<Row>(
+    `
+    UPDATE app.users u
+       SET name = $2, phone = $3, updated_at = now()
+     WHERE u.id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM app.users o WHERE o.phone = $3 AND o.id <> $1
+       )
+     RETURNING id
+    `,
+    [memberId, input.name.trim(), input.phone.trim()],
+  );
+  return rows.length > 0;
+}
+
+/**
+ * Corrects a saved patient profile's name — `app.patient.name`. The same
+ * patient row can be named on other prescriptions and saved addresses, so
+ * this changes how they show up everywhere, not just on the prescription
+ * being reviewed.
+ */
+export async function updatePatientName(
+  patientId: string,
+  name: string,
+): Promise<void> {
+  await query(`UPDATE app.patient SET name = $2, updated_at = now() WHERE id = $1`, [
+    patientId,
+    name.trim(),
+  ]);
+}
+
+/**
  * Approved agents only, for the "parent" picker and the one-national /
  * six-region caps. A pending or rejected registration is neither a valid
  * parent nor a slot that counts as taken.
