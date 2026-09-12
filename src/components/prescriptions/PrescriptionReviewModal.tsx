@@ -11,6 +11,12 @@ import {
   MEDICINE_TYPES,
 } from '@/lib/medicineTypes';
 import {
+  addCustomFrequency,
+  INTAKE_FREQUENCIES,
+  loadCustomFrequencies,
+  type FrequencyPreset,
+} from '@/lib/intakeFrequencies';
+import {
   savePrescriptionIntake,
   setPrescriptionImageRotation,
   setPrescriptionStatus,
@@ -88,6 +94,52 @@ export function PrescriptionReviewModal({
     if (!trimmed) return;
     setCustomTypes(addCustomMedicineType(trimmed));
     patchRow(i, { pack: trimmed });
+  }
+
+  // Dosing-frequency presets (OD/BD/TDS/HS/q4h/…) — same idea as Type, but
+  // Intake's three digits can't say "four times daily" or "every 6 hours",
+  // so picking one of those fills Route & time instead; see
+  // intakeFrequencies.ts's own doc for why.
+  const [customFrequencies, setCustomFrequencies] = useState<
+    FrequencyPreset[]
+  >(() => loadCustomFrequencies());
+  const frequencyOptions = useMemo(
+    () => [...INTAKE_FREQUENCIES, ...customFrequencies],
+    [customFrequencies],
+  );
+  const [addingFrequencyFor, setAddingFrequencyFor] = useState<number | null>(
+    null,
+  );
+  const [newFrequencyValue, setNewFrequencyValue] = useState('');
+
+  function applyFrequency(i: number, preset: FrequencyPreset) {
+    if (preset.intakeCode) {
+      patchRow(i, { intake: preset.intakeCode });
+      return;
+    }
+    const label = preset.description
+      ? `${preset.code} — ${preset.description}`
+      : preset.code;
+    setDraft((d) =>
+      d.map((row, j) =>
+        j === i
+          ? {
+              ...row,
+              routeTime: row.routeTime ? `${row.routeTime} · ${label}` : label,
+            }
+          : row,
+      ),
+    );
+  }
+
+  function confirmNewFrequency(i: number) {
+    const trimmed = newFrequencyValue.trim();
+    setAddingFrequencyFor(null);
+    setNewFrequencyValue('');
+    if (!trimmed) return;
+    const updated = addCustomFrequency(trimmed, '');
+    setCustomFrequencies(updated);
+    applyFrequency(i, { code: trimmed, description: '', intakeCode: null });
   }
 
   // Load the open prescription's existing lines into the editor (or one blank
@@ -351,6 +403,74 @@ export function PrescriptionReviewModal({
                           className={`${inputClass} text-right`}
                         />
                       </div>
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const preset = frequencyOptions.find(
+                              (f) => f.code === e.target.value,
+                            );
+                            if (preset) applyFrequency(i, preset);
+                          }}
+                          className={`${inputClass} flex-1 text-slate-500`}
+                        >
+                          <option value="">
+                            Frequency preset — fills Intake or Route &amp; time
+                          </option>
+                          {frequencyOptions.map((f) => (
+                            <option key={f.code} value={f.code}>
+                              {f.code}
+                              {f.description ? ` — ${f.description}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          title="Add a new frequency"
+                          onClick={() => {
+                            setAddingFrequencyFor(i);
+                            setNewFrequencyValue('');
+                          }}
+                          className="shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <Icon name="plus" className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {addingFrequencyFor === i && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <input
+                            autoFocus
+                            value={newFrequencyValue}
+                            onChange={(e) =>
+                              setNewFrequencyValue(e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                confirmNewFrequency(i);
+                              } else if (e.key === 'Escape') {
+                                setAddingFrequencyFor(null);
+                              }
+                            }}
+                            placeholder="New frequency (e.g. Alternate days)"
+                            className={inputClass}
+                          />
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => confirmNewFrequency(i)}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setAddingFrequencyFor(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
                       <input
                         value={row.routeTime}
                         onChange={(e) =>

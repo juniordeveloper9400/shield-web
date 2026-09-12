@@ -34,17 +34,10 @@ export const MODULES: NavItem[] = [
   },
   {
     key: 'banners',
-    label: 'Home Banners',
+    label: 'Banners',
     path: '/banners',
     icon: 'banners',
-    description: 'The hero banner on the app and web home screen',
-  },
-  {
-    key: 'category_banners',
-    label: 'Category Banners',
-    path: '/category-banners',
-    icon: 'banners',
-    description: 'Per-category banner, icon & sub-categories',
+    description: 'Home hero banner & per-category banners',
   },
   {
     key: 'customer_videos',
@@ -136,7 +129,6 @@ const APP_MODULES: ModuleKey[] = [
   'stores',
   'products',
   'banners',
-  'category_banners',
   'customer_videos',
   'orders',
   'prescriptions',

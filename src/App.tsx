@@ -8,7 +8,6 @@ import DashboardPage from '@/pages/DashboardPage';
 import StoresPage from '@/pages/StoresPage';
 import ProductsPage from '@/pages/ProductsPage';
 import BannersPage from '@/pages/BannersPage';
-import CategoryBannersPage from '@/pages/CategoryBannersPage';
 import CustomerVideosPage from '@/pages/CustomerVideosPage';
 import OrdersPage from '@/pages/OrdersPage';
 import PrescriptionsPage from '@/pages/PrescriptionsPage';
@@ -79,14 +78,6 @@ export default function App() {
           element={
             <ProtectedRoute module="banners">
               <BannersPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/category-banners"
-          element={
-            <ProtectedRoute module="category_banners">
-              <CategoryBannersPage />
             </ProtectedRoute>
           }
         />

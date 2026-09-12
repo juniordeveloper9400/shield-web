@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -57,7 +56,13 @@ function blankSub(sort: number): SubDraft {
   };
 }
 
-export default function CategoryBannersPage() {
+/**
+ * The promotional banner, icon and sub-categories for each product category
+ * — shown in the Categories tab and the home "Shop by categories" strip. One
+ * of the placements under the [BannersPage] hub, next to
+ * [../../components/banners/HomeBannerPanel].
+ */
+export function CategoryBannerPanel() {
   const { data, loading, error, reload } = useAsync(listCategoryGroups, []);
   const rows = useMemo(() => data ?? [], [data]);
 
@@ -327,15 +332,16 @@ export default function CategoryBannersPage() {
 
   return (
     <>
-      <PageHeader
-        title="Category banners"
-        subtitle="The promotional banner, icon and sub-categories for each product category — shown in the Categories tab and the home 'Shop by categories' strip."
-        actions={
-          <Button variant="primary" onClick={openAdd}>
-            <Icon name="plus" className="h-4 w-4" /> Add category
-          </Button>
-        }
-      />
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <p className="max-w-2xl text-sm text-slate-500">
+          The promotional banner, icon and sub-categories for each product
+          category — shown in the Categories tab and the home "Shop by
+          categories" strip.
+        </p>
+        <Button variant="primary" onClick={openAdd}>
+          <Icon name="plus" className="h-4 w-4" /> Add category
+        </Button>
+      </div>
 
       <Card>
         <DataTable
