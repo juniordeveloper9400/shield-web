@@ -1,11 +1,11 @@
 /**
  * Standard route-of-administration / timing shorthand a reviewer can pick
- * from a dropdown for Route & time — same idea as Type and the Intake
- * frequency preset, but this one always inserts as text (there's no digit
- * code for Route & time to fit into either way).
+ * from a dropdown for Route & time -- same idea as Type and the Intake
+ * preset, but this one always sets Route & time as text, and only Route &
+ * time (there's no digit code for it to fit into either way).
  *
  * A few (the eye/ear drop routes) carry a "___" placeholder for a drop
- * count the source table leaves blank too — inserted as-is; the reviewer
+ * count the source table leaves blank too -- inserted as-is; the reviewer
  * fills in the number by editing the text afterwards.
  */
 export interface RoutePreset {
@@ -35,6 +35,16 @@ export const ROUTE_TIME_PRESETS: RoutePreset[] = [
   { code: 'STAT', description: 'Immediately' },
   { code: 'AM', description: 'Morning' },
   { code: 'PM', description: 'Evening / night' },
+  // Dosing frequencies that don't fit Intake's three-slot (morning-
+  // afternoon-night) shape -- see intakeFrequencies.ts's own doc. They read
+  // as "how/when to take it" just as well from here, and picking one only
+  // ever sets this field.
+  { code: 'QDS / QID', description: 'Four times daily' },
+  { code: 'HS', description: 'At bedtime' },
+  { code: 'q4h', description: 'Every 4 hours' },
+  { code: 'q6h', description: 'Every 6 hours' },
+  { code: 'q8h', description: 'Every 8 hours' },
+  { code: 'q12h', description: 'Every 12 hours' },
 ];
 
 const STORAGE_KEY = 'shield-console-custom-route-times';

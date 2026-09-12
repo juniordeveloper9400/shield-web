@@ -256,39 +256,21 @@ export function PrescriptionReviewModal({
   );
   const [newFrequencyValue, setNewFrequencyValue] = useState('');
   // The preset code last picked for each row, purely so the dropdown keeps
-  // showing it instead of snapping back to the placeholder -- applying a
-  // preset doesn't leave a single field behind to read it back from (an
-  // intake-shaped one overwrites row.intake, the rest append free text).
+  // showing it instead of snapping back to the placeholder -- applying one
+  // overwrites row.intake, which isn't a field this dropdown can read back
+  // its own selection from.
   const [selectedFrequency, setSelectedFrequency] = useState<
     Record<number, string>
   >({});
 
-  /** Appends [label] to row [i]'s Route & time, separated from whatever is
-   *  already there — the shared landing spot for anything (a frequency that
-   *  doesn't fit Intake, or a route/timing preset) that reads as free text
-   *  rather than a structured code. */
-  function appendRouteTime(i: number, label: string) {
-    setDraft((d) =>
-      d.map((row, j) =>
-        j === i
-          ? {
-              ...row,
-              routeTime: row.routeTime ? `${row.routeTime} · ${label}` : label,
-            }
-          : row,
-      ),
-    );
-  }
-
+  /** Sets row [i]'s Intake from a preset -- and only Intake. Every entry in
+   *  frequencyOptions carries an intakeCode (see intakeFrequencies.ts); a
+   *  frequency that doesn't fit Intake's three-slot shape lives in Route &
+   *  time's own preset list instead, never here. */
   function applyFrequency(i: number, preset: FrequencyPreset) {
     if (preset.intakeCode) {
       patchRow(i, { intake: preset.intakeCode });
-      return;
     }
-    appendRouteTime(
-      i,
-      preset.description ? `${preset.code} — ${preset.description}` : preset.code,
-    );
   }
 
   function confirmNewFrequency(i: number) {
@@ -299,7 +281,7 @@ export function PrescriptionReviewModal({
     const updated = addCustomFrequency(trimmed, '');
     setCustomFrequencies(updated);
     setSelectedFrequency((m) => ({ ...m, [i]: trimmed }));
-    applyFrequency(i, { code: trimmed, description: '', intakeCode: null });
+    applyFrequency(i, { code: trimmed, description: '', intakeCode: trimmed });
   }
 
   // "Route & time" dropdown options: the standard shorthand (SL, IV, SOS, …)
@@ -692,7 +674,7 @@ export function PrescriptionReviewModal({
                               ? `${f.code} — ${f.description}`
                               : f.code,
                           }))}
-                          placeholder="OD, BD, TDS, HS, q4h, …"
+                          placeholder="OD, BD, TDS, …"
                           searchPlaceholder="Search intake presets…"
                           className="flex-1"
                         />
@@ -730,7 +712,7 @@ export function PrescriptionReviewModal({
                                 setAddingFrequencyFor(null);
                               }
                             }}
-                            placeholder="New intake preset (e.g. Alternate days)"
+                            placeholder="New Intake code, e.g. 1-1-1"
                             className={inputClass}
                           />
                           <Button
