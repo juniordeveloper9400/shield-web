@@ -47,6 +47,10 @@ export function Combobox({
   } | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  // The currently-selected option's own button, so opening the panel can
+  // scroll straight to it — a selection near the end of a 40-item list would
+  // otherwise start scrolled to the top, off-screen, every time it reopens.
+  const selectedItemRef = useRef<HTMLButtonElement | null>(null);
 
   // A value set before this field had this exact option list (an old
   // free-typed entry, or one added on a different browser) still shows as
@@ -97,12 +101,15 @@ export function Combobox({
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') setOpen(false);
     }
-    // Any scroll — the page, or the modal's own scrolling body — moves the
+    // Scrolling the page, or the modal's own scrolling body, moves the
     // trigger out from under a `fixed`-position panel that was placed from a
-    // one-time measurement; close rather than let it float over the wrong
-    // spot. `capture: true` catches scrolling on the modal's inner container,
-    // not just the window.
-    function onScroll() {
+    // one-time measurement — close rather than let it float over the wrong
+    // spot. `capture: true` is what catches scrolling on the modal's inner
+    // container, not just the window; the same capture phase also sees the
+    // panel's own option list scrolling (browsing a long list), which must
+    // NOT close it — excluded explicitly below.
+    function onScroll(e: Event) {
+      if (panelRef.current?.contains(e.target as Node)) return;
       setOpen(false);
     }
     document.addEventListener('mousedown', onDocDown);
@@ -113,6 +120,13 @@ export function Combobox({
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('scroll', onScroll, true);
     };
+  }, [open]);
+
+  // Once the panel (and its options) have rendered, jump straight to
+  // whichever one is currently selected, so re-opening a field already set
+  // deep in the list doesn't start scrolled to the top.
+  useEffect(() => {
+    if (open) selectedItemRef.current?.scrollIntoView({ block: 'nearest' });
   }, [open]);
 
   return (
@@ -159,6 +173,7 @@ export function Combobox({
               filtered.map((o) => (
                 <button
                   key={o.value}
+                  ref={o.value === value ? selectedItemRef : undefined}
                   type="button"
                   onClick={() => {
                     onChange(o.value);
