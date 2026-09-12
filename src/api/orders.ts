@@ -24,7 +24,7 @@ export async function listOrders(): Promise<Order[]> {
            COALESCE(s.code, ms.code) AS store_code,
            COALESCE(s.name, ms.name) AS store_name,
            COALESCE(pm.name, o.reference) AS payment_method,
-           o.placed_at, o.bill_image, o.billed_at,
+           o.placed_at, b.image AS bill_image, b.sent_at AS billed_at,
            r.payer_name AS receipt_payer_name, r.reference AS receipt_reference,
            r.amount AS receipt_amount, r.file_name AS receipt_file_name,
            r.image AS receipt_image, r.uploaded_at AS receipt_uploaded_at
@@ -33,6 +33,7 @@ export async function listOrders(): Promise<Order[]> {
     LEFT JOIN app.shield_store s   ON s.id  = o.store_id
     LEFT JOIN app.shield_store ms  ON ms.id = m.home_store_id
     LEFT JOIN app.payment_method pm ON pm.id = o.payment_method_id
+    LEFT JOIN app.bill b            ON b.order_id = o.id
     LEFT JOIN LATERAL (
       SELECT payer_name, reference, amount, file_name, image, uploaded_at
       FROM app.order_receipt
@@ -107,20 +108,22 @@ export async function setOrderStatus(id: string, status: OrderStatus): Promise<v
 }
 
 /**
- * Attaches (or replaces) the store's invoice for this order — what the
- * member's own order-detail screen reads as "Invoice from the store".
+ * Attaches (or replaces) the store's invoice for this order in `app.bill` —
+ * what the member's own order-detail screen reads as "Invoice from the
+ * store". One row per order: sending again (e.g. "Replace") overwrites it
+ * and bumps `sent_at`, rather than piling up a history.
  */
 export async function sendOrderBill(id: string, image: string): Promise<void> {
   await query(
-    'UPDATE app."order" SET bill_image = $2, billed_at = now() WHERE id = $1',
+    `INSERT INTO app.bill (order_id, image, sent_at, updated_at)
+     VALUES ($1, $2, now(), now())
+     ON CONFLICT (order_id)
+     DO UPDATE SET image = excluded.image, sent_at = now(), updated_at = now()`,
     [id, image],
   );
 }
 
 /** Withdraws a bill sent in error — the member stops seeing it. */
 export async function clearOrderBill(id: string): Promise<void> {
-  await query(
-    'UPDATE app."order" SET bill_image = NULL, billed_at = NULL WHERE id = $1',
-    [id],
-  );
+  await query('DELETE FROM app.bill WHERE order_id = $1', [id]);
 }
