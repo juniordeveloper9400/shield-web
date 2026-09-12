@@ -42,7 +42,7 @@ import type {
 } from '@/types';
 
 const inputClass =
-  'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+  'w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
 
 const DURATION_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'Not set' },
@@ -66,11 +66,13 @@ const RELATION_OPTIONS: { value: string; label: string }[] = [
 const STOCK_STATUS_LABEL: Record<PrescriptionMedicineStatus, string> = {
   available: 'Stock available',
   out_of_stock: 'Out of stock',
+  ordered: 'Ordered',
   not_possible: 'Not possible',
 };
 const STOCK_STATUS_TONE: Record<PrescriptionMedicineStatus, Tone> = {
   available: 'green',
   out_of_stock: 'amber',
+  ordered: 'blue',
   not_possible: 'red',
 };
 const STOCK_STATUS_OPTIONS = (
@@ -576,21 +578,21 @@ export function PrescriptionReviewModal({
                   {draft.map((row, i) => (
                     <div
                       key={i}
-                      className="rounded-lg border border-slate-200 p-2.5"
+                      className="rounded-lg border border-blue-700 bg-blue-600 p-3 text-white"
                     >
                       <div className="mb-1.5 flex items-center justify-between">
-                        <span className="text-xs font-medium text-slate-500">
+                        <span className="text-xs font-medium text-blue-100">
                           Medicine {i + 1}
                         </span>
                         <button
                           type="button"
-                          className="text-xs font-medium text-rose-600"
+                          className="text-xs font-medium text-rose-200 hover:text-rose-100"
                           onClick={() => removeRow(i)}
                         >
                           Remove
                         </button>
                       </div>
-                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-blue-100">
                         Name
                       </p>
                       <input
@@ -599,7 +601,7 @@ export function PrescriptionReviewModal({
                         placeholder="e.g. Paracetamol 500mg"
                         className={inputClass}
                       />
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
                         Type
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -618,7 +620,7 @@ export function PrescriptionReviewModal({
                             setAddingTypeFor(i);
                             setNewTypeValue('');
                           }}
-                          className="shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                         >
                           <Icon name="plus" className="h-3.5 w-3.5" />
                         </button>
@@ -650,13 +652,14 @@ export function PrescriptionReviewModal({
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="text-white hover:bg-white/10"
                             onClick={() => setAddingTypeFor(null)}
                           >
                             Cancel
                           </Button>
                         </div>
                       )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
                         Quantity
                       </p>
                       <input
@@ -670,7 +673,7 @@ export function PrescriptionReviewModal({
                         inputMode="numeric"
                         className={inputClass}
                       />
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
                         Intake preset
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -700,13 +703,13 @@ export function PrescriptionReviewModal({
                             setAddingFrequencyFor(i);
                             setNewFrequencyValue('');
                           }}
-                          className="shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                         >
                           <Icon name="plus" className="h-3.5 w-3.5" />
                         </button>
                       </div>
                       {row.intake && (
-                        <p className="mt-1 text-xs text-slate-400">
+                        <p className="mt-1 text-xs text-blue-100">
                           Intake set to {row.intake.split('').join('-')} — pick
                           a different preset to change it.
                         </p>
@@ -740,13 +743,14 @@ export function PrescriptionReviewModal({
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="text-white hover:bg-white/10"
                             onClick={() => setAddingFrequencyFor(null)}
                           >
                             Cancel
                           </Button>
                         </div>
                       )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
                         Route &amp; time
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -770,7 +774,7 @@ export function PrescriptionReviewModal({
                             setAddingRouteTimeFor(i);
                             setNewRouteTimeValue('');
                           }}
-                          className="shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                         >
                           <Icon name="plus" className="h-3.5 w-3.5" />
                         </button>
@@ -802,13 +806,14 @@ export function PrescriptionReviewModal({
                           <Button
                             variant="ghost"
                             size="sm"
+                            className="text-white hover:bg-white/10"
                             onClick={() => setAddingRouteTimeFor(null)}
                           >
                             Cancel
                           </Button>
                         </div>
                       )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
                         Stock status
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -831,7 +836,7 @@ export function PrescriptionReviewModal({
                           {STOCK_STATUS_LABEL[row.status]}
                         </Badge>
                       </div>
-                      <p className="mt-1 text-xs text-slate-400">
+                      <p className="mt-1 text-xs text-blue-100">
                         For the counter only — never shown in the member's app.
                       </p>
                     </div>
