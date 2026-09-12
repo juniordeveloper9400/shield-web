@@ -374,6 +374,9 @@ export interface Prescription {
   fileName: string;
   /** The uploaded script itself — a resized JPEG data URI, or '' when none. */
   image: string;
+  /** Degrees clockwise (0/90/180/270) to display [image] rotated by — fixed
+   *  by a reviewer once, applied wherever the image renders from then on. */
+  imageRotation: number;
   duration: string;
   status: PrescriptionStatus;
   storeCode: string;

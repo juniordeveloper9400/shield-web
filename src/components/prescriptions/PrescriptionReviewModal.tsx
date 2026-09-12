@@ -5,7 +5,11 @@ import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { DetailList } from '@/components/ui/DetailList';
 import { formatDateTime, toneForStatus } from '@/lib/format';
-import { savePrescriptionIntake, setPrescriptionStatus } from '@/api/prescriptions';
+import {
+  savePrescriptionIntake,
+  setPrescriptionImageRotation,
+  setPrescriptionStatus,
+} from '@/api/prescriptions';
 import type { Prescription, PrescriptionMedicineInput, PrescriptionStatus } from '@/types';
 
 const inputClass =
@@ -50,8 +54,12 @@ export function PrescriptionReviewModal({
   const [saving, setSaving] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
   // Degrees clockwise, one of 0/90/180/270 — a script photographed sideways or
-  // upside down is common enough that the full-size viewer needs to fix it.
+  // upside down is common enough to need fixing. Starts from whatever was
+  // last saved for this prescription (app.prescription.image_rotation), not
+  // always 0, and every further rotation is saved the same way — the fix is
+  // permanent, not just for this one look.
   const [rotation, setRotation] = useState(0);
+  const [rotating, setRotating] = useState(false);
 
   // Load the open prescription's existing lines into the editor (or one blank
   // row to start from).
@@ -72,12 +80,28 @@ export function PrescriptionReviewModal({
           }))
         : [{ ...EMPTY_ROW }],
     );
+    setRotation(prescription.imageRotation);
     // Only when the open prescription changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prescription?.id]);
 
   function patchRow(i: number, patch: Partial<PrescriptionMedicineInput>) {
     setDraft((d) => d.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+  }
+
+  /** Rotates by [delta] degrees and saves it immediately — a reviewer
+   *  rotating a sideways script fixes it for good, not just for this look,
+   *  so there is no separate "save rotation" step to forget. */
+  async function rotateImage(delta: 90 | -90) {
+    if (!prescription) return;
+    const next = (((rotation + delta) % 360) + 360) % 360;
+    setRotation(next);
+    setRotating(true);
+    try {
+      await setPrescriptionImageRotation(prescription.id, next as 0 | 90 | 180 | 270);
+    } finally {
+      setRotating(false);
+    }
   }
 
   async function sendIntake() {
@@ -252,24 +276,56 @@ export function PrescriptionReviewModal({
             {/* Right — the uploaded script, held in view while the form
                 scrolls on the left. */}
             <div className="order-1 md:order-2 md:sticky md:top-0 md:self-start">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Uploaded script
-              </p>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Uploaded script
+                </p>
+                {prescription.image && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      title="Rotate left"
+                      disabled={rotating}
+                      onClick={() => rotateImage(-90)}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+                    >
+                      <Icon name="rotate" className="h-4 w-4 -scale-x-100" />
+                    </button>
+                    <button
+                      type="button"
+                      title="Rotate right"
+                      disabled={rotating}
+                      onClick={() => rotateImage(90)}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+                    >
+                      <Icon name="rotate" className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
               {prescription.image ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRotation(0);
-                    setImageOpen(true);
-                  }}
-                  className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
-                >
-                  <img
-                    src={prescription.image}
-                    alt={`Prescription ${prescription.code}`}
-                    className="max-h-[60vh] w-full object-contain"
-                  />
-                </button>
+                <div className="flex w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-2">
+                  <button
+                    type="button"
+                    onClick={() => setImageOpen(true)}
+                    className="block"
+                  >
+                    <img
+                      src={prescription.image}
+                      alt={`Prescription ${prescription.code}`}
+                      className="object-contain transition-transform duration-200"
+                      style={{
+                        transform: `rotate(${rotation}deg)`,
+                        // A quarter-turn swaps the image's effective footprint
+                        // — capped to the sidebar's own width when on its
+                        // side, rather than the taller-than-wide budget an
+                        // upright script reads comfortably at.
+                        maxWidth: rotation % 180 === 0 ? '100%' : 220,
+                        maxHeight: rotation % 180 === 0 ? '55vh' : '100%',
+                      }}
+                    />
+                  </button>
+                </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-slate-300 px-3 py-10 text-center text-sm text-slate-400">
                   No image was uploaded with this prescription.
@@ -277,7 +333,8 @@ export function PrescriptionReviewModal({
               )}
               {prescription.image && (
                 <p className="mt-1.5 text-xs text-slate-400">
-                  Tap the image to view it full size.
+                  Tap the image to view it full size, or use the rotate
+                  buttons above to fix a sideways scan for good.
                 </p>
               )}
             </div>
@@ -295,7 +352,8 @@ export function PrescriptionReviewModal({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setRotation((r) => (r + 270) % 360)}
+                disabled={rotating}
+                onClick={() => rotateImage(-90)}
               >
                 <Icon name="rotate" className="h-4 w-4 -scale-x-100" />
                 Rotate left
@@ -303,7 +361,8 @@ export function PrescriptionReviewModal({
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => setRotation((r) => (r + 90) % 360)}
+                disabled={rotating}
+                onClick={() => rotateImage(90)}
               >
                 <Icon name="rotate" className="h-4 w-4" />
                 Rotate right

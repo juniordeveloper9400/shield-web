@@ -48,7 +48,7 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
            m.name  AS member_name,
            m.phone AS member_phone,
            pt.name AS patient_name,
-           rx.doctor, rx.file_name, rx.image,
+           rx.doctor, rx.file_name, rx.image, rx.image_rotation,
            rx.duration, rx.custom_days, rx.status,
            COALESCE(rs.code, os.code, hs.code) AS store_code,
            COALESCE(rs.name, os.name, hs.name) AS store_name,
@@ -105,6 +105,7 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
     doctor: String(r.doctor ?? ''),
     fileName: String(r.file_name ?? ''),
     image: String(r.image ?? ''),
+    imageRotation: Number(r.image_rotation ?? 0),
     duration: durationLabel(r),
     status: fromEnum<PrescriptionStatus>(String(r.status)),
     storeCode: String(r.store_code ?? ''),
@@ -143,6 +144,23 @@ export async function setPrescriptionStatus(
                                THEN now() ELSE reviewed_at END
       WHERE id = $1`,
     [id, db],
+  );
+}
+
+/**
+ * Fixes the uploaded script's display rotation (a script photographed
+ * sideways or upside down is common enough to need this) — permanently,
+ * not just for the reviewer's own look: the next person to open this
+ * prescription, from either the small preview or the full-size viewer,
+ * sees it rotated the same way.
+ */
+export async function setPrescriptionImageRotation(
+  id: string,
+  degrees: 0 | 90 | 180 | 270,
+): Promise<void> {
+  await query(
+    `UPDATE app.prescription SET image_rotation = $2 WHERE id = $1`,
+    [id, degrees],
   );
 }
 
