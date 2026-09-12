@@ -142,8 +142,12 @@ export async function getWalletActivity(
 /**
  * Approves a pending (or on-hold) activation in one statement: flips the
  * card to `APPROVED`, writes the `ACTIVATION` + `BONUS` ledger lines, credits
- * the wallet balance (load + bonus) and stamps `opened_at`. A no-op — and
- * returns `false` — if the card is already decided (or a stale id).
+ * the wallet balance (load + bonus), stamps `opened_at`, and — when this
+ * member was registered under an agent's code (`app.agent_customer` already
+ * links them) — records the sale as that agent's direct sale
+ * (`app.agent_customer_plan`), which is what the agent portal's "Direct
+ * sale" and "Team sales" figures are worked out from. A no-op — and returns
+ * `false` — if the card is already decided (or a stale id).
  */
 export async function approveActivation(id: string): Promise<boolean> {
   const rows = await query<Row>(
@@ -155,7 +159,7 @@ export async function approveActivation(id: string): Promise<boolean> {
        RETURNING id, wallet_id, tier_id, amount, bonus
     ),
     tier AS (
-      SELECT c.id, c.wallet_id, c.amount, c.bonus, mt.name AS tier_name
+      SELECT c.id, c.wallet_id, c.tier_id, c.amount, c.bonus, mt.name AS tier_name
       FROM card c
       JOIN app.membership_tier mt ON mt.id = c.tier_id
     ),
@@ -176,6 +180,15 @@ export async function approveActivation(id: string): Promise<boolean> {
              updated_at = now()
        WHERE w.id = (SELECT wallet_id FROM tier)
        RETURNING w.id
+    ),
+    agent_plan AS (
+      INSERT INTO app.agent_customer_plan
+        (agent_customer_id, tier_id, amount, activated_on, wallet_card_id)
+      SELECT ac.id, t.tier_id, t.amount, current_date, t.id
+      FROM tier t
+      JOIN app.wallet w         ON w.id = t.wallet_id
+      JOIN app.agent_customer ac ON ac.member_id = w.member_id
+      RETURNING 1
     )
     SELECT id FROM card
     `,
