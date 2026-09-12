@@ -1,10 +1,15 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { DetailList } from '@/components/ui/DetailList';
 import { formatDateTime, toneForStatus } from '@/lib/format';
+import {
+  addCustomMedicineType,
+  loadCustomMedicineTypes,
+  MEDICINE_TYPES,
+} from '@/lib/medicineTypes';
 import {
   savePrescriptionIntake,
   setPrescriptionImageRotation,
@@ -61,6 +66,29 @@ export function PrescriptionReviewModal({
   // permanent, not just for this one look.
   const [rotation, setRotation] = useState(0);
   const [rotating, setRotating] = useState(false);
+
+  // "Type" dropdown options: the built-in list plus whatever a reviewer has
+  // added before on this browser (see medicineTypes.ts).
+  const [customTypes, setCustomTypes] = useState<string[]>(() =>
+    loadCustomMedicineTypes(),
+  );
+  const typeOptions = useMemo(
+    () => [...MEDICINE_TYPES, ...customTypes],
+    [customTypes],
+  );
+  // Which draft row (if any) has its "+ new type" input open, and what's
+  // typed into it so far.
+  const [addingTypeFor, setAddingTypeFor] = useState<number | null>(null);
+  const [newTypeValue, setNewTypeValue] = useState('');
+
+  function confirmNewType(i: number) {
+    const trimmed = newTypeValue.trim();
+    setAddingTypeFor(null);
+    setNewTypeValue('');
+    if (!trimmed) return;
+    setCustomTypes(addCustomMedicineType(trimmed));
+    patchRow(i, { pack: trimmed });
+  }
 
   // Load the open prescription's existing lines into the editor (or one blank
   // row to start from).
@@ -235,13 +263,72 @@ export function PrescriptionReviewModal({
                         placeholder="Name"
                         className={`${inputClass} mb-1.5`}
                       />
-                      <div className="grid grid-cols-3 gap-1.5">
-                        <input
+                      <div className="mb-1.5 flex items-center gap-1.5">
+                        <select
                           value={row.pack}
                           onChange={(e) => patchRow(i, { pack: e.target.value })}
-                          placeholder="Type (Tablet, Syrup, …)"
-                          className={inputClass}
-                        />
+                          className={`${inputClass} flex-1`}
+                        >
+                          <option value="">Type</option>
+                          {/* An old free-text value not in the list (or one
+                              typed here before the app reloaded) still shows
+                              selected, via this synthetic option, rather
+                              than silently reverting to blank. */}
+                          {row.pack && !typeOptions.includes(row.pack) && (
+                            <option value={row.pack}>{row.pack}</option>
+                          )}
+                          {typeOptions.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          title="Add a new type"
+                          onClick={() => {
+                            setAddingTypeFor(i);
+                            setNewTypeValue('');
+                          }}
+                          className="shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <Icon name="plus" className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {addingTypeFor === i && (
+                        <div className="mb-1.5 flex items-center gap-1.5">
+                          <input
+                            autoFocus
+                            value={newTypeValue}
+                            onChange={(e) => setNewTypeValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                confirmNewType(i);
+                              } else if (e.key === 'Escape') {
+                                setAddingTypeFor(null);
+                              }
+                            }}
+                            placeholder="New type name"
+                            className={inputClass}
+                          />
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => confirmNewType(i)}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setAddingTypeFor(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-1.5">
                         <input
                           value={row.intake}
                           onChange={(e) =>
