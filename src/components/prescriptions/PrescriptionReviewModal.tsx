@@ -26,11 +26,21 @@ import {
   savePrescriptionIntake,
   setPrescriptionImageRotation,
   setPrescriptionStatus,
+  updatePrescriptionDetails,
 } from '@/api/prescriptions';
 import type { Prescription, PrescriptionMedicineInput, PrescriptionStatus } from '@/types';
 
 const inputClass =
   'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+
+const DURATION_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'Not set' },
+  { value: 'one_week', label: '1 week' },
+  { value: 'fifteen_days', label: '15 days' },
+  { value: 'one_month', label: '1 month' },
+  { value: 'two_months', label: '2 months' },
+  { value: 'three_months', label: '3 months' },
+];
 
 const EMPTY_ROW: PrescriptionMedicineInput = {
   name: '',
@@ -71,6 +81,21 @@ export function PrescriptionReviewModal({
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
+
+  // The left column shows one section at a time -- the prescription's own
+  // details first, the intake-card editor second -- rather than one long
+  // scroll through both. "Next" / "Back" move between them; the image on
+  // the right stays put throughout, since either section is filled in with
+  // it as the reference.
+  const [step, setStep] = useState<'details' | 'intake'>('details');
+  // What the member sent up front, editable here: blank/wrong doctor names
+  // and durations are exactly what a reviewer corrects while reading the
+  // actual script. durationToken is the raw app.medicine_duration value;
+  // customDays overrides it when > 0 (see Prescription.duration's own doc).
+  const [doctor, setDoctor] = useState('');
+  const [durationToken, setDurationToken] = useState('');
+  const [customDays, setCustomDays] = useState(0);
+  const [savingDetails, setSavingDetails] = useState(false);
   // Degrees clockwise, one of 0/90/180/270 — a script photographed sideways or
   // upside down is common enough to need fixing. Starts from whatever was
   // last saved for this prescription (app.prescription.image_rotation), not
@@ -194,6 +219,10 @@ export function PrescriptionReviewModal({
       setDraft([]);
       setImageOpen(false);
       setRotation(0);
+      setStep('details');
+      setDoctor('');
+      setDurationToken('');
+      setCustomDays(0);
       return;
     }
     setDraft(
@@ -208,6 +237,10 @@ export function PrescriptionReviewModal({
         : [{ ...EMPTY_ROW }],
     );
     setRotation(prescription.imageRotation);
+    setStep('details');
+    setDoctor(prescription.doctor);
+    setDurationToken(prescription.durationToken);
+    setCustomDays(prescription.customDays);
     // Only when the open prescription changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prescription?.id]);
@@ -228,6 +261,26 @@ export function PrescriptionReviewModal({
       await setPrescriptionImageRotation(prescription.id, next as 0 | 90 | 180 | 270);
     } finally {
       setRotating(false);
+    }
+  }
+
+  /** Saves the doctor/duration correction and moves to the intake-card
+   *  step. Its own save, not bundled into sendIntake -- a reviewer who has
+   *  only read the header so far shouldn't have to fill in every medicine
+   *  line before that much is kept. */
+  async function saveDetailsAndContinue() {
+    if (!prescription) return;
+    setSavingDetails(true);
+    try {
+      await updatePrescriptionDetails(prescription.id, {
+        doctor,
+        durationToken,
+        customDays,
+      });
+      onSaved();
+      setStep('intake');
+    } finally {
+      setSavingDetails(false);
     }
   }
 
@@ -265,8 +318,24 @@ export function PrescriptionReviewModal({
         size="xl"
         title={prescription ? prescription.code : ''}
         footer={
-          prescription && (
+          prescription &&
+          (step === 'details' ? (
+            <Button
+              variant="primary"
+              disabled={savingDetails}
+              onClick={saveDetailsAndContinue}
+            >
+              {savingDetails ? 'Saving…' : 'Save & continue to intake card →'}
+            </Button>
+          ) : (
             <>
+              <Button
+                variant="secondary"
+                disabled={saving || sending}
+                onClick={() => setStep('details')}
+              >
+                ← Back to details
+              </Button>
               {prescription.status !== 'awaiting_review' && (
                 <Button
                   variant="secondary"
@@ -288,34 +357,94 @@ export function PrescriptionReviewModal({
                     : 'Send intake card'}
               </Button>
             </>
-          )
+          ))
         }
       >
         {prescription && (
           <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,360px)]">
-            {/* Left — status, details and the intake-card editor. */}
+            {/* Left — one section at a time: the prescription's own
+                details first, then the intake-card editor. The image on
+                the right stays put throughout either. */}
             <div className="order-2 md:order-1">
-              <div className="mb-3">
+              <div className="mb-3 flex items-center justify-between">
                 <Badge tone={toneForStatus(prescription.status)}>
                   {STATUS_LABEL[prescription.status]}
                 </Badge>
+                <span className="text-xs font-medium text-slate-400">
+                  {step === 'details' ? '1 of 2 · Details' : '2 of 2 · Intake card'}
+                </span>
               </div>
 
-              <DetailList
-                rows={[
-                  { label: 'Member', value: prescription.memberName },
-                  { label: 'Phone', value: prescription.memberPhone },
-                  { label: 'Patient', value: prescription.patientName },
-                  { label: 'Doctor', value: prescription.doctor || '—' },
-                  { label: 'Branch', value: prescription.storeName },
-                  { label: 'Duration', value: prescription.duration },
-                  {
-                    label: 'Uploaded',
-                    value: formatDateTime(prescription.createdAt),
-                  },
-                ]}
-              />
+              {step === 'details' ? (
+                <>
+                  <DetailList
+                    rows={[
+                      { label: 'Member', value: prescription.memberName },
+                      { label: 'Phone', value: prescription.memberPhone },
+                      { label: 'Patient', value: prescription.patientName },
+                      { label: 'Branch', value: prescription.storeName },
+                      {
+                        label: 'Uploaded',
+                        value: formatDateTime(prescription.createdAt),
+                      },
+                    ]}
+                  />
+                  <div className="mt-4 space-y-3">
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Doctor — read off the script
+                      <input
+                        value={doctor}
+                        onChange={(e) => setDoctor(e.target.value)}
+                        placeholder="Doctor's name"
+                        className={`${inputClass} mt-1`}
+                      />
+                    </label>
+                    <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Duration
+                      <div className="mt-1 grid grid-cols-2 gap-1.5">
+                        <select
+                          value={durationToken}
+                          onChange={(e) => setDurationToken(e.target.value)}
+                          className={inputClass}
+                        >
+                          {DURATION_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          value={customDays || ''}
+                          onChange={(e) =>
+                            setCustomDays(Number(e.target.value) || 0)
+                          }
+                          placeholder="Or custom days"
+                          inputMode="numeric"
+                          className={`${inputClass} text-right`}
+                        />
+                      </div>
+                      <span className="mt-1 block text-xs font-normal normal-case text-slate-400">
+                        Custom days, when set, overrides the dropdown.
+                      </span>
+                    </label>
+                  </div>
+                </>
+              ) : (
+                <p className="mb-4 text-xs text-slate-400">
+                  {prescription.memberName} · {prescription.patientName} ·{' '}
+                  {doctor ? `Dr. ${doctor}` : 'no doctor noted'}
+                  {' — '}
+                  <button
+                    type="button"
+                    className="font-medium text-brand-600"
+                    onClick={() => setStep('details')}
+                  >
+                    edit
+                  </button>
+                </p>
+              )}
 
+              {step === 'intake' && (
               <div className="mt-4">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -599,6 +728,7 @@ export function PrescriptionReviewModal({
                   )}
                 </div>
               </div>
+              )}
             </div>
 
             {/* Right — the uploaded script, held in view while the form

@@ -108,6 +108,8 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
     image: String(r.image ?? ''),
     imageRotation: Number(r.image_rotation ?? 0),
     duration: durationLabel(r),
+    durationToken: r.duration ? fromEnum(String(r.duration)) : '',
+    customDays: num(r.custom_days),
     status: fromEnum<PrescriptionStatus>(String(r.status)),
     storeCode: String(r.store_code ?? ''),
     storeName: String(r.store_name ?? '—'),
@@ -145,6 +147,33 @@ export async function setPrescriptionStatus(
                                THEN now() ELSE reviewed_at END
       WHERE id = $1`,
     [id, db],
+  );
+}
+
+/**
+ * Corrects what the member sent up front — the doctor's name (blank until a
+ * reviewer reads it off the script) and how long the course runs, either one
+ * of the five fixed spans or a reviewer's own day count. [customDays] above
+ * 0 is what [Prescription.duration] actually displays; 0 clears it back to
+ * plain [durationToken].
+ */
+export async function updatePrescriptionDetails(
+  id: string,
+  opts: { doctor: string; durationToken: string; customDays: number },
+): Promise<void> {
+  await query(
+    `UPDATE app.prescription
+        SET doctor = $2,
+            duration = $3::app.medicine_duration,
+            custom_days = $4,
+            updated_at = now()
+      WHERE id = $1`,
+    [
+      id,
+      opts.doctor.trim(),
+      opts.durationToken.trim() ? opts.durationToken.toUpperCase() : null,
+      Math.max(0, Math.round(opts.customDays) || 0),
+    ],
   );
 }
 

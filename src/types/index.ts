@@ -383,7 +383,15 @@ export interface Prescription {
   /** Degrees clockwise (0/90/180/270) to display [image] rotated by — fixed
    *  by a reviewer once, applied wherever the image renders from then on. */
   imageRotation: number;
+  /** Display label — "1 week", "12 days", "—". Read-only; edit through
+   *  [durationToken] / [customDays] instead. */
   duration: string;
+  /** Lowercase `app.medicine_duration` token ('one_week', 'fifteen_days',
+   *  'one_month', 'two_months', 'three_months'), or '' if unset. */
+  durationToken: string;
+  /** Overrides [durationToken] when greater than 0 — a reviewer's own day
+   *  count rather than one of the five fixed spans. */
+  customDays: number;
   status: PrescriptionStatus;
   storeCode: string;
   storeName: string;
