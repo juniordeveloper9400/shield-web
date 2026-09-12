@@ -20,6 +20,7 @@ const EMPTY_ROW: PrescriptionMedicineInput = {
   pack: '',
   intake: '',
   totalUnits: 0,
+  routeTime: '',
 };
 
 const STATUS_LABEL: Record<PrescriptionStatus, string> = {
@@ -77,6 +78,7 @@ export function PrescriptionReviewModal({
             pack: m.pack,
             intake: `${m.doseMorning}${m.doseAfternoon}${m.doseNight}`,
             totalUnits: m.totalUnits,
+            routeTime: m.routeTime,
           }))
         : [{ ...EMPTY_ROW }],
     );
@@ -230,14 +232,14 @@ export function PrescriptionReviewModal({
                       <input
                         value={row.name}
                         onChange={(e) => patchRow(i, { name: e.target.value })}
-                        placeholder="Medicine name"
+                        placeholder="Name"
                         className={`${inputClass} mb-1.5`}
                       />
                       <div className="grid grid-cols-3 gap-1.5">
                         <input
                           value={row.pack}
                           onChange={(e) => patchRow(i, { pack: e.target.value })}
-                          placeholder="Pack"
+                          placeholder="Type (Tablet, Syrup, …)"
                           className={inputClass}
                         />
                         <input
@@ -257,11 +259,19 @@ export function PrescriptionReviewModal({
                               totalUnits: Number(e.target.value) || 0,
                             })
                           }
-                          placeholder="Units"
+                          placeholder="Quantity"
                           inputMode="numeric"
                           className={`${inputClass} text-right`}
                         />
                       </div>
+                      <input
+                        value={row.routeTime}
+                        onChange={(e) =>
+                          patchRow(i, { routeTime: e.target.value })
+                        }
+                        placeholder="Route & time (e.g. Oral, after food)"
+                        className={`${inputClass} mt-1.5`}
+                      />
                     </div>
                   ))}
                   {draft.length === 0 && (

@@ -21,7 +21,6 @@ export type ModuleKey =
   | 'stores'
   | 'products'
   | 'banners'
-  | 'category_banners'
   | 'customer_videos'
   | 'orders'
   | 'prescriptions'
@@ -345,22 +344,29 @@ export type PrescriptionStatus =
 /** One row of `app.prescription_medicine` (dose is morning-afternoon-night). */
 export interface PrescriptionMedicine {
   name: string;
+  /** The dosage form — "Type" in the console's intake form (Tablet, Syrup,
+   *  Capsule, …) — `app.prescription_medicine.pack`. */
   pack: string;
   doseMorning: number;
   doseAfternoon: number;
   doseNight: number;
-  /** Units the pharmacist counted out for this line — `total_units`. */
+  /** "Quantity" in the console's intake form — `total_units`. */
   totalUnits: number;
+  /** How and when to take it, e.g. "Oral, after food" — `route_time`. */
+  routeTime: string;
 }
 
 /** One row the pharmacist enters on the intake card in the console. */
 export interface PrescriptionMedicineInput {
   name: string;
+  /** "Type" in the form — the dosage form (Tablet, Syrup, Capsule, …). */
   pack: string;
   /** The three-digit morning-afternoon-night code, e.g. "101". */
   intake: string;
-  /** Units for this line. */
+  /** "Quantity" in the form. */
   totalUnits: number;
+  /** "Route & time" in the form, e.g. "Oral, after food". */
+  routeTime: string;
 }
 
 /** An uploaded prescription — `app.prescription` + `app.prescription_medicine`. */

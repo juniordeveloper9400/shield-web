@@ -32,6 +32,7 @@ function toMedicine(r: Row): PrescriptionMedicine {
     doseAfternoon: num(r.dose_afternoon),
     doseNight: num(r.dose_night),
     totalUnits: num(r.total_units),
+    routeTime: String(r.route_time ?? ''),
   };
 }
 
@@ -78,7 +79,7 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
   const ids = rows.map((r) => String(r.id));
   const medRows = await query<Row>(
     `SELECT prescription_id, name, pack,
-            dose_morning, dose_afternoon, dose_night, total_units
+            dose_morning, dose_afternoon, dose_night, total_units, route_time
        FROM app.prescription_medicine
       WHERE prescription_id = ANY($1::bigint[])
       ORDER BY sort, id`,
@@ -197,8 +198,8 @@ export async function savePrescriptionIntake(
     await query(
       `INSERT INTO app.prescription_medicine
          (prescription_id, sort, name, pack,
-          dose_morning, dose_afternoon, dose_night, total_units)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          dose_morning, dose_afternoon, dose_night, total_units, route_time)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
         id,
         i,
@@ -208,6 +209,7 @@ export async function savePrescriptionIntake(
         afternoon,
         night,
         Math.max(0, Math.round(rows[i].totalUnits) || 0),
+        rows[i].routeTime.trim(),
       ],
     );
   }
