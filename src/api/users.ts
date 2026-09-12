@@ -1,5 +1,6 @@
 import { sql, query } from '@/lib/db';
 import { fromEnum, iso, num } from '@/lib/mappers';
+import { resyncGeoSlotAgent } from '@/api/geo';
 import type {
   AgentLevel,
   AgentOption,
@@ -287,6 +288,9 @@ export async function convertToAgent(
     [userId, level, opts.parentId ?? null, opts.area ?? '', opts.areaId ?? null],
   );
   if (rows.length > 0) {
+    // Mirror the new agent onto their geo slot's own row — see
+    // resyncGeoSlotAgent's doc.
+    await resyncGeoSlotAgent(level, opts.areaId ?? null);
     return String(rows[0].code);
   }
   await assertRegistered(userId);

@@ -93,3 +93,44 @@ export function listSlots(tier: GeoTier, parentId: string | null): Promise<GeoSl
       return parentId ? listWards(parentId) : Promise.resolve([]);
   }
 }
+
+/** `AgentLevel` (upper- or lower-case) -> the geo table it names a row in. */
+const GEO_TABLE_BY_LEVEL: Record<string, string> = {
+  REGION: 'region',
+  STATE: 'state',
+  DISTRICT: 'district',
+  ASSEMBLY: 'assembly',
+  LSGD: 'lsgd',
+  WARD: 'ward',
+};
+
+/**
+ * Recomputes `app.<table for level>.agent_id` for [areaId] from whichever
+ * approved agent (if any) currently has that `area_id` — a denormalized
+ * mirror of `app.agent.area_id` living on the geo row itself, so "who heads
+ * this slot" is answerable straight from `app.region`/`state`/… without a
+ * join. `app.agent.area_id` stays the one source of truth; this only ever
+ * copies it outward.
+ *
+ * No-op for `national` (no geo row to update) or a null [areaId]. Call it
+ * for the slot an agent is leaving as well as the one they're joining —
+ * `updateAgentPosition` needs both; a fresh approval or conversion only
+ * ever needs the one they're joining.
+ */
+export async function resyncGeoSlotAgent(
+  level: string,
+  areaId: string | null | undefined,
+): Promise<void> {
+  const table = GEO_TABLE_BY_LEVEL[level.toUpperCase()];
+  if (!table || !areaId) return;
+  await query(
+    `UPDATE app.${table} t
+       SET agent_id = (
+         SELECT a.id FROM app.agent a
+          WHERE a.area_id = t.id AND a.approval_status = 'APPROVED'
+          LIMIT 1
+       )
+     WHERE t.id = $1`,
+    [areaId],
+  );
+}

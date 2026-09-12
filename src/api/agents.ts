@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { fromEnum, iso } from '@/lib/mappers';
+import { resyncGeoSlotAgent } from '@/api/geo';
 import type { AgentLevel, AgentRow, PendingAgent } from '@/types';
 
 type Row = Record<string, unknown>;
@@ -156,18 +157,24 @@ export async function approveAgent(
         r.first_name, r.middle_name, r.last_name, r.dob, r.aadhaar, r.pan,
         r.address, r.pincode, r.place, r.account_number, 'APPROVED', true
       FROM req r
-      RETURNING id
+      RETURNING id, area_id::text AS area_id
     ),
     link AS (
       UPDATE app.agent_request SET agent_id = (SELECT id FROM ins)
        WHERE id = $1
        RETURNING id
     )
-    SELECT id FROM ins
+    SELECT id, area_id FROM ins
     `,
     [id, level, opts.parentId ?? null, opts.area ?? '', opts.areaId ?? null],
   );
-  return rows.length > 0;
+  if (rows.length === 0) {
+    return false;
+  }
+  // Mirror the new agent onto their geo slot's own row so it's answerable
+  // from that row directly, not just by querying app.agent for area_id.
+  await resyncGeoSlotAgent(level, rows[0].area_id as string | null);
+  return true;
 }
 
 /**
@@ -298,6 +305,13 @@ export async function updateAgentPosition(
       throw new Error('That position is already held by another agent.');
     }
   }
+  // The slot this agent is leaving, if any -- resynced below alongside the
+  // one they're joining, so the geo table's own agent_id never keeps
+  // pointing at someone who has since moved elsewhere.
+  const [before] = await query<Row>(
+    `SELECT level, area_id::text AS area_id FROM app.agent WHERE id = $1`,
+    [id],
+  );
   await query(
     `UPDATE app.agent
        SET level = $2::app.agent_level, parent_id = $3, area = $4,
@@ -305,6 +319,10 @@ export async function updateAgentPosition(
      WHERE id = $1`,
     [id, level, opts.parentId ?? null, opts.area ?? '', opts.areaId ?? null],
   );
+  if (before) {
+    await resyncGeoSlotAgent(String(before.level), before.area_id as string | null);
+  }
+  await resyncGeoSlotAgent(level, opts.areaId ?? null);
 }
 
 /** Switches an agent on or off. See this section's own doc for why this,
