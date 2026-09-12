@@ -17,6 +17,12 @@ import {
   type FrequencyPreset,
 } from '@/lib/intakeFrequencies';
 import {
+  addCustomRouteTime,
+  loadCustomRouteTimes,
+  ROUTE_TIME_PRESETS,
+  type RoutePreset,
+} from '@/lib/routeTimes';
+import {
   savePrescriptionIntake,
   setPrescriptionImageRotation,
   setPrescriptionStatus,
@@ -112,14 +118,11 @@ export function PrescriptionReviewModal({
   );
   const [newFrequencyValue, setNewFrequencyValue] = useState('');
 
-  function applyFrequency(i: number, preset: FrequencyPreset) {
-    if (preset.intakeCode) {
-      patchRow(i, { intake: preset.intakeCode });
-      return;
-    }
-    const label = preset.description
-      ? `${preset.code} — ${preset.description}`
-      : preset.code;
+  /** Appends [label] to row [i]'s Route & time, separated from whatever is
+   *  already there — the shared landing spot for anything (a frequency that
+   *  doesn't fit Intake, or a route/timing preset) that reads as free text
+   *  rather than a structured code. */
+  function appendRouteTime(i: number, label: string) {
     setDraft((d) =>
       d.map((row, j) =>
         j === i
@@ -132,6 +135,17 @@ export function PrescriptionReviewModal({
     );
   }
 
+  function applyFrequency(i: number, preset: FrequencyPreset) {
+    if (preset.intakeCode) {
+      patchRow(i, { intake: preset.intakeCode });
+      return;
+    }
+    appendRouteTime(
+      i,
+      preset.description ? `${preset.code} — ${preset.description}` : preset.code,
+    );
+  }
+
   function confirmNewFrequency(i: number) {
     const trimmed = newFrequencyValue.trim();
     setAddingFrequencyFor(null);
@@ -140,6 +154,37 @@ export function PrescriptionReviewModal({
     const updated = addCustomFrequency(trimmed, '');
     setCustomFrequencies(updated);
     applyFrequency(i, { code: trimmed, description: '', intakeCode: null });
+  }
+
+  // Route / timing presets (SL/PR/IV/OU-drops/AF-AC/SOS/…) — always inserted
+  // as text into Route & time, same as a non-fitting frequency.
+  const [customRouteTimes, setCustomRouteTimes] = useState<RoutePreset[]>(() =>
+    loadCustomRouteTimes(),
+  );
+  const routeTimeOptions = useMemo(
+    () => [...ROUTE_TIME_PRESETS, ...customRouteTimes],
+    [customRouteTimes],
+  );
+  const [addingRouteTimeFor, setAddingRouteTimeFor] = useState<number | null>(
+    null,
+  );
+  const [newRouteTimeValue, setNewRouteTimeValue] = useState('');
+
+  function applyRouteTime(i: number, preset: RoutePreset) {
+    appendRouteTime(
+      i,
+      preset.description ? `${preset.code} — ${preset.description}` : preset.code,
+    );
+  }
+
+  function confirmNewRouteTime(i: number) {
+    const trimmed = newRouteTimeValue.trim();
+    setAddingRouteTimeFor(null);
+    setNewRouteTimeValue('');
+    if (!trimmed) return;
+    const updated = addCustomRouteTime(trimmed, '');
+    setCustomRouteTimes(updated);
+    applyRouteTime(i, { code: trimmed, description: '' });
   }
 
   // Load the open prescription's existing lines into the editor (or one blank
@@ -466,6 +511,72 @@ export function PrescriptionReviewModal({
                             variant="ghost"
                             size="sm"
                             onClick={() => setAddingFrequencyFor(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const preset = routeTimeOptions.find(
+                              (r) => r.code === e.target.value,
+                            );
+                            if (preset) applyRouteTime(i, preset);
+                          }}
+                          className={`${inputClass} flex-1 text-slate-500`}
+                        >
+                          <option value="">
+                            Route &amp; time preset — SL, IV, OU drops, SOS, …
+                          </option>
+                          {routeTimeOptions.map((r) => (
+                            <option key={r.code} value={r.code}>
+                              {r.code}
+                              {r.description ? ` — ${r.description}` : ''}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          title="Add a new route / time"
+                          onClick={() => {
+                            setAddingRouteTimeFor(i);
+                            setNewRouteTimeValue('');
+                          }}
+                          className="shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <Icon name="plus" className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {addingRouteTimeFor === i && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <input
+                            autoFocus
+                            value={newRouteTimeValue}
+                            onChange={(e) => setNewRouteTimeValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                confirmNewRouteTime(i);
+                              } else if (e.key === 'Escape') {
+                                setAddingRouteTimeFor(null);
+                              }
+                            }}
+                            placeholder="New route/time (e.g. Nebulized)"
+                            className={inputClass}
+                          />
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => confirmNewRouteTime(i)}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setAddingRouteTimeFor(null)}
                           >
                             Cancel
                           </Button>
