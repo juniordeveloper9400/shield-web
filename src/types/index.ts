@@ -23,6 +23,7 @@ export type ModuleKey =
   | 'banners'
   | 'customer_videos'
   | 'orders'
+  | 'bills'
   | 'prescriptions'
   | 'activations'
   | 'agent_approvals'

@@ -25,7 +25,8 @@ export type IconName =
   | 'accounts'
   | 'rotate'
   | 'phone'
-  | 'whatsapp';
+  | 'whatsapp'
+  | 'receipt';
 
 const ICONS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -161,6 +162,13 @@ const ICONS: Record<IconName, ReactNode> = {
   // as every other icon here.
   whatsapp: (
     <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-4-1L3 20l1.09-3.83A8.4 8.4 0 0 1 3 12.5 8.5 8.5 0 1 1 21 11.5Z" />
+  ),
+  // A torn-edge bill/invoice slip -- zig-zag bottom, ruled lines for amounts.
+  receipt: (
+    <>
+      <path d="M6 2h12v18l-2.5-1.5L13 20l-2.5-1.5L8 20l-2-1.5V2Z" />
+      <path d="M9 7h6M9 11h6M9 15h3" />
+    </>
   ),
 };
 

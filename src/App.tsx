@@ -10,6 +10,7 @@ import ProductsPage from '@/pages/ProductsPage';
 import BannersPage from '@/pages/BannersPage';
 import CustomerVideosPage from '@/pages/CustomerVideosPage';
 import OrdersPage from '@/pages/OrdersPage';
+import BillsPage from '@/pages/BillsPage';
 import PrescriptionsPage from '@/pages/PrescriptionsPage';
 import ActivationsPage from '@/pages/ActivationsPage';
 import ActivationDetailPage from '@/pages/ActivationDetailPage';
@@ -94,6 +95,14 @@ export default function App() {
           element={
             <ProtectedRoute module="orders">
               <OrdersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/bills"
+          element={
+            <ProtectedRoute module="bills">
+              <BillsPage />
             </ProtectedRoute>
           }
         />

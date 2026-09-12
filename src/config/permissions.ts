@@ -54,6 +54,13 @@ export const MODULES: NavItem[] = [
     description: 'Member orders & fulfilment',
   },
   {
+    key: 'bills',
+    label: 'Bills',
+    path: '/bills',
+    icon: 'receipt',
+    description: 'Invoices sent back to members, across every branch',
+  },
+  {
     key: 'prescriptions',
     label: 'Prescriptions',
     path: '/prescriptions',
@@ -131,6 +138,7 @@ const APP_MODULES: ModuleKey[] = [
   'banners',
   'customer_videos',
   'orders',
+  'bills',
   'prescriptions',
   'activations',
   'agent_approvals',
@@ -144,7 +152,7 @@ const APP_MODULES: ModuleKey[] = [
 export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   superadmin: [...APP_MODULES, 'admins'],
   admin: [...APP_MODULES],
-  pharmacy: ['dashboard', 'orders', 'prescriptions', 'products'],
+  pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products'],
   lab: ['dashboard', 'lab_orders', 'lab_tests'],
   appointments: ['dashboard', 'appointments'],
 };
@@ -161,8 +169,8 @@ export const ROLE_SUMMARY: Record<Role, string> = {
   superadmin:
     'The whole view — every module, plus the Admins module that controls who can sign in.',
   admin:
-    'Runs the app: catalogue, users & agent / investor conversion, orders, prescriptions, privilege plans, labs, appointments and the Accounts money-flow view.',
-  pharmacy: 'Works one branch — its member orders and uploaded prescriptions.',
+    'Runs the app: catalogue, users & agent / investor conversion, orders, bills, prescriptions, privilege plans, labs, appointments and the Accounts money-flow view.',
+  pharmacy: 'Works one branch — its member orders, bills and uploaded prescriptions.',
   lab: 'Handles member lab-test bookings and the package catalogue.',
   appointments: 'Handles the clinic, tele and dietitian appointment queue.',
 };
