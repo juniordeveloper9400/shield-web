@@ -141,6 +141,13 @@ export function PrescriptionReviewModal({
     null,
   );
   const [newFrequencyValue, setNewFrequencyValue] = useState('');
+  // The preset code last picked for each row, purely so the dropdown keeps
+  // showing it instead of snapping back to the placeholder -- applying a
+  // preset doesn't leave a single field behind to read it back from (an
+  // intake-shaped one overwrites row.intake, the rest append free text).
+  const [selectedFrequency, setSelectedFrequency] = useState<
+    Record<number, string>
+  >({});
 
   /** Appends [label] to row [i]'s Route & time, separated from whatever is
    *  already there — the shared landing spot for anything (a frequency that
@@ -177,6 +184,7 @@ export function PrescriptionReviewModal({
     if (!trimmed) return;
     const updated = addCustomFrequency(trimmed, '');
     setCustomFrequencies(updated);
+    setSelectedFrequency((m) => ({ ...m, [i]: trimmed }));
     applyFrequency(i, { code: trimmed, description: '', intakeCode: null });
   }
 
@@ -193,6 +201,11 @@ export function PrescriptionReviewModal({
     null,
   );
   const [newRouteTimeValue, setNewRouteTimeValue] = useState('');
+  // Same reasoning as selectedFrequency above -- keeps the Route & time
+  // preset dropdown showing what was picked instead of resetting.
+  const [selectedRouteTime, setSelectedRouteTime] = useState<
+    Record<number, string>
+  >({});
 
   function applyRouteTime(i: number, preset: RoutePreset) {
     appendRouteTime(
@@ -208,12 +221,15 @@ export function PrescriptionReviewModal({
     if (!trimmed) return;
     const updated = addCustomRouteTime(trimmed, '');
     setCustomRouteTimes(updated);
+    setSelectedRouteTime((m) => ({ ...m, [i]: trimmed }));
     applyRouteTime(i, { code: trimmed, description: '' });
   }
 
   // Load the open prescription's existing lines into the editor (or one blank
   // row to start from).
   useEffect(() => {
+    setSelectedFrequency({});
+    setSelectedRouteTime({});
     if (!prescription) {
       setDraft([]);
       setImageOpen(false);
@@ -246,6 +262,25 @@ export function PrescriptionReviewModal({
 
   function patchRow(i: number, patch: Partial<PrescriptionMedicineInput>) {
     setDraft((d) => d.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+  }
+
+  /** Drops row [i] and shifts the preset-dropdown selections above it down
+   *  by one index, so removing a row from the middle doesn't leave a later
+   *  row's dropdown showing a preset that was actually picked for a
+   *  different line. */
+  function removeRow(i: number) {
+    setDraft((d) => d.filter((_, j) => j !== i));
+    const reindex = (m: Record<number, string>) => {
+      const next: Record<number, string> = {};
+      for (const [k, v] of Object.entries(m)) {
+        const idx = Number(k);
+        if (idx < i) next[idx] = v;
+        else if (idx > i) next[idx - 1] = v;
+      }
+      return next;
+    };
+    setSelectedFrequency(reindex);
+    setSelectedRouteTime(reindex);
   }
 
   /** Rotates by [delta] degrees and saves it immediately — a reviewer
@@ -410,9 +445,7 @@ export function PrescriptionReviewModal({
                         <button
                           type="button"
                           className="text-xs font-medium text-rose-600"
-                          onClick={() =>
-                            setDraft((d) => d.filter((_, j) => j !== i))
-                          }
+                          onClick={() => removeRow(i)}
                         >
                           Remove
                         </button>
@@ -513,14 +546,20 @@ export function PrescriptionReviewModal({
                       </p>
                       <div className="flex items-center gap-1.5">
                         <select
-                          value=""
+                          value={selectedFrequency[i] ?? ''}
                           onChange={(e) => {
+                            setSelectedFrequency((m) => ({
+                              ...m,
+                              [i]: e.target.value,
+                            }));
                             const preset = frequencyOptions.find(
                               (f) => f.code === e.target.value,
                             );
                             if (preset) applyFrequency(i, preset);
                           }}
-                          className={`${inputClass} flex-1 text-slate-500`}
+                          className={`${inputClass} flex-1 ${
+                            selectedFrequency[i] ? '' : 'text-slate-500'
+                          }`}
                         >
                           <option value="">
                             OD, BD, TDS, HS, q4h, …
@@ -590,14 +629,20 @@ export function PrescriptionReviewModal({
                       </p>
                       <div className="flex items-center gap-1.5">
                         <select
-                          value=""
+                          value={selectedRouteTime[i] ?? ''}
                           onChange={(e) => {
+                            setSelectedRouteTime((m) => ({
+                              ...m,
+                              [i]: e.target.value,
+                            }));
                             const preset = routeTimeOptions.find(
                               (r) => r.code === e.target.value,
                             );
                             if (preset) applyRouteTime(i, preset);
                           }}
-                          className={`${inputClass} flex-1 text-slate-500`}
+                          className={`${inputClass} flex-1 ${
+                            selectedRouteTime[i] ? '' : 'text-slate-500'
+                          }`}
                         >
                           <option value="">SL, IV, OU drops, SOS, …</option>
                           {routeTimeOptions.map((r) => (
