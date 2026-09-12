@@ -199,6 +199,23 @@ export async function updatePrescriptionBranch(
 }
 
 /**
+ * Re-points this prescription at a different saved patient of the same
+ * member — `app.prescription.patient_id` — for when the wrong family member
+ * was picked at upload, or the right one hadn't been added yet. The picker
+ * this feeds only ever offers that member's own patients (or a freshly
+ * created one), so [patientId] is trusted as already scoped to them.
+ */
+export async function updatePrescriptionPatient(
+  id: string,
+  patientId: string,
+): Promise<void> {
+  await query(
+    `UPDATE app.prescription SET patient_id = $2, updated_at = now() WHERE id = $1`,
+    [id, patientId],
+  );
+}
+
+/**
  * Fixes the uploaded script's display rotation (a script photographed
  * sideways or upside down is common enough to need this) — permanently,
  * not just for the reviewer's own look: the next person to open this

@@ -1,5 +1,5 @@
 import { sql, query } from '@/lib/db';
-import { fromEnum, iso, num } from '@/lib/mappers';
+import { fromEnum, iso, num, toEnum } from '@/lib/mappers';
 import { deriveParentAgentId, resyncGeoSlotAgent } from '@/api/geo';
 import type {
   AgentLevel,
@@ -206,6 +206,66 @@ export async function updatePatientName(
     patientId,
     name.trim(),
   ]);
+}
+
+function toMemberPatient(r: Row): MemberPatient {
+  return {
+    id: String(r.id),
+    name: String(r.name ?? '—'),
+    relation: fromEnum(String(r.relation ?? '')),
+    gender: fromEnum(String(r.gender ?? '')),
+    dob: iso(r.dob) ?? '',
+    phone: String(r.phone ?? ''),
+    address: String(r.address ?? ''),
+    abhaId: String(r.abha_id ?? ''),
+    createdAt: iso(r.created_at) ?? '',
+  };
+}
+
+/**
+ * Every patient profile a member has added (`app.patient`) — self, family,
+ * anyone they've booked care for. Used by the Prescriptions review flow's
+ * Patient picker, so a reviewer chooses among the member's own saved
+ * patients rather than retyping a name.
+ */
+export async function listPatients(memberId: string): Promise<MemberPatient[]> {
+  const rows = await query<Row>(
+    `
+    SELECT id, name, relation, gender, dob, phone, address, abha_id, created_at
+    FROM app.patient
+    WHERE member_id = $1 AND deleted_at IS NULL
+    ORDER BY created_at
+    `,
+    [memberId],
+  );
+  return rows.map(toMemberPatient);
+}
+
+/**
+ * Adds a new patient profile under a member's account — the same "add a
+ * patient" action available in the app, offered here too so a reviewer who
+ * finds no matching patient while checking a prescription's details doesn't
+ * have to leave the review to create one first.
+ */
+export async function createPatient(
+  memberId: string,
+  input: { name: string; relation: string; dob: string; phone?: string },
+): Promise<MemberPatient> {
+  const rows = await query<Row>(
+    `
+    INSERT INTO app.patient (member_id, name, relation, dob, phone)
+    VALUES ($1, $2, $3::app.patient_relation, $4::date, $5)
+    RETURNING id, name, relation, gender, dob, phone, address, abha_id, created_at
+    `,
+    [
+      memberId,
+      input.name.trim(),
+      toEnum(input.relation),
+      input.dob,
+      (input.phone ?? '').trim(),
+    ],
+  );
+  return toMemberPatient(rows[0]);
 }
 
 /**

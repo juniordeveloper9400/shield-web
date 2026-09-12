@@ -28,11 +28,17 @@ import {
   setPrescriptionStatus,
   updatePrescriptionBranch,
   updatePrescriptionDetails,
+  updatePrescriptionPatient,
 } from '@/api/prescriptions';
-import { updateMemberContact, updatePatientName } from '@/api/users';
+import { createPatient, listPatients, updateMemberContact } from '@/api/users';
 import { listStores } from '@/api/stores';
 import { useAsync } from '@/lib/useAsync';
-import type { Prescription, PrescriptionMedicineInput, PrescriptionStatus } from '@/types';
+import type {
+  MemberPatient,
+  Prescription,
+  PrescriptionMedicineInput,
+  PrescriptionStatus,
+} from '@/types';
 
 const inputClass =
   'w-full rounded-md border border-slate-300 px-2.5 py-1.5 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
@@ -44,6 +50,14 @@ const DURATION_OPTIONS: { value: string; label: string }[] = [
   { value: 'one_month', label: '1 month' },
   { value: 'two_months', label: '2 months' },
   { value: 'three_months', label: '3 months' },
+];
+
+const RELATION_OPTIONS: { value: string; label: string }[] = [
+  { value: 'self', label: 'Self' },
+  { value: 'spouse', label: 'Spouse' },
+  { value: 'child', label: 'Child' },
+  { value: 'parent', label: 'Parent' },
+  { value: 'other', label: 'Other' },
 ];
 
 const EMPTY_ROW: PrescriptionMedicineInput = {
@@ -103,16 +117,78 @@ export function PrescriptionReviewModal({
   const [doctor, setDoctor] = useState('');
   const [durationToken, setDurationToken] = useState('');
   const [customDays, setCustomDays] = useState(0);
-  // Member name/phone and the patient's name are the account's and the saved
-  // patient profile's own — editing these here writes straight to those rows
-  // (see updateMemberContact / updatePatientName), so the fix shows up
+  // Member name/phone are the account's own — editing these here writes
+  // straight to that row (see updateMemberContact), so the fix shows up
   // everywhere they're named, not just on this prescription. Branch is a
-  // direct override of which store this script is filled at.
+  // direct override of which store this script is filled at. Patient is a
+  // pick among that same member's saved patients (or a freshly added one),
+  // not free text — see patientId / patients below.
   const [memberName, setMemberName] = useState('');
   const [memberPhone, setMemberPhone] = useState('');
-  const [patientName, setPatientName] = useState('');
+  const [patientId, setPatientId] = useState('');
   const [storeId, setStoreId] = useState('');
   const [detailsError, setDetailsError] = useState<string | null>(null);
+
+  // Every patient this member has saved (self, family, …), for the Patient
+  // picker — reloaded whenever a different prescription (so a different
+  // member) is open. A patient added inline from the "+" below is merged in
+  // locally so it shows selected right away, without waiting on a refetch.
+  const { data: patientRows, reload: reloadPatients } = useAsync(
+    () => (prescription ? listPatients(prescription.memberId) : Promise.resolve([])),
+    [prescription?.memberId],
+  );
+  const [addedPatients, setAddedPatients] = useState<MemberPatient[]>([]);
+  const patients = [...(patientRows ?? []), ...addedPatients];
+
+  // The inline "add a new patient" form under the Patient picker's "+".
+  const [addingPatient, setAddingPatient] = useState(false);
+  const [newPatientName, setNewPatientName] = useState('');
+  const [newPatientRelation, setNewPatientRelation] = useState('self');
+  const [newPatientDob, setNewPatientDob] = useState('');
+  const [newPatientPhone, setNewPatientPhone] = useState('');
+  const [savingPatient, setSavingPatient] = useState(false);
+  const [newPatientError, setNewPatientError] = useState<string | null>(null);
+
+  /** Adds a new patient under this member's account and selects it right
+   *  away — the form's own error state, not the whole Details step's,
+   *  because this is a small aside a reviewer can back out of without
+   *  losing whatever else they'd already typed on the Details step. */
+  async function confirmNewPatient() {
+    if (!prescription) return;
+    if (!newPatientName.trim()) {
+      setNewPatientError('Give the patient a name.');
+      return;
+    }
+    if (!newPatientDob) {
+      setNewPatientError('Give the patient a date of birth.');
+      return;
+    }
+    setSavingPatient(true);
+    setNewPatientError(null);
+    try {
+      const created = await createPatient(prescription.memberId, {
+        name: newPatientName,
+        relation: newPatientRelation,
+        dob: newPatientDob,
+        phone: newPatientPhone,
+      });
+      setAddedPatients((p) => [...p, created]);
+      setPatientId(created.id);
+      reloadPatients();
+      setAddingPatient(false);
+      setNewPatientName('');
+      setNewPatientRelation('self');
+      setNewPatientDob('');
+      setNewPatientPhone('');
+    } catch (err) {
+      setNewPatientError(
+        err instanceof Error ? err.message : 'Could not add this patient.',
+      );
+    } finally {
+      setSavingPatient(false);
+    }
+  }
+
   // Degrees clockwise, one of 0/90/180/270 — a script photographed sideways or
   // upside down is common enough to need fixing. Starts from whatever was
   // last saved for this prescription (app.prescription.image_rotation), not
@@ -235,6 +311,9 @@ export function PrescriptionReviewModal({
   useEffect(() => {
     setSelectedFrequency({});
     setDetailsError(null);
+    setAddedPatients([]);
+    setAddingPatient(false);
+    setNewPatientError(null);
     if (!prescription) {
       setDraft([]);
       setImageOpen(false);
@@ -245,7 +324,7 @@ export function PrescriptionReviewModal({
       setCustomDays(0);
       setMemberName('');
       setMemberPhone('');
-      setPatientName('');
+      setPatientId('');
       setStoreId('');
       return;
     }
@@ -267,7 +346,7 @@ export function PrescriptionReviewModal({
     setCustomDays(prescription.customDays);
     setMemberName(prescription.memberName);
     setMemberPhone(prescription.memberPhone);
-    setPatientName(prescription.patientName);
+    setPatientId(prescription.patientId);
     setStoreId(prescription.storeId);
     // Only when the open prescription changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -311,17 +390,17 @@ export function PrescriptionReviewModal({
   }
 
   /** The final action, from the Details step: saves every correction on this
-   *  screen — the member's own name/phone, the patient's name, the pinned
-   *  branch, and the doctor/duration — alongside the intake card in one go,
-   *  then closes. */
+   *  screen — the member's own name/phone, which patient this is for, the
+   *  pinned branch, and the doctor/duration — alongside the intake card in
+   *  one go, then closes. */
   async function sendIntake() {
     if (!prescription) return;
     if (!memberName.trim() || !memberPhone.trim()) {
       setDetailsError('Member name and phone cannot be blank.');
       return;
     }
-    if (!patientName.trim()) {
-      setDetailsError('Patient name cannot be blank.');
+    if (!patientId) {
+      setDetailsError('Pick which patient this prescription is for.');
       return;
     }
     setSending(true);
@@ -340,7 +419,7 @@ export function PrescriptionReviewModal({
         );
         return;
       }
-      await updatePatientName(prescription.patientId, patientName);
+      await updatePrescriptionPatient(prescription.id, patientId);
       await updatePrescriptionBranch(prescription.id, storeId || null);
       await updatePrescriptionDetails(prescription.id, {
         doctor,
@@ -737,24 +816,140 @@ export function PrescriptionReviewModal({
                       {
                         label: 'Phone',
                         value: (
-                          <input
-                            value={memberPhone}
-                            onChange={(e) => setMemberPhone(e.target.value)}
-                            placeholder="10-digit phone"
-                            inputMode="tel"
-                            className={inputClass}
-                          />
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              value={memberPhone}
+                              onChange={(e) => setMemberPhone(e.target.value)}
+                              placeholder="10-digit phone"
+                              inputMode="tel"
+                              className={`${inputClass} flex-1`}
+                            />
+                            {/* Straight from the number on screen — including
+                                a correction just typed above, not yet saved —
+                                so a reviewer can call to confirm it before
+                                committing to it. */}
+                            <a
+                              href={
+                                memberPhone
+                                  ? `tel:${memberPhone.replace(/\D/g, '')}`
+                                  : undefined
+                              }
+                              title="Call this number"
+                              className={`shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700 ${
+                                memberPhone ? '' : 'pointer-events-none opacity-40'
+                              }`}
+                            >
+                              <Icon name="phone" className="h-3.5 w-3.5" />
+                            </a>
+                            <a
+                              href={
+                                memberPhone
+                                  ? `https://wa.me/91${memberPhone.replace(/\D/g, '')}`
+                                  : undefined
+                              }
+                              target="_blank"
+                              rel="noreferrer"
+                              title="Message on WhatsApp"
+                              className={`shrink-0 rounded-md border border-slate-300 p-[7px] text-emerald-600 hover:bg-emerald-50 ${
+                                memberPhone ? '' : 'pointer-events-none opacity-40'
+                              }`}
+                            >
+                              <Icon name="whatsapp" className="h-3.5 w-3.5" />
+                            </a>
+                          </div>
                         ),
                       },
                       {
                         label: 'Patient',
                         value: (
-                          <input
-                            value={patientName}
-                            onChange={(e) => setPatientName(e.target.value)}
-                            placeholder="Patient's name"
-                            className={inputClass}
-                          />
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <Combobox
+                                value={patientId}
+                                onChange={setPatientId}
+                                options={patients.map((p) => ({
+                                  value: p.id,
+                                  label: `${p.name} (${p.relation})`,
+                                }))}
+                                placeholder="Choose a patient"
+                                searchPlaceholder="Search patients…"
+                                className="flex-1"
+                              />
+                              <button
+                                type="button"
+                                title="Add a new patient"
+                                onClick={() => {
+                                  setAddingPatient(true);
+                                  setNewPatientError(null);
+                                }}
+                                className="shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                              >
+                                <Icon name="plus" className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                            {addingPatient && (
+                              <div className="mt-2 space-y-2 rounded-lg border border-slate-200 p-2.5">
+                                <input
+                                  autoFocus
+                                  value={newPatientName}
+                                  onChange={(e) => setNewPatientName(e.target.value)}
+                                  placeholder="Patient's name"
+                                  className={inputClass}
+                                />
+                                <div className="grid grid-cols-2 gap-1.5">
+                                  <select
+                                    value={newPatientRelation}
+                                    onChange={(e) =>
+                                      setNewPatientRelation(e.target.value)
+                                    }
+                                    className={inputClass}
+                                  >
+                                    {RELATION_OPTIONS.map((r) => (
+                                      <option key={r.value} value={r.value}>
+                                        {r.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    type="date"
+                                    value={newPatientDob}
+                                    onChange={(e) => setNewPatientDob(e.target.value)}
+                                    className={inputClass}
+                                  />
+                                </div>
+                                <input
+                                  value={newPatientPhone}
+                                  onChange={(e) => setNewPatientPhone(e.target.value)}
+                                  placeholder="Phone (optional)"
+                                  inputMode="tel"
+                                  className={inputClass}
+                                />
+                                {newPatientError && (
+                                  <p className="text-xs text-rose-600">
+                                    {newPatientError}
+                                  </p>
+                                )}
+                                <div className="flex items-center gap-1.5">
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    disabled={savingPatient}
+                                    onClick={confirmNewPatient}
+                                  >
+                                    {savingPatient ? 'Adding…' : 'Add patient'}
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={savingPatient}
+                                    onClick={() => setAddingPatient(false)}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         ),
                       },
                       {

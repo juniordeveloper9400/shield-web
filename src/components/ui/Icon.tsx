@@ -23,7 +23,9 @@ export type IconName =
   | 'banners'
   | 'videos'
   | 'accounts'
-  | 'rotate';
+  | 'rotate'
+  | 'phone'
+  | 'whatsapp';
 
 const ICONS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -150,6 +152,15 @@ const ICONS: Record<IconName, ReactNode> = {
       <polyline points="23 4 23 10 17 10" />
       <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
     </>
+  ),
+  phone: (
+    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.362 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.338 1.85.573 2.81.7A2 2 0 0 1 22 16.92Z" />
+  ),
+  // A speech-bubble stand-in for "message this number on WhatsApp" — not the
+  // brand mark itself, just a generic chat glyph in the same outline style
+  // as every other icon here.
+  whatsapp: (
+    <path d="M21 11.5a8.5 8.5 0 0 1-8.5 8.5 8.4 8.4 0 0 1-4-1L3 20l1.09-3.83A8.4 8.4 0 0 1 3 12.5 8.5 8.5 0 1 1 21 11.5Z" />
   ),
 };
 
