@@ -3,6 +3,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
+import { Combobox } from '@/components/ui/Combobox';
 import { DetailList } from '@/components/ui/DetailList';
 import { formatDateTime, toneForStatus } from '@/lib/format';
 import {
@@ -504,25 +505,14 @@ export function PrescriptionReviewModal({
                         Type
                       </p>
                       <div className="flex items-center gap-1.5">
-                        <select
+                        <Combobox
                           value={row.pack}
-                          onChange={(e) => patchRow(i, { pack: e.target.value })}
-                          className={`${inputClass} flex-1`}
-                        >
-                          <option value="">Choose a type</option>
-                          {/* An old free-text value not in the list (or one
-                              typed here before the app reloaded) still shows
-                              selected, via this synthetic option, rather
-                              than silently reverting to blank. */}
-                          {row.pack && !typeOptions.includes(row.pack) && (
-                            <option value={row.pack}>{row.pack}</option>
-                          )}
-                          {typeOptions.map((t) => (
-                            <option key={t} value={t}>
-                              {t}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(v) => patchRow(i, { pack: v })}
+                          options={typeOptions.map((t) => ({ value: t, label: t }))}
+                          placeholder="Choose a type"
+                          searchPlaceholder="Search types…"
+                          className="flex-1"
+                        />
                         <button
                           type="button"
                           title="Add a new type"
@@ -586,32 +576,25 @@ export function PrescriptionReviewModal({
                         Intake preset
                       </p>
                       <div className="flex items-center gap-1.5">
-                        <select
+                        <Combobox
                           value={selectedFrequency[i] ?? ''}
-                          onChange={(e) => {
-                            setSelectedFrequency((m) => ({
-                              ...m,
-                              [i]: e.target.value,
-                            }));
+                          onChange={(v) => {
+                            setSelectedFrequency((m) => ({ ...m, [i]: v }));
                             const preset = frequencyOptions.find(
-                              (f) => f.code === e.target.value,
+                              (f) => f.code === v,
                             );
                             if (preset) applyFrequency(i, preset);
                           }}
-                          className={`${inputClass} flex-1 ${
-                            selectedFrequency[i] ? '' : 'text-slate-500'
-                          }`}
-                        >
-                          <option value="">
-                            OD, BD, TDS, HS, q4h, …
-                          </option>
-                          {frequencyOptions.map((f) => (
-                            <option key={f.code} value={f.code}>
-                              {f.code}
-                              {f.description ? ` — ${f.description}` : ''}
-                            </option>
-                          ))}
-                        </select>
+                          options={frequencyOptions.map((f) => ({
+                            value: f.code,
+                            label: f.description
+                              ? `${f.code} — ${f.description}`
+                              : f.code,
+                          }))}
+                          placeholder="OD, BD, TDS, HS, q4h, …"
+                          searchPlaceholder="Search intake presets…"
+                          className="flex-1"
+                        />
                         <button
                           type="button"
                           title="Add a new intake preset"
@@ -669,29 +652,19 @@ export function PrescriptionReviewModal({
                         Route &amp; time
                       </p>
                       <div className="flex items-center gap-1.5">
-                        <select
+                        <Combobox
                           value={row.routeTime}
-                          onChange={(e) =>
-                            patchRow(i, { routeTime: e.target.value })
-                          }
-                          className={`${inputClass} flex-1`}
-                        >
-                          <option value="">Choose route &amp; time</option>
-                          {/* An old free-text value, or a compound one built
-                              up before this was a dropdown, still shows
-                              selected via this synthetic option, rather than
-                              silently reverting to blank. */}
-                          {row.routeTime &&
-                            !routeTimeOptions.some(
-                              (r) => r.code === row.routeTime,
-                            ) && <option value={row.routeTime}>{row.routeTime}</option>}
-                          {routeTimeOptions.map((r) => (
-                            <option key={r.code} value={r.code}>
-                              {r.code}
-                              {r.description ? ` — ${r.description}` : ''}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(v) => patchRow(i, { routeTime: v })}
+                          options={routeTimeOptions.map((r) => ({
+                            value: r.code,
+                            label: r.description
+                              ? `${r.code} — ${r.description}`
+                              : r.code,
+                          }))}
+                          placeholder="Choose route & time"
+                          searchPlaceholder="Search route & time…"
+                          className="flex-1"
+                        />
                         <button
                           type="button"
                           title="Add a new route / time"
