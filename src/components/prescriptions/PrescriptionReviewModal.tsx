@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { DetailList } from '@/components/ui/DetailList';
 import { formatDateTime, toneForStatus } from '@/lib/format';
@@ -48,6 +49,9 @@ export function PrescriptionReviewModal({
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
+  // Degrees clockwise, one of 0/90/180/270 — a script photographed sideways or
+  // upside down is common enough that the full-size viewer needs to fix it.
+  const [rotation, setRotation] = useState(0);
 
   // Load the open prescription's existing lines into the editor (or one blank
   // row to start from).
@@ -55,6 +59,7 @@ export function PrescriptionReviewModal({
     if (!prescription) {
       setDraft([]);
       setImageOpen(false);
+      setRotation(0);
       return;
     }
     setDraft(
@@ -253,7 +258,10 @@ export function PrescriptionReviewModal({
               {prescription.image ? (
                 <button
                   type="button"
-                  onClick={() => setImageOpen(true)}
+                  onClick={() => {
+                    setRotation(0);
+                    setImageOpen(true);
+                  }}
                   className="block w-full overflow-hidden rounded-lg border border-slate-200 bg-slate-50"
                 >
                   <img
@@ -281,13 +289,45 @@ export function PrescriptionReviewModal({
         open={imageOpen}
         onClose={() => setImageOpen(false)}
         title={prescription ? `${prescription.code} — script` : ''}
+        footer={
+          prescription?.image && (
+            <>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setRotation((r) => (r + 270) % 360)}
+              >
+                <Icon name="rotate" className="h-4 w-4 -scale-x-100" />
+                Rotate left
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setRotation((r) => (r + 90) % 360)}
+              >
+                <Icon name="rotate" className="h-4 w-4" />
+                Rotate right
+              </Button>
+            </>
+          )
+        }
       >
         {prescription?.image && (
-          <img
-            src={prescription.image}
-            alt={`Prescription ${prescription.code}`}
-            className="max-h-[70vh] w-full object-contain"
-          />
+          <div className="flex min-h-[50vh] items-center justify-center overflow-hidden">
+            <img
+              src={prescription.image}
+              alt={`Prescription ${prescription.code}`}
+              className="object-contain transition-transform duration-200"
+              style={{
+                transform: `rotate(${rotation}deg)`,
+                // A quarter-turn swaps the image's effective footprint, so the
+                // side capped to the viewport has to swap too or a portrait
+                // script rotated on its side would overflow the modal width.
+                maxWidth: rotation % 180 === 0 ? '100%' : '70vh',
+                maxHeight: rotation % 180 === 0 ? '70vh' : '80vw',
+              }}
+            />
+          </div>
         )}
       </Modal>
     </>

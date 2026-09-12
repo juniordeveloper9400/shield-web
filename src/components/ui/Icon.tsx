@@ -22,7 +22,8 @@ export type IconName =
   | 'alert'
   | 'banners'
   | 'videos'
-  | 'accounts';
+  | 'accounts'
+  | 'rotate';
 
 const ICONS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -141,6 +142,13 @@ const ICONS: Record<IconName, ReactNode> = {
     <>
       <path d="M4 3v18h17" />
       <path d="M7 15l4-4 3 3 6-7" />
+    </>
+  ),
+  // Clockwise as drawn; mirror horizontally (scale-x-[-1]) for a "rotate left".
+  rotate: (
+    <>
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
     </>
   ),
 };
