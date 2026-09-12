@@ -393,9 +393,9 @@ export function PrescriptionReviewModal({
                   </button>
                 </div>
                 <p className="mb-2 text-xs text-slate-400">
-                  Intake is the three-digit morning-afternoon-night code (e.g.
-                  101). The customer's app expands their card when you send
-                  this.
+                  Pick an Intake preset below for how often each medicine is
+                  taken — it fills in the three-digit morning-afternoon-night
+                  code the customer's app expands when you send this.
                 </p>
                 <div className="space-y-2">
                   {draft.map((row, i) => (
@@ -417,19 +417,25 @@ export function PrescriptionReviewModal({
                           Remove
                         </button>
                       </div>
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                        Name
+                      </p>
                       <input
                         value={row.name}
                         onChange={(e) => patchRow(i, { name: e.target.value })}
-                        placeholder="Name"
-                        className={`${inputClass} mb-1.5`}
+                        placeholder="e.g. Paracetamol 500mg"
+                        className={inputClass}
                       />
-                      <div className="mb-1.5 flex items-center gap-1.5">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                        Type
+                      </p>
+                      <div className="flex items-center gap-1.5">
                         <select
                           value={row.pack}
                           onChange={(e) => patchRow(i, { pack: e.target.value })}
                           className={`${inputClass} flex-1`}
                         >
-                          <option value="">Type</option>
+                          <option value="">Choose a type</option>
                           {/* An old free-text value not in the list (or one
                               typed here before the app reloaded) still shows
                               selected, via this synthetic option, rather
@@ -456,7 +462,7 @@ export function PrescriptionReviewModal({
                         </button>
                       </div>
                       {addingTypeFor === i && (
-                        <div className="mb-1.5 flex items-center gap-1.5">
+                        <div className="mt-1.5 flex items-center gap-1.5">
                           <input
                             autoFocus
                             value={newTypeValue}
@@ -488,30 +494,24 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
-                      <div className="grid grid-cols-2 gap-1.5">
-                        <input
-                          value={row.intake}
-                          onChange={(e) =>
-                            patchRow(i, { intake: e.target.value })
-                          }
-                          placeholder="Intake (101)"
-                          inputMode="numeric"
-                          maxLength={5}
-                          className={`${inputClass} text-center tracking-widest`}
-                        />
-                        <input
-                          value={row.totalUnits || ''}
-                          onChange={(e) =>
-                            patchRow(i, {
-                              totalUnits: Number(e.target.value) || 0,
-                            })
-                          }
-                          placeholder="Quantity"
-                          inputMode="numeric"
-                          className={`${inputClass} text-right`}
-                        />
-                      </div>
-                      <div className="mt-1.5 flex items-center gap-1.5">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                        Quantity
+                      </p>
+                      <input
+                        value={row.totalUnits || ''}
+                        onChange={(e) =>
+                          patchRow(i, {
+                            totalUnits: Number(e.target.value) || 0,
+                          })
+                        }
+                        placeholder="Number of units"
+                        inputMode="numeric"
+                        className={inputClass}
+                      />
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                        Intake preset
+                      </p>
+                      <div className="flex items-center gap-1.5">
                         <select
                           value=""
                           onChange={(e) => {
@@ -523,7 +523,7 @@ export function PrescriptionReviewModal({
                           className={`${inputClass} flex-1 text-slate-500`}
                         >
                           <option value="">
-                            Frequency preset — fills Intake or Route &amp; time
+                            OD, BD, TDS, HS, q4h, …
                           </option>
                           {frequencyOptions.map((f) => (
                             <option key={f.code} value={f.code}>
@@ -534,7 +534,7 @@ export function PrescriptionReviewModal({
                         </select>
                         <button
                           type="button"
-                          title="Add a new frequency"
+                          title="Add a new intake preset"
                           onClick={() => {
                             setAddingFrequencyFor(i);
                             setNewFrequencyValue('');
@@ -544,6 +544,12 @@ export function PrescriptionReviewModal({
                           <Icon name="plus" className="h-3.5 w-3.5" />
                         </button>
                       </div>
+                      {row.intake && (
+                        <p className="mt-1 text-xs text-slate-400">
+                          Intake set to {row.intake.split('').join('-')} — pick
+                          a different preset to change it.
+                        </p>
+                      )}
                       {addingFrequencyFor === i && (
                         <div className="mt-1.5 flex items-center gap-1.5">
                           <input
@@ -560,7 +566,7 @@ export function PrescriptionReviewModal({
                                 setAddingFrequencyFor(null);
                               }
                             }}
-                            placeholder="New frequency (e.g. Alternate days)"
+                            placeholder="New intake preset (e.g. Alternate days)"
                             className={inputClass}
                           />
                           <Button
@@ -579,7 +585,10 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
-                      <div className="mt-1.5 flex items-center gap-1.5">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                        Route &amp; time preset
+                      </p>
+                      <div className="flex items-center gap-1.5">
                         <select
                           value=""
                           onChange={(e) => {
@@ -590,9 +599,7 @@ export function PrescriptionReviewModal({
                           }}
                           className={`${inputClass} flex-1 text-slate-500`}
                         >
-                          <option value="">
-                            Route &amp; time preset — SL, IV, OU drops, SOS, …
-                          </option>
+                          <option value="">SL, IV, OU drops, SOS, …</option>
                           {routeTimeOptions.map((r) => (
                             <option key={r.code} value={r.code}>
                               {r.code}
@@ -645,13 +652,16 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                        Route &amp; time
+                      </p>
                       <input
                         value={row.routeTime}
                         onChange={(e) =>
                           patchRow(i, { routeTime: e.target.value })
                         }
-                        placeholder="Route & time (e.g. Oral, after food)"
-                        className={`${inputClass} mt-1.5`}
+                        placeholder="e.g. Oral, after food"
+                        className={inputClass}
                       />
                     </div>
                   ))}
