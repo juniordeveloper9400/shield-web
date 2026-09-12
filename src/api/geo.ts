@@ -134,3 +134,104 @@ export async function resyncGeoSlotAgent(
     [areaId],
   );
 }
+
+// ---- deriving the correct parent from geography -------------------------
+//
+// The console's "Parent agent" picker is a free choice, defaulting to "(top
+// of tree)" — nothing forces an admin to actually pick the region a new
+// state agent's zone sits in, say. Left that way, the agent is unreachable
+// from anyone's "My Team" above them even though they plainly belong under
+// whoever heads that region: reported earnings/customers/team-size roll up
+// through parent_id, not through the geo hierarchy an agent's own area_id
+// already places them in. These queries answer "who *should* this agent's
+// parent be" from geography, for whichever tier is left unset.
+
+/** One query per tier, walking from its own geo table up through region,
+ *  nearest ancestor first — a0 is the tier directly above, a1 the one above
+ *  that, and so on. LEFT JOINs throughout: lsgd.assembly_id is nullable (a
+ *  handful of large corporations span more than one assembly), so the walk
+ *  from a ward or lsgd can run out partway up rather than fail outright. */
+const ANCESTOR_AGENT_QUERY: Record<string, string> = {
+  STATE: `
+    SELECT r.agent_id::text AS a0
+    FROM app.state s
+    JOIN app.region r ON r.id = s.region_id
+    WHERE s.id = $1`,
+  DISTRICT: `
+    SELECT s.agent_id::text AS a0, r.agent_id::text AS a1
+    FROM app.district d
+    JOIN app.state s  ON s.id = d.state_id
+    JOIN app.region r ON r.id = s.region_id
+    WHERE d.id = $1`,
+  ASSEMBLY: `
+    SELECT d.agent_id::text AS a0, s.agent_id::text AS a1, r.agent_id::text AS a2
+    FROM app.assembly ay
+    JOIN app.district d ON d.id = ay.district_id
+    JOIN app.state s    ON s.id = d.state_id
+    JOIN app.region r   ON r.id = s.region_id
+    WHERE ay.id = $1`,
+  LSGD: `
+    SELECT ay.agent_id::text AS a0, d.agent_id::text AS a1,
+           s.agent_id::text AS a2, r.agent_id::text AS a3
+    FROM app.lsgd l
+    LEFT JOIN app.assembly ay ON ay.id = l.assembly_id
+    LEFT JOIN app.district d  ON d.id = ay.district_id
+    LEFT JOIN app.state s     ON s.id = d.state_id
+    LEFT JOIN app.region r    ON r.id = s.region_id
+    WHERE l.id = $1`,
+  WARD: `
+    SELECT l.agent_id::text AS a0, ay.agent_id::text AS a1, d.agent_id::text AS a2,
+           s.agent_id::text AS a3, r.agent_id::text AS a4
+    FROM app.ward w
+    JOIN app.lsgd l ON l.id = w.lsgd_id
+    LEFT JOIN app.assembly ay ON ay.id = l.assembly_id
+    LEFT JOIN app.district d  ON d.id = ay.district_id
+    LEFT JOIN app.state s     ON s.id = d.state_id
+    LEFT JOIN app.region r    ON r.id = s.region_id
+    WHERE w.id = $1`,
+};
+
+/** The one live national agent, or null (none yet, or more than one —
+ *  ambiguous, so this stays out of the way rather than guessing). */
+async function soleNationalAgentId(): Promise<string | null> {
+  const rows = await query<Row>(
+    `SELECT id::text AS id FROM app.agent
+      WHERE level = 'NATIONAL' AND approval_status = 'APPROVED'`,
+  );
+  return rows.length === 1 ? String(rows[0].id) : null;
+}
+
+/**
+ * Who [level] + [areaId]'s agent should report to, purely from where their
+ * slot sits in the geo hierarchy — the region agent for a state, the state
+ * agent for a district, and so on, walking up past any tier with nobody in
+ * it yet, down to the national agent as the last resort. Null when there is
+ * nobody to derive a parent from (national itself, a free-text-place agent
+ * with no areaId, or no national agent yet either).
+ *
+ * This is a default, not an override — callers only fall back to it when
+ * the admin left "Parent agent" unset, so an explicit choice always wins.
+ */
+export async function deriveParentAgentId(
+  level: string,
+  areaId: string | null | undefined,
+): Promise<string | null> {
+  const lvl = level.toUpperCase();
+  if (lvl === 'NATIONAL') return null;
+  if (lvl !== 'REGION' && areaId) {
+    const sql = ANCESTOR_AGENT_QUERY[lvl];
+    if (sql) {
+      const [row] = await query<Row>(sql, [areaId]);
+      if (row) {
+        const found = [row.a0, row.a1, row.a2, row.a3, row.a4].find(
+          (v) => v != null,
+        );
+        if (found != null) return String(found);
+      }
+    }
+  }
+  // A region (nothing geographically above it but national), or the walk
+  // ran out with no agent at any tier above -- the national agent, if
+  // there's exactly one to be unambiguous about.
+  return soleNationalAgentId();
+}

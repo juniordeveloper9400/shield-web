@@ -1,6 +1,6 @@
 import { sql, query } from '@/lib/db';
 import { fromEnum, iso, num } from '@/lib/mappers';
-import { resyncGeoSlotAgent } from '@/api/geo';
+import { deriveParentAgentId, resyncGeoSlotAgent } from '@/api/geo';
 import type {
   AgentLevel,
   AgentOption,
@@ -267,6 +267,13 @@ export async function convertToAgent(
     }
   }
 
+  // An admin who leaves "Parent agent" at "(top of tree)" almost always
+  // means "I haven't thought about it", not "this agent truly reports to
+  // nobody" -- derive the geographically correct one instead of taking that
+  // as a deliberate choice. An explicit pick always wins over this.
+  const parentId =
+    opts.parentId ?? (await deriveParentAgentId(level, opts.areaId));
+
   const rows = await query<Row>(
     `
     INSERT INTO app.agent
@@ -285,7 +292,7 @@ export async function convertToAgent(
       AND NOT EXISTS (SELECT 1 FROM app.investor WHERE member_id = u.id)
     RETURNING code
     `,
-    [userId, level, opts.parentId ?? null, opts.area ?? '', opts.areaId ?? null],
+    [userId, level, parentId, opts.area ?? '', opts.areaId ?? null],
   );
   if (rows.length > 0) {
     // Mirror the new agent onto their geo slot's own row — see

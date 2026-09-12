@@ -1,6 +1,6 @@
 import { query } from '@/lib/db';
 import { fromEnum, iso } from '@/lib/mappers';
-import { resyncGeoSlotAgent } from '@/api/geo';
+import { deriveParentAgentId, resyncGeoSlotAgent } from '@/api/geo';
 import type { AgentLevel, AgentRow, PendingAgent } from '@/types';
 
 type Row = Record<string, unknown>;
@@ -133,6 +133,23 @@ export async function approveAgent(
     throw new Error('That position is already held by another agent.');
   }
 
+  // An admin who leaves "Parent agent" at "(top of tree)" almost always
+  // means "I haven't thought about it", not "this agent truly reports to
+  // nobody" -- derive the geographically correct one instead of taking that
+  // as a deliberate choice. An explicit pick always wins over this. Needs
+  // the *resolved* area (the confirmed pick, or else what was requested) up
+  // front, since parent_id is set in the same INSERT as area_id below.
+  let effectiveAreaId = opts.areaId ?? null;
+  if (!effectiveAreaId) {
+    const [req] = await query<Row>(
+      `SELECT requested_area_id::text AS area_id FROM app.agent_request WHERE id = $1`,
+      [id],
+    );
+    effectiveAreaId = (req?.area_id as string | undefined) ?? null;
+  }
+  const parentId =
+    opts.parentId ?? (await deriveParentAgentId(level, effectiveAreaId));
+
   const rows = await query<Row>(
     `
     WITH req AS (
@@ -166,7 +183,7 @@ export async function approveAgent(
     )
     SELECT id, area_id FROM ins
     `,
-    [id, level, opts.parentId ?? null, opts.area ?? '', opts.areaId ?? null],
+    [id, level, parentId, opts.area ?? '', opts.areaId ?? null],
   );
   if (rows.length === 0) {
     return false;
@@ -312,12 +329,16 @@ export async function updateAgentPosition(
     `SELECT level, area_id::text AS area_id FROM app.agent WHERE id = $1`,
     [id],
   );
+  // Same reasoning as approveAgent / convertToAgent: an unset parent
+  // defaults to the geographically correct one, not "top of tree".
+  const parentId =
+    opts.parentId ?? (await deriveParentAgentId(level, opts.areaId));
   await query(
     `UPDATE app.agent
        SET level = $2::app.agent_level, parent_id = $3, area = $4,
            area_id = $5::uuid, updated_at = now()
      WHERE id = $1`,
-    [id, level, opts.parentId ?? null, opts.area ?? '', opts.areaId ?? null],
+    [id, level, parentId, opts.area ?? '', opts.areaId ?? null],
   );
   if (before) {
     await resyncGeoSlotAgent(String(before.level), before.area_id as string | null);
