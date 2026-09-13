@@ -8,9 +8,6 @@ import {
   useState,
 } from 'react';
 import type { ReactNode } from 'react';
-import { signInWithEmailAndPassword, signOut as firebaseSignOut } from 'firebase/auth';
-import { FirebaseError } from 'firebase/app';
-import { auth } from '@/lib/firebase';
 import { api, ApiError } from '@/lib/api';
 import type { AuthUser, Role } from '@/types';
 
@@ -45,7 +42,6 @@ function toAuthUser(profile: StaffProfileResponse): AuthUser {
   const role = profile.role.toLowerCase() as Role;
   return {
     id: String(profile.id),
-    firebaseUid: auth.currentUser?.uid ?? null,
     loginId: profile.email,
     name: profile.name,
     role,
@@ -56,27 +52,11 @@ function toAuthUser(profile: StaffProfileResponse): AuthUser {
   };
 }
 
-/** A human-readable message for the Firebase Auth error codes staff will actually hit. */
-function firebaseLoginError(err: unknown): string {
-  const code = err instanceof FirebaseError ? err.code : undefined;
-  switch (code) {
-    case 'auth/invalid-credential':
-    case 'auth/wrong-password':
-    case 'auth/user-not-found':
-      return 'Email or password is incorrect.';
-    case 'auth/too-many-requests':
-      return 'Too many attempts — wait a moment and try again.';
-    case 'auth/user-disabled':
-      return 'This account has been disabled.';
-    default:
-      return 'Unable to sign in. Please try again.';
-  }
-}
-
-function backendLoginError(err: unknown): string {
+function loginError(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 404) return 'No staff account is set up for this email yet.';
+    if (err.status === 401) return 'Email or password is incorrect.';
     if (err.status === 403) return 'This account has been deactivated.';
+    if (err.status === 429) return 'Too many attempts — wait a moment and try again.';
   }
   return 'Unable to sign in. Please try again.';
 }
@@ -101,13 +81,13 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 /**
  * Sign-in for the console.
  *
- * Firebase Email/Password verifies the credential; the backend
- * (backend/api/, see backend/docs/) verifies the resulting Firebase token
- * and issues its own session — a short-lived access token (kept in memory)
- * plus a refresh token (persisted so a reload doesn't sign the admin out).
- * Replaces the static credential list that used to live in
- * `config/admins.ts` and the plain localStorage login-id session that used
- * to stand in for one.
+ * Email + password, checked directly by the backend (backend/api/, see
+ * backend/docs/) against a bcrypt hash on app.admin_user — no Firebase
+ * involved for staff at all (member login stays Firebase phone-auth,
+ * unrelated). The backend issues its own session: a short-lived access
+ * token (kept in memory) plus a refresh token (persisted so a reload
+ * doesn't sign the admin out). Replaces the static credential list that
+ * used to live in `config/admins.ts`.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
@@ -172,24 +152,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string): Promise<LoginResult> => {
-      let idToken: string;
       try {
-        const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
-        idToken = await credential.user.getIdToken();
-      } catch (err) {
-        return { ok: false, error: firebaseLoginError(err) };
-      }
-
-      try {
-        const session = await api.post<StaffSessionResponse>('/v1/staff/auth/session', { idToken });
+        const session = await api.post<StaffSessionResponse>('/v1/staff/auth/session', {
+          email: email.trim(),
+          password,
+        });
         await establishSession(session);
         return { ok: true };
       } catch (err) {
-        // The Firebase credential was fine but this identity isn't a known,
-        // active staff account on the backend — sign back out of Firebase
-        // so the console doesn't hold a "half" session.
-        await firebaseSignOut(auth).catch(() => undefined);
-        return { ok: false, error: backendLoginError(err) };
+        return { ok: false, error: loginError(err) };
       }
     },
     [establishSession],
@@ -200,7 +171,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (token) {
       await api.delete('/v1/staff/auth/session', token).catch(() => undefined);
     }
-    await firebaseSignOut(auth).catch(() => undefined);
     accessTokenRef.current = null;
     setAccessToken(null);
     try {

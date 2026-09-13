@@ -39,10 +39,11 @@ export type AccountStatus = 'active' | 'suspended';
 /**
  * A signed-in console user — backed by a real `app.admin_user` row via
  * backend/api (see backend/docs/), not the preset roster this used to be.
+ * Signs in with email + password, checked server-side — no Firebase
+ * involved for staff.
  */
 export interface AdminUser {
   id: string;
-  firebaseUid: string | null;
   /** The email used to sign in. */
   loginId: string;
   name: string;
