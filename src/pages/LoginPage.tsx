@@ -14,7 +14,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [email, setEmail] = useState('');
+  const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -23,7 +23,7 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setBusy(true);
-    const result = await login(email, password);
+    const result = await login(loginId, password);
     setBusy(false);
     if (!result.ok) {
       setError(result.error ?? 'Unable to sign in.');
@@ -53,7 +53,7 @@ export default function LoginPage() {
             One console for SHIELD orders, prescriptions, lab tests & appointments.
           </h1>
           <p className="mt-4 max-w-md text-brand-100">
-            Sign in with your work email. The pages you can open are decided by
+            Sign in with your login ID. The pages you can open are decided by
             the role attached to your account.
           </p>
         </div>
@@ -79,27 +79,27 @@ export default function LoginPage() {
 
           <h2 className="text-2xl font-semibold text-slate-900">Sign in</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Use your work email and password.
+            Use your login ID and password.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
               <label
-                htmlFor="email"
+                htmlFor="loginId"
                 className="mb-1.5 block text-sm font-medium text-slate-700"
               >
-                Email
+                Login ID
               </label>
               <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="loginId"
+                type="text"
+                value={loginId}
+                onChange={(e) => setLoginId(e.target.value)}
                 autoComplete="username"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
-                placeholder="e.g. pharmacy.melattur@shield.example"
+                placeholder="e.g. pharmacy_mel"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
               />
             </div>

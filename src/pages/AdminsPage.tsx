@@ -39,7 +39,7 @@ interface AdminRow {
 
 interface StaffApiRow {
   id: number;
-  email: string;
+  loginId: string;
   name: string;
   role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS';
   storeId: number | null;
@@ -51,7 +51,7 @@ function toAdminRow(r: StaffApiRow): AdminRow {
   const role = r.role.toLowerCase() as Role;
   return {
     id: String(r.id),
-    loginId: r.email,
+    loginId: r.loginId,
     name: r.name,
     role,
     storeCode: role === 'pharmacy' && r.storeCode ? r.storeCode : undefined,
@@ -61,10 +61,10 @@ function toAdminRow(r: StaffApiRow): AdminRow {
 /**
  * Real staff accounts from backend/api (`GET /v1/staff/admins`) — replaces
  * the preset roster that used to live in `config/admins.ts`. Adding a login
- * is now a real account (Firebase Email/Password + this row), managed from
- * the backend rather than a source-code edit; this page is still read-only
- * for now — create/deactivate UI is a follow-up, not part of the auth
- * cutover itself.
+ * is now a real account (a login id + bcrypt-hashed password on this row),
+ * managed from the backend rather than a source-code edit; this page is
+ * still read-only for now — create/deactivate UI is a follow-up, not part
+ * of the auth cutover itself.
  */
 export default function AdminsPage() {
   const { accessToken } = useAuth();
@@ -209,7 +209,7 @@ export default function AdminsPage() {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search name, email or branch…"
+            placeholder="Search name, login ID or branch…"
           />
         </div>
         <DataTable
@@ -220,7 +220,7 @@ export default function AdminsPage() {
           empty="No staff accounts match your search."
         />
         <p className="border-t border-slate-200 px-4 py-3 text-xs text-slate-400">
-          Each account signs in with Firebase Email/Password. Creating and
+          Each account signs in with a login ID and password. Creating and
           deactivating accounts from this page is a follow-up — for now, ask
           a Super Admin with backend access to add one.
         </p>

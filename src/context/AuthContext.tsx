@@ -30,7 +30,7 @@ interface StaffSessionResponse {
 
 interface StaffProfileResponse {
   id: number;
-  email: string;
+  loginId: string;
   name: string;
   role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS';
   storeId: number | null;
@@ -42,7 +42,7 @@ function toAuthUser(profile: StaffProfileResponse): AuthUser {
   const role = profile.role.toLowerCase() as Role;
   return {
     id: String(profile.id),
-    loginId: profile.email,
+    loginId: profile.loginId,
     name: profile.name,
     role,
     avatarColor: ROLE_COLOR[role],
@@ -54,7 +54,7 @@ function toAuthUser(profile: StaffProfileResponse): AuthUser {
 
 function loginError(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.status === 401) return 'Email or password is incorrect.';
+    if (err.status === 401) return 'Login ID or password is incorrect.';
     if (err.status === 403) return 'This account has been deactivated.';
     if (err.status === 429) return 'Too many attempts — wait a moment and try again.';
   }
@@ -72,7 +72,7 @@ interface AuthContextValue {
   loading: boolean;
   /** The backend's short-lived access token — for pages calling backend/api directly. Null when signed out. */
   accessToken: string | null;
-  login: (email: string, password: string) => Promise<LoginResult>;
+  login: (loginId: string, password: string) => Promise<LoginResult>;
   logout: () => Promise<void>;
 }
 
@@ -81,7 +81,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 /**
  * Sign-in for the console.
  *
- * Email + password, checked directly by the backend (backend/api/, see
+ * Login id + password, checked directly by the backend (backend/api/, see
  * backend/docs/) against a bcrypt hash on app.admin_user — no Firebase
  * involved for staff at all (member login stays Firebase phone-auth,
  * unrelated). The backend issues its own session: a short-lived access
@@ -151,10 +151,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [establishSession]);
 
   const login = useCallback(
-    async (email: string, password: string): Promise<LoginResult> => {
+    async (loginId: string, password: string): Promise<LoginResult> => {
       try {
         const session = await api.post<StaffSessionResponse>('/v1/staff/auth/session', {
-          email: email.trim(),
+          loginId: loginId.trim(),
           password,
         });
         await establishSession(session);
