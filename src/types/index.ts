@@ -36,17 +36,18 @@ export type ModuleKey =
 
 export type AccountStatus = 'active' | 'suspended';
 
-/** A console login — one entry of the preset roster in `src/config/admins.ts`. */
+/**
+ * A signed-in console user — backed by a real `app.admin_user` row via
+ * backend/api (see backend/docs/), not the preset roster this used to be.
+ */
 export interface AdminUser {
   id: string;
-  /** Unused by the preset-login flow; kept so older code still type-checks. */
   firebaseUid: string | null;
-  /** The login id typed at sign-in — a short handle, not an email. */
+  /** The email used to sign in. */
   loginId: string;
   name: string;
   role: Role;
   avatarColor: string;
-  /** `active` / `suspended`. Always `active` for a preset login. */
   status: AccountStatus;
   /** Set only for `pharmacy` — the branch this admin works, e.g. `SHD-MEL`. */
   storeCode?: string;

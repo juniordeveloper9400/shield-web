@@ -14,7 +14,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [loginId, setLoginId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -23,7 +23,7 @@ export default function LoginPage() {
     e.preventDefault();
     setError(null);
     setBusy(true);
-    const result = await login(loginId, password);
+    const result = await login(email, password);
     setBusy(false);
     if (!result.ok) {
       setError(result.error ?? 'Unable to sign in.');
@@ -79,27 +79,27 @@ export default function LoginPage() {
 
           <h2 className="text-2xl font-semibold text-slate-900">Sign in</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Use the login ID and password for your admin account.
+            Use your work email and password.
           </p>
 
           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
               <label
-                htmlFor="loginId"
+                htmlFor="email"
                 className="mb-1.5 block text-sm font-medium text-slate-700"
               >
-                Login ID
+                Email
               </label>
               <input
-                id="loginId"
-                type="text"
-                value={loginId}
-                onChange={(e) => setLoginId(e.target.value)}
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 autoComplete="username"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
-                placeholder="e.g. pharmacy_mel"
+                placeholder="e.g. pharmacy.melattur@shield.example"
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
               />
             </div>
@@ -135,8 +135,8 @@ export default function LoginPage() {
           </form>
 
           <p className="mt-6 text-xs text-slate-400">
-            Logins are preset in the console configuration. Ask your
-            administrator to add one or change a password.
+            Staff accounts are managed from the Admins page. Ask a Super
+            Admin to add one or reset a password.
           </p>
         </div>
       </div>

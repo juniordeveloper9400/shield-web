@@ -4,14 +4,82 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import type { ReactNode } from 'react';
-import type { AuthUser } from '@/types';
-import { adminForLoginId, authenticate } from '@/config/admins';
+import { signInWithEmailAndPassword, signOut as firebaseSignOut } from 'firebase/auth';
+import { FirebaseError } from 'firebase/app';
+import { auth } from '@/lib/firebase';
+import { api, ApiError } from '@/lib/api';
+import type { AuthUser, Role } from '@/types';
 
-/** Where the signed-in admin's login id is kept so a reload stays signed in. */
-const SESSION_KEY = 'shield-admin-session';
+/** Where the refresh token is kept so a reload doesn't drop the session. */
+const REFRESH_TOKEN_KEY = 'shield-admin-refresh-token';
+
+const ROLE_COLOR: Record<Role, string> = {
+  superadmin: '#2c57a6',
+  admin: '#0f766e',
+  pharmacy: '#1f7a4d',
+  lab: '#8a5b1f',
+  appointments: '#6b3fa0',
+};
+
+interface StaffSessionResponse {
+  accessToken: string;
+  refreshToken: string;
+  expiresIn: number;
+}
+
+interface StaffProfileResponse {
+  id: number;
+  email: string;
+  name: string;
+  role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS';
+  storeId: number | null;
+  storeCode: string | null;
+  isActive: boolean;
+}
+
+function toAuthUser(profile: StaffProfileResponse): AuthUser {
+  const role = profile.role.toLowerCase() as Role;
+  return {
+    id: String(profile.id),
+    firebaseUid: auth.currentUser?.uid ?? null,
+    loginId: profile.email,
+    name: profile.name,
+    role,
+    avatarColor: ROLE_COLOR[role],
+    status: profile.isActive ? 'active' : 'suspended',
+    storeCode: role === 'pharmacy' ? (profile.storeCode ?? undefined) : undefined,
+    lastLogin: new Date().toISOString(),
+  };
+}
+
+/** A human-readable message for the Firebase Auth error codes staff will actually hit. */
+function firebaseLoginError(err: unknown): string {
+  const code = err instanceof FirebaseError ? err.code : undefined;
+  switch (code) {
+    case 'auth/invalid-credential':
+    case 'auth/wrong-password':
+    case 'auth/user-not-found':
+      return 'Email or password is incorrect.';
+    case 'auth/too-many-requests':
+      return 'Too many attempts — wait a moment and try again.';
+    case 'auth/user-disabled':
+      return 'This account has been disabled.';
+    default:
+      return 'Unable to sign in. Please try again.';
+  }
+}
+
+function backendLoginError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.status === 404) return 'No staff account is set up for this email yet.';
+    if (err.status === 403) return 'This account has been deactivated.';
+  }
+  return 'Unable to sign in. Please try again.';
+}
 
 export interface LoginResult {
   ok: boolean;
@@ -20,9 +88,11 @@ export interface LoginResult {
 
 interface AuthContextValue {
   user: AuthUser | null;
-  /** True only for the first tick, while the stored session is restored. */
+  /** True only for the first tick, while a stored session is restored. */
   loading: boolean;
-  login: (loginId: string, password: string) => Promise<LoginResult>;
+  /** The backend's short-lived access token — for pages calling backend/api directly. Null when signed out. */
+  accessToken: string | null;
+  login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => Promise<void>;
 }
 
@@ -31,48 +101,110 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 /**
  * Sign-in for the console.
  *
- * Authenticates against the preset list in `src/config/admins.ts` — no
- * Firebase, no database round-trip. The signed-in email is persisted to
- * `localStorage` so a page reload does not drop the session; the password is
- * only ever checked at the moment of sign-in.
+ * Firebase Email/Password verifies the credential; the backend
+ * (backend/api/, see backend/docs/) verifies the resulting Firebase token
+ * and issues its own session — a short-lived access token (kept in memory)
+ * plus a refresh token (persisted so a reload doesn't sign the admin out).
+ * Replaces the static credential list that used to live in
+ * `config/admins.ts` and the plain localStorage login-id session that used
+ * to stand in for one.
  */
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  // Logout needs the *current* token without forcing every token refresh to
+  // re-create the callback — a ref mirrors the state for that one read.
+  const accessTokenRef = useRef<string | null>(null);
 
-  useEffect(() => {
+  const establishSession = useCallback(async (session: StaffSessionResponse) => {
+    accessTokenRef.current = session.accessToken;
+    setAccessToken(session.accessToken);
     try {
-      const saved = localStorage.getItem(SESSION_KEY);
-      if (saved) {
-        // Null when the login id has since been removed from the list.
-        setUser(adminForLoginId(saved));
-      }
+      localStorage.setItem(REFRESH_TOKEN_KEY, session.refreshToken);
     } catch {
-      /* storage disabled (private window) — just start signed out */
+      /* private window / storage disabled — session just won't survive a reload */
     }
-    setLoading(false);
+    const profile = await api.get<StaffProfileResponse>('/v1/staff/me', session.accessToken);
+    setUser(toAuthUser(profile));
   }, []);
 
-  const login = useCallback(
-    async (loginId: string, password: string): Promise<LoginResult> => {
-      const resolved = authenticate(loginId, password);
-      if (!resolved) {
-        return { ok: false, error: 'Login ID or password is incorrect.' };
-      }
+  useEffect(() => {
+    let cancelled = false;
+
+    async function restore() {
+      let stored: string | null = null;
       try {
-        localStorage.setItem(SESSION_KEY, resolved.loginId);
+        stored = localStorage.getItem(REFRESH_TOKEN_KEY);
       } catch {
-        /* not fatal — the session just won't survive a reload */
+        /* ignore */
       }
-      setUser(resolved);
-      return { ok: true };
+
+      if (!stored) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const session = await api.post<StaffSessionResponse>('/v1/staff/auth/refresh', {
+          refreshToken: stored,
+        });
+        if (cancelled) return;
+        await establishSession(session);
+      } catch {
+        // Refresh token expired, revoked, or the backend is unreachable —
+        // start signed out rather than stuck loading.
+        try {
+          localStorage.removeItem(REFRESH_TOKEN_KEY);
+        } catch {
+          /* ignore */
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void restore();
+    return () => {
+      cancelled = true;
+    };
+  }, [establishSession]);
+
+  const login = useCallback(
+    async (email: string, password: string): Promise<LoginResult> => {
+      let idToken: string;
+      try {
+        const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
+        idToken = await credential.user.getIdToken();
+      } catch (err) {
+        return { ok: false, error: firebaseLoginError(err) };
+      }
+
+      try {
+        const session = await api.post<StaffSessionResponse>('/v1/staff/auth/session', { idToken });
+        await establishSession(session);
+        return { ok: true };
+      } catch (err) {
+        // The Firebase credential was fine but this identity isn't a known,
+        // active staff account on the backend — sign back out of Firebase
+        // so the console doesn't hold a "half" session.
+        await firebaseSignOut(auth).catch(() => undefined);
+        return { ok: false, error: backendLoginError(err) };
+      }
     },
-    [],
+    [establishSession],
   );
 
   const logout = useCallback(async () => {
+    const token = accessTokenRef.current;
+    if (token) {
+      await api.delete('/v1/staff/auth/session', token).catch(() => undefined);
+    }
+    await firebaseSignOut(auth).catch(() => undefined);
+    accessTokenRef.current = null;
+    setAccessToken(null);
     try {
-      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(REFRESH_TOKEN_KEY);
     } catch {
       /* ignore */
     }
@@ -80,8 +212,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ user, loading, login, logout }),
-    [user, loading, login, logout],
+    () => ({ user, loading, accessToken, login, logout }),
+    [user, loading, accessToken, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

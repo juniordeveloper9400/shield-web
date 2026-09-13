@@ -7,6 +7,9 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput } from '@/components/ui/Filters';
 import { Icon } from '@/components/ui/Icon';
 import { initials } from '@/lib/format';
+import { useAuth } from '@/context/AuthContext';
+import { useAsync } from '@/lib/useAsync';
+import { api } from '@/lib/api';
 import {
   MODULES,
   ROLE_LABELS,
@@ -14,7 +17,6 @@ import {
   ROLE_SUMMARY,
   canAccess,
 } from '@/config/permissions';
-import { ADMIN_CREDENTIALS } from '@/config/admins';
 import type { Role } from '@/types';
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[];
@@ -35,23 +37,42 @@ interface AdminRow {
   storeCode?: string;
 }
 
+interface StaffApiRow {
+  id: number;
+  email: string;
+  name: string;
+  role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS';
+  storeId: number | null;
+  storeCode: string | null;
+  isActive: boolean;
+}
+
+function toAdminRow(r: StaffApiRow): AdminRow {
+  const role = r.role.toLowerCase() as Role;
+  return {
+    id: String(r.id),
+    loginId: r.email,
+    name: r.name,
+    role,
+    storeCode: role === 'pharmacy' && r.storeCode ? r.storeCode : undefined,
+  };
+}
+
 /**
- * A read-only view of the preset logins in `src/config/admins.ts`. Editing the
- * roster — adding a login, changing a role or a password — is done in that
- * file; the console authenticates against it directly.
+ * Real staff accounts from backend/api (`GET /v1/staff/admins`) — replaces
+ * the preset roster that used to live in `config/admins.ts`. Adding a login
+ * is now a real account (Firebase Email/Password + this row), managed from
+ * the backend rather than a source-code edit; this page is still read-only
+ * for now — create/deactivate UI is a follow-up, not part of the auth
+ * cutover itself.
  */
 export default function AdminsPage() {
-  const rows = useMemo<AdminRow[]>(
-    () =>
-      ADMIN_CREDENTIALS.map((c) => ({
-        id: c.loginId.toLowerCase(),
-        loginId: c.loginId.toLowerCase(),
-        name: c.name,
-        role: c.role,
-        storeCode: c.role === 'pharmacy' ? c.storeCode : undefined,
-      })),
-    [],
+  const { accessToken } = useAuth();
+  const { data, loading, error } = useAsync(
+    () => api.get<StaffApiRow[]>('/v1/staff/admins', accessToken),
+    [accessToken],
   );
+  const rows = useMemo<AdminRow[]>(() => (data ?? []).map(toAdminRow), [data]);
 
   const [search, setSearch] = useState('');
 
@@ -125,7 +146,7 @@ export default function AdminsPage() {
     <>
       <PageHeader
         title="Admins"
-        subtitle="Preset logins for the console. Edit them in src/config/admins.ts."
+        subtitle="Staff accounts for the console — SUPERADMIN only."
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-4">
@@ -194,13 +215,14 @@ export default function AdminsPage() {
         <DataTable
           columns={columns}
           rows={filtered}
-          loading={false}
-          error={null}
-          empty="No logins match your search."
+          loading={loading}
+          error={error}
+          empty="No staff accounts match your search."
         />
         <p className="border-t border-slate-200 px-4 py-3 text-xs text-slate-400">
-          Passwords are set per login in <code>src/config/admins.ts</code>. Add or
-          remove a login there and redeploy — the console reads that file directly.
+          Each account signs in with Firebase Email/Password. Creating and
+          deactivating accounts from this page is a follow-up — for now, ask
+          a Super Admin with backend access to add one.
         </p>
       </Card>
     </>
