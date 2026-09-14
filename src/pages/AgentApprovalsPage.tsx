@@ -4,6 +4,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Icon } from '@/components/ui/Icon';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { Tabs } from '@/components/ui/Tabs';
@@ -175,6 +177,18 @@ export default function AgentApprovalsPage() {
       <PageHeader
         title="Agent approvals"
         subtitle="New agents awaiting a position & approval, and everyone already live in the tree."
+        actions={
+          <Button
+            variant="secondary"
+            onClick={() => {
+              pending.reload();
+              approved.reload();
+            }}
+            disabled={pending.loading || approved.loading}
+          >
+            <Icon name="rotate" className="h-4 w-4" /> Refresh
+          </Button>
+        }
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
