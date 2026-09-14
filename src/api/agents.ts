@@ -150,6 +150,13 @@ export async function approveAgent(
   const parentId =
     opts.parentId ?? (await deriveParentAgentId(level, effectiveAreaId));
 
+  // member_id is resolved by phone here (this recruit isn't a member row
+  // yet in every legacy case, so a plain FK on agent_request isn't
+  // available) rather than left unset: backend/api's member-facing agent
+  // routes (GET /v1/agent/team, etc.) look an agent up by the signed-in
+  // member's id, not phone. A NULL here means that agent's own app never
+  // resolves as "an approved agent" once it's on the backend, even though
+  // this console shows them approved.
   const rows = await query<Row>(
     `
     WITH req AS (
@@ -160,11 +167,12 @@ export async function approveAgent(
     ),
     ins AS (
       INSERT INTO app.agent (
-        code, name, phone, level, parent_id, area, area_id,
+        member_id, code, name, phone, level, parent_id, area, area_id,
         first_name, middle_name, last_name, dob, aadhaar, pan,
         address, pincode, place, account_number, approval_status, active
       )
       SELECT
+        (SELECT id FROM app.users WHERE phone = r.phone LIMIT 1),
         'SHD-AGT-' || lpad((
           COALESCE(
             (SELECT max(substring(code from '[0-9]+$')::int) FROM app.agent), 0
