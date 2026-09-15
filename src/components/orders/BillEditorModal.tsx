@@ -1,9 +1,12 @@
 import { useMemo, useState } from 'react';
+import type { ConfirmationResult } from 'firebase/auth';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency } from '@/lib/format';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { sendOrderInvoice } from '@/api/orders';
+import { collectBillWithWallet } from '@/api/billPayments';
+import { confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
 import type { Order } from '@/types';
 
 const inputClass =
@@ -38,6 +41,54 @@ export function BillEditorModal({
 }) {
   const hasBill = order.billAmount > 0;
   const [mode, setMode] = useState<'summary' | 'edit'>(hasBill ? 'summary' : 'edit');
+
+  // --- OTP-gated wallet collection ----------------------------------------
+  // Nothing here ever debits the wallet on its own — sendOtp only asks
+  // Firebase to text the member a code; verifyAndCollect is the one place
+  // that calls collectBillWithWallet, and only after Firebase has confirmed
+  // the code staff typed in actually matches what was sent to the member's
+  // phone. See lib/deliveryOtp.ts.
+  const [otpConfirmation, setOtpConfirmation] = useState<ConfirmationResult | null>(null);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [collected, setCollected] = useState(false);
+  const recaptchaContainerId = `bill-otp-recaptcha-${order.id}`;
+
+  async function sendOtp() {
+    setOtpBusy(true);
+    setOtpError(null);
+    try {
+      const confirmation = await sendDeliveryOtp(order.memberPhone, recaptchaContainerId);
+      setOtpConfirmation(confirmation);
+    } catch (err) {
+      setOtpError(describeOtpError(err));
+    } finally {
+      setOtpBusy(false);
+    }
+  }
+
+  async function verifyAndCollect() {
+    if (!otpConfirmation || otpCode.trim().length === 0) return;
+    setOtpBusy(true);
+    setOtpError(null);
+    try {
+      await confirmDeliveryOtp(otpConfirmation, otpCode);
+      const result = await collectBillWithWallet(order.id);
+      if (!result.ok) {
+        setOtpError(result.reason);
+        return;
+      }
+      setCollected(true);
+      setOtpConfirmation(null);
+      setOtpCode('');
+      onSaved();
+    } catch (err) {
+      setOtpError(describeOtpError(err));
+    } finally {
+      setOtpBusy(false);
+    }
+  }
   const [lines, setLines] = useState<BillLineDraft[]>(() =>
     order.billLines.length > 0
       ? order.billLines
@@ -158,7 +209,67 @@ export function BillEditorModal({
             )}
           </div>
         </div>
-      ) : (
+      ) : null}
+
+      {mode === 'summary' && order.billStatus !== 'paid' && (
+        <div className="mt-3 rounded-lg border border-slate-200 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Collect by wallet
+          </p>
+          {collected ? (
+            <p className="mt-2 text-sm font-medium text-emerald-600">
+              Collected — the wallet has been debited and this bill is paid.
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-xs text-slate-500">
+                Send a one-time code to the member's phone, then enter what they read out to
+                you. The wallet is only debited once that code checks out — never before.
+              </p>
+              <div id={recaptchaContainerId} />
+              {!otpConfirmation ? (
+                <Button
+                  size="sm"
+                  className="mt-3"
+                  disabled={otpBusy}
+                  onClick={() => void sendOtp()}
+                >
+                  {otpBusy ? 'Sending…' : 'Send OTP to member'}
+                </Button>
+              ) : (
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    placeholder="6-digit code"
+                    inputMode="numeric"
+                    autoFocus
+                    className={inputClass}
+                  />
+                  <Button
+                    size="sm"
+                    disabled={otpBusy || otpCode.trim().length === 0}
+                    onClick={() => void verifyAndCollect()}
+                  >
+                    {otpBusy ? 'Verifying…' : 'Verify & collect'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={otpBusy}
+                    onClick={() => void sendOtp()}
+                  >
+                    Resend
+                  </Button>
+                </div>
+              )}
+              {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
+            </>
+          )}
+        </div>
+      )}
+
+      {mode === 'edit' && (
         <div>
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
