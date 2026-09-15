@@ -8,10 +8,10 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
-import { fileToResizedDataUrl } from '@/lib/images';
 import { formatCurrency, formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
-import { clearOrderBill, listOrders, sendOrderBill } from '@/api/orders';
+import { clearOrderBill, listOrders } from '@/api/orders';
+import { BillEditorModal } from '@/components/orders/BillEditorModal';
 import type { Order } from '@/types';
 
 const BILL_OPTIONS = [
@@ -41,6 +41,7 @@ export default function BillsPage() {
   const [viewImage, setViewImage] = useState<{ src: string; title: string } | null>(
     null,
   );
+  const [editing, setEditing] = useState<Order | null>(null);
 
   const scoped = useMemo(() => scopeToStore(rows, user), [rows, user]);
   const branchBound = user?.role === 'pharmacy' && Boolean(user.storeCode);
@@ -63,34 +64,15 @@ export default function BillsPage() {
         row.memberName.toLowerCase().includes(q) ||
         row.memberPhone.includes(q);
       const matchesStore = store === 'all' || row.storeCode === store;
+      const hasBill = Boolean(row.billImage) || row.billAmount > 0;
       const matchesBill =
-        billFilter === 'all' ||
-        (billFilter === 'sent' ? Boolean(row.billImage) : !row.billImage);
+        billFilter === 'all' || (billFilter === 'sent' ? hasBill : !hasBill);
       return matchesQuery && matchesStore && matchesBill;
     });
   }, [scoped, search, store, billFilter]);
 
-  const sentCount = scoped.filter((r) => r.billImage).length;
+  const sentCount = scoped.filter((r) => r.billImage || r.billAmount > 0).length;
   const pendingCount = scoped.length - sentCount;
-
-  async function handlePick(id: string, file: File) {
-    setRowError(null);
-    setSavingId(id);
-    try {
-      // Same size budget as the Orders modal's own upload — legible at
-      // whatever zoom a member reads it back at.
-      const image = await fileToResizedDataUrl(file, 1400, 0.78);
-      await sendOrderBill(id, image);
-      reload();
-    } catch (err) {
-      setRowError({
-        id,
-        message: err instanceof Error ? err.message : 'Could not send the bill.',
-      });
-    } finally {
-      setSavingId(null);
-    }
-  }
 
   async function remove(id: string) {
     setRowError(null);
@@ -164,7 +146,28 @@ export default function BillsPage() {
       key: 'bill',
       header: 'Bill',
       render: (row) =>
-        row.billImage ? (
+        row.billAmount > 0 ? (
+          <div className="flex items-center gap-2">
+            <Badge tone={row.billStatus === 'paid' ? 'green' : 'amber'}>
+              {formatCurrency(row.billAmount)} · {titleCase(row.billStatus)}
+            </Badge>
+            {row.billImage && (
+              <button
+                type="button"
+                onClick={() =>
+                  setViewImage({ src: row.billImage, title: `${row.code} — invoice` })
+                }
+                className="h-9 w-8 shrink-0 overflow-hidden rounded border border-slate-200 bg-slate-50"
+              >
+                <img
+                  src={row.billImage}
+                  alt="Invoice sent to the member"
+                  className="h-full w-full object-cover"
+                />
+              </button>
+            )}
+          </div>
+        ) : row.billImage ? (
           <button
             type="button"
             onClick={() =>
@@ -192,21 +195,14 @@ export default function BillsPage() {
       header: '',
       render: (row) => (
         <div className="flex items-center justify-end gap-3">
-          <label className="cursor-pointer text-xs font-medium text-brand-600">
-            {row.billImage ? 'Replace' : 'Send bill'}
-            <input
-              type="file"
-              accept="image/*"
-              disabled={savingId === row.id}
-              className="hidden"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) void handlePick(row.id, file);
-                e.target.value = '';
-              }}
-            />
-          </label>
-          {row.billImage && (
+          <button
+            type="button"
+            className="text-xs font-medium text-brand-600"
+            onClick={() => setEditing(row)}
+          >
+            Manage bill
+          </button>
+          {(row.billImage || row.billAmount > 0) && (
             <button
               type="button"
               disabled={savingId === row.id}
@@ -289,6 +285,15 @@ export default function BillsPage() {
           />
         )}
       </Modal>
+
+      {editing && (
+        <BillEditorModal
+          order={editing}
+          open={Boolean(editing)}
+          onClose={() => setEditing(null)}
+          onSaved={reload}
+        />
+      )}
     </>
   );
 }

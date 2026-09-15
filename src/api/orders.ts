@@ -204,16 +204,21 @@ export async function sendOrderInvoice(
     lines?: { name: string; pack?: string; unitPrice: number; qty: number }[];
   },
 ): Promise<void> {
+  // app.bill.image is NOT NULL (it predates this priced-invoice path, which
+  // often has no picture at all — a prescription bill is built from typed
+  // line items, not a photo). '' is the same "no image" the read side
+  // already treats a blank/whitespace image as (see listOrders/fetchPrescriptions),
+  // so a lineitem-only bill inserts cleanly instead of violating the column.
   const upserted = await query<{ id: unknown }>(
     `INSERT INTO app.bill (order_id, image, amount, sent_at, updated_at)
      VALUES ($1, $2, $3, now(), now())
      ON CONFLICT (order_id)
-     DO UPDATE SET image = COALESCE(excluded.image, app.bill.image),
+     DO UPDATE SET image = CASE WHEN excluded.image = '' THEN app.bill.image ELSE excluded.image END,
                    amount = excluded.amount,
                    sent_at = now(),
                    updated_at = now()
      RETURNING id`,
-    [id, opts.image ?? null, opts.amount],
+    [id, opts.image ?? '', opts.amount],
   );
 
   let billId = upserted[0]?.id == null ? null : String(upserted[0].id);
