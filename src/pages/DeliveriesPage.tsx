@@ -5,7 +5,9 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
+import { DetailList } from '@/components/ui/DetailList';
 import { FilterSelect } from '@/components/ui/Filters';
 import { formatCurrency, formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
@@ -37,6 +39,35 @@ function paymentBadge(row: DeliveryOrder) {
   );
 }
 
+/** A quick glance at what's in the parcel, without opening the row's detail. */
+function itemsSummary(row: DeliveryOrder) {
+  if (row.items.length === 0) {
+    return <span className="text-slate-400">{row.itemCount || 0} item(s)</span>;
+  }
+  const text = row.items.map((it) => `${it.name} ×${it.qty}`).join(', ');
+  return (
+    <p className="max-w-[220px] truncate text-slate-600" title={text}>
+      {text}
+    </p>
+  );
+}
+
+/** The order code cell — click it to open the full delivery detail (member,
+ * address and items) rather than making the whole row clickable, which would
+ * fight with the action buttons/selects the other cells already carry. */
+function codeCell(row: DeliveryOrder, onOpen: (row: DeliveryOrder) => void) {
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(row)}
+      className="text-left hover:underline"
+    >
+      <p className="font-medium text-brand-600">{row.code}</p>
+      <p className="text-xs text-slate-400">{formatDateTime(row.placedAt)}</p>
+    </button>
+  );
+}
+
 /**
  * The DELIVERY role's own portal — "what's ready to pick up" and "what I'm
  * carrying" — plus a simple store-scoped assignment view for admin,
@@ -51,6 +82,7 @@ export default function DeliveriesPage() {
 
   const [actingId, setActingId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<DeliveryOrder | null>(null);
 
   async function runAction(
     id: string,
@@ -143,12 +175,7 @@ export default function DeliveriesPage() {
     {
       key: 'code',
       header: 'Order',
-      render: (row) => (
-        <div>
-          <p className="font-medium text-slate-800">{row.code}</p>
-          <p className="text-xs text-slate-400">{formatDateTime(row.placedAt)}</p>
-        </div>
-      ),
+      render: (row) => codeCell(row, setSelected),
     },
     {
       key: 'member',
@@ -160,10 +187,12 @@ export default function DeliveriesPage() {
         </div>
       ),
     },
+    { key: 'items', header: 'Items', render: itemsSummary },
     { key: 'fulfilment', header: 'Fulfilment', render: fulfilmentBadge },
+    { key: 'payment', header: 'Payment', render: paymentBadge },
     {
       key: 'amount',
-      header: 'Amount owed',
+      header: 'Amount',
       render: (row) => formatCurrency(row.mrpTotal),
       className: 'text-right',
     },
@@ -188,12 +217,7 @@ export default function DeliveriesPage() {
     {
       key: 'code',
       header: 'Order',
-      render: (row) => (
-        <div>
-          <p className="font-medium text-slate-800">{row.code}</p>
-          <p className="text-xs text-slate-400">{formatDateTime(row.placedAt)}</p>
-        </div>
-      ),
+      render: (row) => codeCell(row, setSelected),
     },
     {
       key: 'member',
@@ -205,11 +229,12 @@ export default function DeliveriesPage() {
         </div>
       ),
     },
+    { key: 'items', header: 'Items', render: itemsSummary },
     { key: 'fulfilment', header: 'Fulfilment', render: fulfilmentBadge },
     { key: 'payment', header: 'Payment', render: paymentBadge },
     {
       key: 'amount',
-      header: 'Amount owed',
+      header: 'Amount',
       render: (row) => formatCurrency(row.mrpTotal),
       className: 'text-right',
     },
@@ -258,12 +283,7 @@ export default function DeliveriesPage() {
     {
       key: 'code',
       header: 'Order',
-      render: (row) => (
-        <div>
-          <p className="font-medium text-slate-800">{row.code}</p>
-          <p className="text-xs text-slate-400">{formatDateTime(row.placedAt)}</p>
-        </div>
-      ),
+      render: (row) => codeCell(row, setSelected),
     },
     {
       key: 'member',
@@ -275,10 +295,12 @@ export default function DeliveriesPage() {
         </div>
       ),
     },
+    { key: 'items', header: 'Items', render: itemsSummary },
     { key: 'fulfilment', header: 'Fulfilment', render: fulfilmentBadge },
+    { key: 'payment', header: 'Payment', render: paymentBadge },
     {
       key: 'amount',
-      header: 'Amount owed',
+      header: 'Amount',
       render: (row) => formatCurrency(row.mrpTotal),
       className: 'text-right',
     },
@@ -309,12 +331,65 @@ export default function DeliveriesPage() {
     },
   ];
 
+  const detailModal = (
+    <Modal
+      open={Boolean(selected)}
+      onClose={() => setSelected(null)}
+      title={selected ? selected.code : ''}
+    >
+      {selected && (
+        <>
+          <div className="mb-3 flex flex-wrap gap-2">
+            {fulfilmentBadge(selected)}
+            {paymentBadge(selected)}
+          </div>
+          <DetailList
+            rows={[
+              { label: 'Member', value: selected.memberName },
+              { label: 'Phone', value: selected.memberPhone },
+              { label: 'Deliver to', value: selected.address || '—' },
+              { label: 'Branch', value: selected.storeName || '—' },
+              { label: 'Amount', value: formatCurrency(selected.mrpTotal) },
+              { label: 'Placed', value: formatDateTime(selected.placedAt) },
+            ]}
+          />
+          <div className="mt-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Items
+            </p>
+            <div className="overflow-hidden rounded-lg border border-slate-200">
+              <table className="min-w-full text-sm">
+                <tbody className="divide-y divide-slate-100">
+                  {selected.items.length === 0 ? (
+                    <tr>
+                      <td className="px-3 py-2 text-slate-400">No line items recorded.</td>
+                    </tr>
+                  ) : (
+                    selected.items.map((item, i) => (
+                      <tr key={i}>
+                        <td className="px-3 py-2">
+                          <p className="text-slate-800">{item.name}</p>
+                          <p className="text-xs text-slate-400">{item.pack}</p>
+                        </td>
+                        <td className="px-3 py-2 text-right text-slate-500">×{item.qty}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </Modal>
+  );
+
   if (isDeliveryBoy) {
     return (
       <>
         <PageHeader
           title="Deliveries"
-          subtitle="Cash orders open for pickup at your branch, and what you're carrying now."
+          subtitle="Home deliveries open for pickup at your branch, and what you're carrying now."
         />
 
         <div className="mb-6 grid gap-4 sm:grid-cols-2">
@@ -344,7 +419,7 @@ export default function DeliveriesPage() {
             <Card className="mb-6">
               <CardHeader
                 title="Available to deliver"
-                subtitle="Unclaimed cash orders at your branch"
+                subtitle="Unclaimed home-delivery orders at your branch — cash still to collect, or already wallet-paid"
               />
               <DataTable
                 columns={availableColumns}
@@ -372,6 +447,7 @@ export default function DeliveriesPage() {
             </Card>
           </>
         )}
+        {detailModal}
       </>
     );
   }
@@ -380,12 +456,12 @@ export default function DeliveriesPage() {
     <>
       <PageHeader
         title="Deliveries"
-        subtitle="Hand a branch's unclaimed cash orders to a delivery boy."
+        subtitle="Hand a branch's unclaimed home deliveries to a delivery boy."
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2">
         <StatCard
-          label="Unclaimed cash orders"
+          label="Unclaimed home deliveries"
           value={adminAvailable.data?.length ?? 0}
           icon="deliveries"
           tone="blue"
@@ -400,11 +476,11 @@ export default function DeliveriesPage() {
 
       <Card>
         <CardHeader
-          title="Unclaimed cash orders"
+          title="Unclaimed home deliveries"
           subtitle={
             isPharmacy && !user?.storeCode
               ? "Your account isn't linked to a branch yet."
-              : undefined
+              : 'Cash still to collect, or already wallet-paid — every home delivery waiting on a delivery boy'
           }
           action={
             needsStorePicker ? (
@@ -425,7 +501,7 @@ export default function DeliveriesPage() {
           rows={adminAvailable.data ?? []}
           loading={adminAvailable.loading}
           error={adminAvailable.error}
-          empty="No unclaimed cash orders at this branch."
+          empty="No unclaimed home deliveries at this branch."
         />
         {actionError && (
           <p className="border-t border-slate-200 px-4 py-2 text-xs text-rose-600">
@@ -433,6 +509,7 @@ export default function DeliveriesPage() {
           </p>
         )}
       </Card>
+      {detailModal}
     </>
   );
 }
