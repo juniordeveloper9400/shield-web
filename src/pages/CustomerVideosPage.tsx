@@ -28,12 +28,6 @@ const EMPTY: NewCustomerReviewVideo = {
   sort: 0,
 };
 
-/** Whether a clip's `videoUrl` is a hosted link (has a web preview) rather
- *  than one of the app's bundled asset paths (preview only inside the app). */
-function isHostedUrl(url: string): boolean {
-  return /^https?:\/\//i.test(url.trim());
-}
-
 /** The video id out of a YouTube URL — `watch?v=`, `youtu.be/`, `/embed/`,
  *  `/shorts/` and `/live/` links, with or without extra query params — or
  *  null when `url` is not a YouTube link. Mirrors
@@ -128,11 +122,13 @@ export default function CustomerVideosPage() {
       return;
     }
     if (!draft.videoUrl.trim()) {
-      setFormError('Add a video URL.');
+      setFormError('Add a YouTube video URL.');
       return;
     }
-    if (!isHostedUrl(draft.videoUrl)) {
-      setFormError('The video URL must start with http:// or https://.');
+    if (!youtubeVideoId(draft.videoUrl)) {
+      setFormError(
+        'That doesn’t look like a YouTube link — paste a youtube.com/watch?v=… or youtu.be/… URL.',
+      );
       return;
     }
     setSaving(true);
@@ -205,19 +201,16 @@ export default function CustomerVideosPage() {
     {
       key: 'source',
       header: 'Source',
-      render: (row) => {
-        if (youtubeVideoId(row.videoUrl)) {
-          return <Badge tone="red">YouTube</Badge>;
-        }
-        if (isHostedUrl(row.videoUrl)) {
-          return (
-            <p className="line-clamp-1 max-w-[16rem] text-xs text-slate-500">
-              {row.videoUrl}
-            </p>
-          );
-        }
-        return <span className="text-xs text-slate-400">Bundled with the app</span>;
-      },
+      render: (row) =>
+        youtubeVideoId(row.videoUrl) ? (
+          <Badge tone="red">YouTube</Badge>
+        ) : (
+          // Only possible for a row saved before YouTube-only was enforced —
+          // it has nowhere to play in the app now (see customer_reviews.dart).
+          <span className="text-xs text-rose-500" title={row.videoUrl}>
+            Not a YouTube link — won&apos;t play
+          </span>
+        ),
     },
     {
       key: 'status',
@@ -319,14 +312,14 @@ export default function CustomerVideosPage() {
         }
       >
         <div className="space-y-4">
-          <EditField label="Video URL">
+          <EditField label="YouTube video URL">
             <input
               value={draft.videoUrl}
               onChange={(e) =>
                 setDraft((d) => ({ ...d, videoUrl: e.target.value }))
               }
               className={inputClass}
-              placeholder="https://youtube.com/watch?v=… or https://…/clip.mp4"
+              placeholder="https://youtube.com/watch?v=… or https://youtu.be/…"
             />
             <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
               {draftYoutubeId ? (
@@ -336,7 +329,7 @@ export default function CustomerVideosPage() {
                   and on the web build.
                 </>
               ) : (
-                'Paste a YouTube link (youtube.com/watch?v=…, youtu.be/…) or a direct link to a hosted video file (Firebase Storage, Cloudinary, any CDN).'
+                'A youtube.com/watch?v=… or youtu.be/… link — this is the only kind of clip the reel plays.'
               )}
             </p>
           </EditField>
@@ -372,9 +365,7 @@ export default function CustomerVideosPage() {
                 />
                 <p className="text-xs text-slate-400">
                   Shown on the card before it plays. Left blank, the app uses
-                  {draftYoutubeId
-                    ? " YouTube's own thumbnail for this video."
-                    : ' a frame decoded from the video itself.'}
+                  YouTube&apos;s own thumbnail for this video.
                 </p>
                 {draft.thumbnail && (
                   <button
