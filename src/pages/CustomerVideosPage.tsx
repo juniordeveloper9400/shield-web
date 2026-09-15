@@ -34,6 +34,48 @@ function isHostedUrl(url: string): boolean {
   return /^https?:\/\//i.test(url.trim());
 }
 
+/** The video id out of a YouTube URL — `watch?v=`, `youtu.be/`, `/embed/`,
+ *  `/shorts/` and `/live/` links, with or without extra query params — or
+ *  null when `url` is not a YouTube link. Mirrors
+ *  `lib/module/home/customer_reviews.dart`'s `_youtubeVideoId`, which is
+ *  what actually plays the clip in the app; keep the two in step. */
+function youtubeVideoId(url: string): string | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return null;
+  }
+  const host = parsed.hostname.toLowerCase();
+
+  if (host === 'youtu.be' || host.endsWith('.youtu.be')) {
+    const first = parsed.pathname.split('/').filter(Boolean)[0];
+    return first || null;
+  }
+  if (!host.includes('youtube.com')) {
+    return null;
+  }
+
+  const fromQuery = parsed.searchParams.get('v');
+  if (fromQuery) {
+    return fromQuery;
+  }
+  const segments = parsed.pathname.split('/').filter(Boolean);
+  for (const marker of ['embed', 'shorts', 'live']) {
+    const index = segments.indexOf(marker);
+    if (index !== -1 && index + 1 < segments.length) {
+      return segments[index + 1];
+    }
+  }
+  return null;
+}
+
+/** YouTube's own poster for `id` — used as the clip's thumbnail whenever the
+ *  admin hasn't uploaded one, same as the app does at display time. */
+function youtubeThumbnailUrl(id: string): string {
+  return `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
+}
+
 export default function CustomerVideosPage() {
   const { data, loading, error, reload } = useAsync(listCustomerReviewVideos, []);
   const rows = useMemo(() => data ?? [], [data]);
@@ -43,6 +85,7 @@ export default function CustomerVideosPage() {
   const [draft, setDraft] = useState<NewCustomerReviewVideo>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const draftYoutubeId = useMemo(() => youtubeVideoId(draft.videoUrl), [draft.videoUrl]);
 
   function openAdd() {
     setDraft({ ...EMPTY, sort: rows.length });
@@ -162,14 +205,19 @@ export default function CustomerVideosPage() {
     {
       key: 'source',
       header: 'Source',
-      render: (row) =>
-        isHostedUrl(row.videoUrl) ? (
-          <p className="line-clamp-1 max-w-[16rem] text-xs text-slate-500">
-            {row.videoUrl}
-          </p>
-        ) : (
-          <span className="text-xs text-slate-400">Bundled with the app</span>
-        ),
+      render: (row) => {
+        if (youtubeVideoId(row.videoUrl)) {
+          return <Badge tone="red">YouTube</Badge>;
+        }
+        if (isHostedUrl(row.videoUrl)) {
+          return (
+            <p className="line-clamp-1 max-w-[16rem] text-xs text-slate-500">
+              {row.videoUrl}
+            </p>
+          );
+        }
+        return <span className="text-xs text-slate-400">Bundled with the app</span>;
+      },
     },
     {
       key: 'status',
@@ -278,12 +326,18 @@ export default function CustomerVideosPage() {
                 setDraft((d) => ({ ...d, videoUrl: e.target.value }))
               }
               className={inputClass}
-              placeholder="https://…/clip.mp4"
+              placeholder="https://youtube.com/watch?v=… or https://…/clip.mp4"
             />
-            <p className="mt-1 text-xs text-slate-400">
-              A direct link to a hosted video file (e.g. Firebase Storage,
-              Cloudinary, or any CDN). Played the same on the app and the web
-              build.
+            <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
+              {draftYoutubeId ? (
+                <>
+                  <Badge tone="red">YouTube</Badge>
+                  Plays through YouTube&apos;s own embedded player, in the app
+                  and on the web build.
+                </>
+              ) : (
+                'Paste a YouTube link (youtube.com/watch?v=…, youtu.be/…) or a direct link to a hosted video file (Firebase Storage, Cloudinary, any CDN).'
+              )}
             </p>
           </EditField>
 
@@ -292,6 +346,12 @@ export default function CustomerVideosPage() {
               {draft.thumbnail ? (
                 <img
                   src={draft.thumbnail}
+                  alt=""
+                  className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
+                />
+              ) : draftYoutubeId ? (
+                <img
+                  src={youtubeThumbnailUrl(draftYoutubeId)}
                   alt=""
                   className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
                 />
@@ -311,8 +371,10 @@ export default function CustomerVideosPage() {
                   }}
                 />
                 <p className="text-xs text-slate-400">
-                  Shown on the card before it plays. Left blank, the app
-                  decodes a frame from the video itself.
+                  Shown on the card before it plays. Left blank, the app uses
+                  {draftYoutubeId
+                    ? " YouTube's own thumbnail for this video."
+                    : ' a frame decoded from the video itself.'}
                 </p>
                 {draft.thumbnail && (
                   <button

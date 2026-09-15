@@ -5,7 +5,7 @@ import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { Combobox } from '@/components/ui/Combobox';
 import { DetailList } from '@/components/ui/DetailList';
-import { formatDateTime, toneForStatus } from '@/lib/format';
+import { formatCurrency, formatDateTime, toneForStatus } from '@/lib/format';
 import {
   addCustomMedicineType,
   loadCustomMedicineTypes,
@@ -30,6 +30,7 @@ import {
   updatePrescriptionDetails,
   updatePrescriptionPatient,
 } from '@/api/prescriptions';
+import { sendOrderInvoice } from '@/api/orders';
 import { createPatient, listPatients, updateMemberContact } from '@/api/users';
 import { listStores } from '@/api/stores';
 import { useAsync } from '@/lib/useAsync';
@@ -129,7 +130,7 @@ export function PrescriptionReviewModal({
   // it; the prescription's own details second, once the script itself is
   // no longer needed on screen -- that step is the details form alone,
   // full width. "Next" / "Back" move between them.
-  const [step, setStep] = useState<'intake' | 'details'>('intake');
+  const [step, setStep] = useState<'intake' | 'details' | 'bill'>('intake');
   // What the member sent up front, editable here: blank/wrong doctor names
   // and durations are exactly what a reviewer corrects while reading the
   // actual script. durationToken is the raw app.medicine_duration value;
@@ -148,6 +149,18 @@ export function PrescriptionReviewModal({
   const [patientId, setPatientId] = useState('');
   const [storeId, setStoreId] = useState('');
   const [detailsError, setDetailsError] = useState<string | null>(null);
+
+  // The "Send bill" panel — prices this prescription's linked order into a
+  // real invoice. Seeded one row per intake medicine (qty from totalUnits,
+  // price starts blank); freeform extra lines (consultation, delivery, …)
+  // can be added alongside. 'summary' shows what was already sent, when
+  // there is one; 'edit' is the row editor, entered either fresh (nothing
+  // sent yet) or via "Edit bill" on an existing one.
+  type BillLineDraft = { name: string; pack: string; unitPrice: number; qty: number };
+  const [billMode, setBillMode] = useState<'summary' | 'edit'>('edit');
+  const [billLines, setBillLines] = useState<BillLineDraft[]>([]);
+  const [billSaving, setBillSaving] = useState(false);
+  const [billSendError, setBillSendError] = useState<string | null>(null);
 
   // Every patient this member has saved (self, family, …), for the Patient
   // picker — reloaded whenever a different prescription (so a different
@@ -316,6 +329,7 @@ export function PrescriptionReviewModal({
     setAddedPatients([]);
     setAddingPatient(false);
     setNewPatientError(null);
+    setBillSendError(null);
     if (!prescription) {
       setDraft([]);
       setImageOpen(false);
@@ -328,6 +342,8 @@ export function PrescriptionReviewModal({
       setMemberPhone('');
       setPatientId('');
       setStoreId('');
+      setBillLines([]);
+      setBillMode('edit');
       return;
     }
     setDraft(
@@ -351,6 +367,17 @@ export function PrescriptionReviewModal({
     setMemberPhone(prescription.memberPhone);
     setPatientId(prescription.patientId);
     setStoreId(prescription.storeId);
+    setBillLines(
+      prescription.medicines.length > 0
+        ? prescription.medicines.map((m) => ({
+            name: m.name,
+            pack: m.pack,
+            unitPrice: 0,
+            qty: m.totalUnits || 1,
+          }))
+        : [{ name: '', pack: '', unitPrice: 0, qty: 1 }],
+    );
+    setBillMode(prescription.billAmount > 0 ? 'summary' : 'edit');
     // Only when the open prescription changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prescription?.id]);
@@ -455,6 +482,58 @@ export function PrescriptionReviewModal({
 
   const draftHasRows = draft.some((r) => r.name.trim().length > 0);
 
+  // Can this prescription's order be billed at all -- the same "at least
+  // read" gate that unlocks the Bill nav button in the footer, and a linked
+  // order to actually invoice against.
+  const canBill = Boolean(
+    prescription && prescription.status !== 'awaiting_review',
+  );
+
+  function patchBillLine(i: number, patch: Partial<BillLineDraft>) {
+    setBillLines((rows) => rows.map((row, j) => (j === i ? { ...row, ...patch } : row)));
+  }
+
+  function removeBillLine(i: number) {
+    setBillLines((rows) => rows.filter((_, j) => j !== i));
+  }
+
+  // Blank-named rows are dropped before totalling/sending, same convention
+  // as the intake card's own draft rows.
+  const billLinesToSend = useMemo(
+    () =>
+      billLines
+        .map((l) => ({ ...l, name: l.name.trim() }))
+        .filter((l) => l.name.length > 0),
+    [billLines],
+  );
+  const billTotal = useMemo(
+    () => billLinesToSend.reduce((sum, l) => sum + l.unitPrice * l.qty, 0),
+    [billLinesToSend],
+  );
+
+  /** Prices this prescription's linked order and sends it — the upsert on
+   *  `app.bill` (+ its `app.bill_line` rows) the member's own order screen
+   *  then reads as a real, payable invoice. */
+  async function submitBill() {
+    if (!prescription || !prescription.orderId) return;
+    setBillSaving(true);
+    setBillSendError(null);
+    try {
+      await sendOrderInvoice(prescription.orderId, {
+        amount: billTotal,
+        lines: billLinesToSend,
+      });
+      onSaved();
+      onClose();
+    } catch (err) {
+      setBillSendError(
+        err instanceof Error ? err.message : 'Could not send this bill.',
+      );
+    } finally {
+      setBillSaving(false);
+    }
+  }
+
   return (
     <>
       <Modal
@@ -483,7 +562,7 @@ export function PrescriptionReviewModal({
                 Next: Details →
               </Button>
             </>
-          ) : (
+          ) : step === 'details' ? (
             <>
               <Button
                 variant="secondary"
@@ -501,6 +580,15 @@ export function PrescriptionReviewModal({
                   Back to awaiting
                 </Button>
               )}
+              {canBill && (
+                <Button
+                  variant="secondary"
+                  disabled={sending}
+                  onClick={() => setStep('bill')}
+                >
+                  Price & send bill →
+                </Button>
+              )}
               <Button variant="primary" disabled={sending} onClick={sendIntake}>
                 {sending
                   ? 'Sending…'
@@ -508,6 +596,29 @@ export function PrescriptionReviewModal({
                     ? 'Update intake card'
                     : 'Send intake card'}
               </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                variant="secondary"
+                disabled={billSaving}
+                onClick={() => setStep('details')}
+              >
+                ← Back to details
+              </Button>
+              {billMode === 'edit' && (
+                <Button
+                  variant="primary"
+                  disabled={billSaving || !prescription.orderId}
+                  onClick={submitBill}
+                >
+                  {billSaving
+                    ? 'Sending…'
+                    : prescription.billAmount > 0
+                      ? 'Update bill'
+                      : 'Send bill'}
+                </Button>
+              )}
             </>
           ))
         }
@@ -530,7 +641,15 @@ export function PrescriptionReviewModal({
                   {STATUS_LABEL[prescription.status]}
                 </Badge>
                 <span className="text-xs font-medium text-slate-400">
-                  {step === 'intake' ? '1 of 2 · Intake card' : '2 of 2 · Details'}
+                  {step === 'intake'
+                    ? canBill
+                      ? '1 of 3 · Intake card'
+                      : '1 of 2 · Intake card'
+                    : step === 'details'
+                      ? canBill
+                        ? '2 of 3 · Details'
+                        : '2 of 2 · Details'
+                      : '3 of 3 · Billing'}
                 </span>
               </div>
 
@@ -830,7 +949,7 @@ export function PrescriptionReviewModal({
                   )}
                 </div>
               </div>
-              ) : (
+              ) : step === 'details' ? (
                 <>
                   <DetailList
                     rows={[
@@ -1058,6 +1177,127 @@ export function PrescriptionReviewModal({
                     </p>
                   )}
                 </>
+              ) : (
+                <div>
+                  <p className="mb-3 text-xs text-slate-400">
+                    {prescription.memberName} · {prescription.patientName}
+                  </p>
+                  {!prescription.orderId ? (
+                    <p className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-400">
+                      No linked order found — this prescription can&apos;t be
+                      billed from here.
+                    </p>
+                  ) : billMode === 'summary' ? (
+                    <div className="rounded-lg border border-slate-200 p-4">
+                      <p className="text-sm text-slate-800">
+                        Bill sent — {formatCurrency(prescription.billAmount)} (
+                        {prescription.billStatus === 'paid' ? 'Paid' : 'Pending'})
+                      </p>
+                      <div className="mt-3">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setBillMode('edit')}
+                        >
+                          Edit bill
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          Bill lines
+                        </p>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-brand-600"
+                          onClick={() =>
+                            setBillLines((rows) => [
+                              ...rows,
+                              { name: '', pack: '', unitPrice: 0, qty: 1 },
+                            ])
+                          }
+                        >
+                          + Add line
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {billLines.map((line, i) => (
+                          <div
+                            key={i}
+                            className="rounded-lg border border-slate-200 p-3"
+                          >
+                            <div className="mb-1.5 flex items-center justify-between">
+                              <span className="text-xs font-medium text-slate-500">
+                                Line {i + 1}
+                              </span>
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-rose-600 hover:text-rose-700"
+                                onClick={() => removeBillLine(i)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                            <input
+                              value={line.name}
+                              onChange={(e) =>
+                                patchBillLine(i, { name: e.target.value })
+                              }
+                              placeholder="Item name"
+                              className={inputClass}
+                            />
+                            <div className="mt-2 grid grid-cols-3 gap-1.5">
+                              <input
+                                value={line.pack}
+                                onChange={(e) =>
+                                  patchBillLine(i, { pack: e.target.value })
+                                }
+                                placeholder="Pack"
+                                className={inputClass}
+                              />
+                              <input
+                                value={line.unitPrice || ''}
+                                onChange={(e) =>
+                                  patchBillLine(i, {
+                                    unitPrice: Number(e.target.value) || 0,
+                                  })
+                                }
+                                placeholder="Unit price"
+                                inputMode="decimal"
+                                className={inputClass}
+                              />
+                              <input
+                                value={line.qty || ''}
+                                onChange={(e) =>
+                                  patchBillLine(i, {
+                                    qty: Number(e.target.value) || 0,
+                                  })
+                                }
+                                placeholder="Qty"
+                                inputMode="numeric"
+                                className={inputClass}
+                              />
+                            </div>
+                          </div>
+                        ))}
+                        {billLines.length === 0 && (
+                          <p className="text-sm text-slate-400">
+                            No lines yet — add at least one.
+                          </p>
+                        )}
+                      </div>
+                      <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-semibold text-slate-800">
+                        <span>Total</span>
+                        <span>{formatCurrency(billTotal)}</span>
+                      </div>
+                      {billSendError && (
+                        <p className="mt-2 text-xs text-rose-600">{billSendError}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 

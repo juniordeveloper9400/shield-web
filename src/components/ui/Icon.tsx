@@ -26,7 +26,8 @@ export type IconName =
   | 'rotate'
   | 'phone'
   | 'whatsapp'
-  | 'receipt';
+  | 'receipt'
+  | 'deliveries';
 
 const ICONS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -168,6 +169,15 @@ const ICONS: Record<IconName, ReactNode> = {
     <>
       <path d="M6 2h12v18l-2.5-1.5L13 20l-2.5-1.5L8 20l-2-1.5V2Z" />
       <path d="M9 7h6M9 11h6M9 15h3" />
+    </>
+  ),
+  // A delivery van/truck -- cab + cargo box on wheels.
+  deliveries: (
+    <>
+      <path d="M3 7h11v10H3z" />
+      <path d="M14 10h4l3 3v4h-7z" />
+      <circle cx="7.5" cy="18" r="1.5" />
+      <circle cx="17.5" cy="18" r="1.5" />
     </>
   ),
 };

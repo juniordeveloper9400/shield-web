@@ -9,7 +9,7 @@ import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { fileToResizedDataUrl } from '@/lib/images';
-import { formatCurrency, formatDateTime } from '@/lib/format';
+import { formatCurrency, formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { clearOrderBill, listOrders, sendOrderBill } from '@/api/orders';
 import type { Order } from '@/types';
@@ -143,6 +143,22 @@ export default function BillsPage() {
       header: 'Paid',
       render: (row) => formatCurrency(row.paidTotal),
       className: 'text-right',
+    },
+    {
+      key: 'fulfilment',
+      header: 'Fulfilment',
+      render: (row) => (
+        <Badge tone="gray">{titleCase(row.fulfillmentType)}</Badge>
+      ),
+    },
+    {
+      key: 'paymentStatus',
+      header: 'Payment status',
+      render: (row) => (
+        <Badge tone={row.paymentStatus === 'paid' ? 'green' : 'amber'}>
+          {titleCase(row.paymentStatus)}
+        </Badge>
+      ),
     },
     {
       key: 'bill',

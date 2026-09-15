@@ -3,13 +3,16 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput } from '@/components/ui/Filters';
 import { Icon } from '@/components/ui/Icon';
 import { initials } from '@/lib/format';
 import { useAuth } from '@/context/AuthContext';
 import { useAsync } from '@/lib/useAsync';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
+import { listStores } from '@/api/stores';
 import {
   MODULES,
   ROLE_LABELS,
@@ -27,6 +30,19 @@ const ROLE_COLOR: Record<Role, string> = {
   pharmacy: '#1f7a4d',
   lab: '#8a5b1f',
   appointments: '#6b3fa0',
+  delivery: '#c2410c',
+};
+
+/** Roles whose account is tied to one branch — the "add staff" form only
+ *  requires/shows a store picker for these. */
+const STORE_BOUND_ROLES: Role[] = ['pharmacy', 'delivery'];
+
+const EMPTY_FORM = {
+  loginId: '',
+  name: '',
+  password: '',
+  role: 'pharmacy' as Role,
+  storeId: '',
 };
 
 interface AdminRow {
@@ -62,19 +78,72 @@ function toAdminRow(r: StaffApiRow): AdminRow {
  * Real staff accounts from backend/api (`GET /v1/staff/admins`) — replaces
  * the preset roster that used to live in `config/admins.ts`. Adding a login
  * is now a real account (a login id + bcrypt-hashed password on this row),
- * managed from the backend rather than a source-code edit; this page is
- * still read-only for now — create/deactivate UI is a follow-up, not part
- * of the auth cutover itself.
+ * created here via `POST /v1/staff/admins` (SUPERADMIN-only, same as this
+ * whole page). Editing/deactivating an existing account is still a
+ * follow-up.
  */
 export default function AdminsPage() {
   const { accessToken } = useAuth();
-  const { data, loading, error } = useAsync(
+  const { data, loading, error, reload } = useAsync(
     () => api.get<StaffApiRow[]>('/v1/staff/admins', accessToken),
     [accessToken],
   );
   const rows = useMemo<AdminRow[]>(() => (data ?? []).map(toAdminRow), [data]);
 
+  const { data: storeRows } = useAsync(listStores, []);
+  const storeOptions = useMemo(
+    () => (storeRows ?? []).map((s) => ({ value: s.id, label: `${s.name} (${s.code})` })),
+    [storeRows],
+  );
+
   const [search, setSearch] = useState('');
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  function openModal() {
+    setForm(EMPTY_FORM);
+    setFormError(null);
+    setModalOpen(true);
+  }
+
+  const storeBound = STORE_BOUND_ROLES.includes(form.role);
+
+  async function submit() {
+    setFormError(null);
+    if (!form.loginId.trim() || !form.name.trim() || !form.password) {
+      setFormError('Login id, name and password are all required.');
+      return;
+    }
+    if (storeBound && !form.storeId) {
+      setFormError('Pick the branch this account works.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.post(
+        '/v1/staff/admins',
+        {
+          loginId: form.loginId.trim(),
+          name: form.name.trim(),
+          password: form.password,
+          role: form.role.toUpperCase(),
+          ...(storeBound && form.storeId ? { storeId: Number(form.storeId) } : {}),
+        },
+        accessToken,
+      );
+      setModalOpen(false);
+      reload();
+    } catch (err) {
+      setFormError(
+        err instanceof ApiError ? err.message : 'Could not create the account.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -147,9 +216,15 @@ export default function AdminsPage() {
       <PageHeader
         title="Admins"
         subtitle="Staff accounts for the console — SUPERADMIN only."
+        actions={
+          <Button size="sm" onClick={openModal}>
+            <Icon name="plus" className="h-4 w-4" />
+            Add staff account
+          </Button>
+        }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-5">
         <StatCard label="Total logins" value={rows.length} icon="admins" tone="blue" />
         <StatCard
           label="Super Admin / Admin"
@@ -159,6 +234,7 @@ export default function AdminsPage() {
         />
         <StatCard label="Pharmacy" value={byRole('pharmacy')} tone="violet" />
         <StatCard label="Lab / Appts" value={byRole('lab') + byRole('appointments')} tone="amber" />
+        <StatCard label="Delivery" value={byRole('delivery')} icon="deliveries" tone="rose" />
       </div>
 
       <Card className="mb-6">
@@ -220,11 +296,97 @@ export default function AdminsPage() {
           empty="No staff accounts match your search."
         />
         <p className="border-t border-slate-200 px-4 py-3 text-xs text-slate-400">
-          Each account signs in with a login ID and password. Creating and
-          deactivating accounts from this page is a follow-up — for now, ask
-          a Super Admin with backend access to add one.
+          Each account signs in with a login ID and password. Editing or
+          deactivating an existing account from this page is a follow-up —
+          for now, ask a Super Admin with backend access.
         </p>
       </Card>
+
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="Add staff account"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void submit()} disabled={submitting}>
+              {submitting ? 'Creating…' : 'Create account'}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">
+              Login id
+            </label>
+            <input
+              value={form.loginId}
+              onChange={(e) => setForm((f) => ({ ...f, loginId: e.target.value }))}
+              placeholder="e.g. pharmacy_mel"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Name</label>
+            <input
+              value={form.name}
+              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">
+              Password
+            </label>
+            <input
+              type="password"
+              value={form.password}
+              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+              placeholder="At least 8 characters"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Role</label>
+            <select
+              value={form.role}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, role: e.target.value as Role, storeId: '' }))
+              }
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            >
+              {ROLES.map((role) => (
+                <option key={role} value={role}>
+                  {ROLE_LABELS[role]}
+                </option>
+              ))}
+            </select>
+          </div>
+          {storeBound && (
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">
+                Branch
+              </label>
+              <select
+                value={form.storeId}
+                onChange={(e) => setForm((f) => ({ ...f, storeId: e.target.value }))}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              >
+                <option value="">Select a branch…</option>
+                {storeOptions.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {formError && <p className="text-xs text-rose-600">{formError}</p>}
+        </div>
+      </Modal>
     </>
   );
 }

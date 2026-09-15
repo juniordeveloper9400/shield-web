@@ -8,13 +8,16 @@
  *   Everything `superadmin` can reach except the Admins module.
  * - `pharmacy` / `lab` / `appointments` — one desk each, branch-scoped where
  *   it applies.
+ * - `delivery` — a delivery boy's own login. Branch-scoped like `pharmacy`;
+ *   only sees orders assigned to them or open for pickup at their branch.
  */
 export type Role =
   | 'superadmin'
   | 'admin'
   | 'pharmacy'
   | 'lab'
-  | 'appointments';
+  | 'appointments'
+  | 'delivery';
 
 export type ModuleKey =
   | 'dashboard'
@@ -32,7 +35,8 @@ export type ModuleKey =
   | 'lab_tests'
   | 'appointments'
   | 'accounts'
-  | 'admins';
+  | 'admins'
+  | 'deliveries';
 
 export type AccountStatus = 'active' | 'suspended';
 
@@ -293,6 +297,12 @@ export type OrderStatus =
 /** `app.order_kind`. */
 export type OrderKind = 'standard' | 'prescription';
 
+/** `app.fulfillment_type` — how the order reaches the member (migration 0031). */
+export type FulfillmentType = 'home_delivery' | 'store_pickup';
+
+/** `app.order_payment_status` — whether the order/bill has actually been paid. */
+export type PaymentStatus = 'pending' | 'paid';
+
 /** One row of `app.order_line`. */
 export interface OrderLine {
   name: string;
@@ -313,6 +323,14 @@ export interface OrderReceipt {
   uploadedAt: string;
 }
 
+/** One row of `app.bill_line` — a priced line on the invoice sent for an order. */
+export interface BillLine {
+  name: string;
+  pack: string;
+  unitPrice: number;
+  qty: number;
+}
+
 /** A member's order — `app."order"` + `app.order_line`. */
 export interface Order {
   id: string;
@@ -328,6 +346,15 @@ export interface Order {
   storeCode: string;
   storeName: string;
   paymentMethod: string;
+  paymentMethodCode: string;
+  /** `app.order.fulfillment_type` — home delivery vs store pickup (migration 0031). */
+  fulfillmentType: FulfillmentType;
+  /** `app.order.payment_status` — 'paid' the moment a wallet debit lands;
+   *  stays 'pending' for cash until the delivery boy or store marks it collected. */
+  paymentStatus: PaymentStatus;
+  /** The delivery boy assigned to hand this off / collect cash for it, if any. */
+  deliveryBoyId: string;
+  deliveryBoyName: string;
   placedAt: string;
   lines: OrderLine[];
   /** The receipt the member submitted with this order, if any. */
@@ -335,6 +362,11 @@ export interface Order {
   /** The invoice this store has sent back for the order, if any. */
   billImage: string;
   billedAt: string;
+  /** What the bill says is owed — 0 until the store prices it (always known
+   *  up front for a standard order; only set after intake for a prescription). */
+  billAmount: number;
+  billStatus: PaymentStatus;
+  billLines: BillLine[];
 }
 
 /** `app.prescription_status`. */
@@ -429,6 +461,14 @@ export interface Prescription {
   storeName: string;
   createdAt: string;
   medicines: PrescriptionMedicine[];
+  /** The `app."order"` (kind PRESCRIPTION) this script was submitted with —
+   *  '' if none (shouldn't happen once uploaded via checkout, but the join
+   *  is left-outer so a data gap doesn't hide the whole row). Pricing the
+   *  bill for this prescription happens against this order id. */
+  orderId: string;
+  fulfillmentType: FulfillmentType;
+  billAmount: number;
+  billStatus: PaymentStatus;
 }
 
 /** What a member's account currently resolves to across the app + web console. */

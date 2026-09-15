@@ -123,6 +123,13 @@ export const MODULES: NavItem[] = [
     icon: 'admins',
     description: 'Admin accounts & their access',
   },
+  {
+    key: 'deliveries',
+    label: 'Deliveries',
+    path: '/deliveries',
+    icon: 'deliveries',
+    description: 'Cash order handoff & delivery boys',
+  },
 ];
 
 /**
@@ -147,14 +154,16 @@ const APP_MODULES: ModuleKey[] = [
   'lab_tests',
   'appointments',
   'accounts',
+  'deliveries',
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   superadmin: [...APP_MODULES, 'admins'],
   admin: [...APP_MODULES],
-  pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products'],
+  pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries'],
   lab: ['dashboard', 'lab_orders', 'lab_tests'],
   appointments: ['dashboard', 'appointments'],
+  delivery: ['dashboard', 'deliveries'],
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -163,6 +172,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   pharmacy: 'Pharmacy Admin',
   lab: 'Lab Admin',
   appointments: 'Appointments Admin',
+  delivery: 'Delivery',
 };
 
 export const ROLE_SUMMARY: Record<Role, string> = {
@@ -173,6 +183,7 @@ export const ROLE_SUMMARY: Record<Role, string> = {
   pharmacy: 'Works one branch — its member orders, bills and uploaded prescriptions.',
   lab: 'Handles member lab-test bookings and the package catalogue.',
   appointments: 'Handles the clinic, tele and dietitian appointment queue.',
+  delivery: "Delivers and collects cash for their branch's cash orders.",
 };
 
 export function canAccess(role: Role, moduleKey: ModuleKey): boolean {

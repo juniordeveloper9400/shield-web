@@ -1,6 +1,15 @@
 import { sql, query } from '@/lib/db';
 import { fromEnum, iso, num } from '@/lib/mappers';
-import type { Order, OrderKind, OrderLine, OrderReceipt, OrderStatus } from '@/types';
+import type {
+  BillLine,
+  FulfillmentType,
+  Order,
+  OrderKind,
+  OrderLine,
+  OrderReceipt,
+  OrderStatus,
+  PaymentStatus,
+} from '@/types';
 
 type Row = Record<string, unknown>;
 
@@ -10,6 +19,15 @@ function toLine(r: Row): OrderLine {
     pack: String(r.pack ?? ''),
     unitPrice: num(r.unit_price),
     mrp: num(r.mrp),
+    qty: num(r.qty),
+  };
+}
+
+function toBillLine(r: Row): BillLine {
+  return {
+    name: String(r.name),
+    pack: String(r.pack ?? ''),
+    unitPrice: num(r.unit_price),
     qty: num(r.qty),
   };
 }
@@ -24,7 +42,12 @@ export async function listOrders(): Promise<Order[]> {
            COALESCE(s.code, ms.code) AS store_code,
            COALESCE(s.name, ms.name) AS store_name,
            COALESCE(pm.name, o.reference) AS payment_method,
-           o.placed_at, b.image AS bill_image, b.sent_at AS billed_at,
+           pm.code AS payment_method_code,
+           o.fulfillment_type::text AS fulfillment_type,
+           o.payment_status::text AS payment_status,
+           o.delivery_boy_id, db.name AS delivery_boy_name,
+           o.placed_at, b.id AS bill_id, b.image AS bill_image, b.sent_at AS billed_at,
+           b.amount AS bill_amount, b.status::text AS bill_status,
            r.payer_name AS receipt_payer_name, r.reference AS receipt_reference,
            r.amount AS receipt_amount, r.file_name AS receipt_file_name,
            r.image AS receipt_image, r.uploaded_at AS receipt_uploaded_at
@@ -33,6 +56,7 @@ export async function listOrders(): Promise<Order[]> {
     LEFT JOIN app.shield_store s   ON s.id  = o.store_id
     LEFT JOIN app.shield_store ms  ON ms.id = m.home_store_id
     LEFT JOIN app.payment_method pm ON pm.id = o.payment_method_id
+    LEFT JOIN app.admin_user db     ON db.id = o.delivery_boy_id
     LEFT JOIN app.bill b            ON b.order_id = o.id
     LEFT JOIN LATERAL (
       SELECT payer_name, reference, amount, file_name, image, uploaded_at
@@ -66,6 +90,31 @@ export async function listOrders(): Promise<Order[]> {
     bucket.push(toLine(lr));
   }
 
+  const billIds = rows
+    .map((r) => (r.bill_id == null ? null : String(r.bill_id)))
+    .filter((id): id is string => id !== null);
+  const billLineRows =
+    billIds.length === 0
+      ? []
+      : await query<Row>(
+          `SELECT bill_id, name, pack, unit_price, qty
+             FROM app.bill_line
+            WHERE bill_id = ANY($1::bigint[])
+            ORDER BY id`,
+          [billIds],
+        );
+
+  const billLinesByBill = new Map<string, BillLine[]>();
+  for (const blr of billLineRows) {
+    const key = String(blr.bill_id);
+    let bucket = billLinesByBill.get(key);
+    if (!bucket) {
+      bucket = [];
+      billLinesByBill.set(key, bucket);
+    }
+    bucket.push(toBillLine(blr));
+  }
+
   return rows.map((r) => {
     const receipt: OrderReceipt | null = r.receipt_uploaded_at
       ? {
@@ -91,11 +140,19 @@ export async function listOrders(): Promise<Order[]> {
       storeCode: String(r.store_code ?? ''),
       storeName: String(r.store_name ?? '—'),
       paymentMethod: String(r.payment_method ?? '—'),
+      paymentMethodCode: String(r.payment_method_code ?? ''),
+      fulfillmentType: fromEnum<FulfillmentType>(String(r.fulfillment_type ?? 'HOME_DELIVERY')),
+      paymentStatus: fromEnum<PaymentStatus>(String(r.payment_status ?? 'PENDING')),
+      deliveryBoyId: r.delivery_boy_id == null ? '' : String(r.delivery_boy_id),
+      deliveryBoyName: String(r.delivery_boy_name ?? ''),
       placedAt: iso(r.placed_at) ?? new Date(0).toISOString(),
       lines: linesByOrder.get(String(r.id)) ?? [],
       receipt,
       billImage: String(r.bill_image ?? ''),
       billedAt: iso(r.billed_at) ?? '',
+      billAmount: num(r.bill_amount),
+      billStatus: fromEnum<PaymentStatus>(String(r.bill_status ?? 'PENDING')),
+      billLines: r.bill_id == null ? [] : billLinesByBill.get(String(r.bill_id)) ?? [],
     };
   });
 }
@@ -123,7 +180,64 @@ export async function sendOrderBill(id: string, image: string): Promise<void> {
   );
 }
 
-/** Withdraws a bill sent in error — the member stops seeing it. */
+/** Withdraws a bill sent in error — the member stops seeing it. `app.bill_line`
+ *  rows for it are dropped automatically by the `ON DELETE CASCADE` on
+ *  `bill_line.bill_id → bill.id`. */
 export async function clearOrderBill(id: string): Promise<void> {
   await query('DELETE FROM app.bill WHERE order_id = $1', [id]);
+}
+
+/**
+ * The richer invoice path used to price a prescription's intake into a real
+ * bill the member can see and pay — as opposed to {@link sendOrderBill}'s
+ * simple "attach a picture" flow for standard orders. Upserts `app.bill` with
+ * the priced `amount` (same one-row-per-order `ON CONFLICT` pattern as
+ * `sendOrderBill`), replaces its `app.bill_line` rows when `opts.lines` is
+ * given, and reflects the priced total onto the order itself so `mrpTotal`
+ * shows what was actually billed.
+ */
+export async function sendOrderInvoice(
+  id: string,
+  opts: {
+    image?: string;
+    amount: number;
+    lines?: { name: string; pack?: string; unitPrice: number; qty: number }[];
+  },
+): Promise<void> {
+  const upserted = await query<{ id: unknown }>(
+    `INSERT INTO app.bill (order_id, image, amount, sent_at, updated_at)
+     VALUES ($1, $2, $3, now(), now())
+     ON CONFLICT (order_id)
+     DO UPDATE SET image = COALESCE(excluded.image, app.bill.image),
+                   amount = excluded.amount,
+                   sent_at = now(),
+                   updated_at = now()
+     RETURNING id`,
+    [id, opts.image ?? null, opts.amount],
+  );
+
+  let billId = upserted[0]?.id == null ? null : String(upserted[0].id);
+  if (billId === null) {
+    const found = await query<{ id: unknown }>(
+      'SELECT id FROM app.bill WHERE order_id = $1',
+      [id],
+    );
+    billId = found[0]?.id == null ? null : String(found[0].id);
+  }
+
+  if (opts.lines && billId !== null) {
+    await query('DELETE FROM app.bill_line WHERE bill_id = $1', [billId]);
+    for (const line of opts.lines) {
+      await query(
+        `INSERT INTO app.bill_line (bill_id, name, pack, unit_price, qty)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [billId, line.name, line.pack ?? '', line.unitPrice, line.qty],
+      );
+    }
+  }
+
+  await query(
+    'UPDATE app."order" SET mrp_total = $2, updated_at = now() WHERE id = $1',
+    [id, opts.amount],
+  );
 }

@@ -23,6 +23,7 @@ import AppointmentsPage from '@/pages/AppointmentsPage';
 import LabsPage from '@/pages/LabsPage';
 import AccountsPage from '@/pages/AccountsPage';
 import AdminsPage from '@/pages/AdminsPage';
+import DeliveriesPage from '@/pages/DeliveriesPage';
 import UsersPage from '@/pages/UsersPage';
 import UserDetailPage from '@/pages/UserDetailPage';
 import NoAccessPage from '@/pages/NoAccessPage';
@@ -215,6 +216,14 @@ export default function App() {
           element={
             <ProtectedRoute module="admins">
               <AdminsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/deliveries"
+          element={
+            <ProtectedRoute module="deliveries">
+              <DeliveriesPage />
             </ProtectedRoute>
           }
         />

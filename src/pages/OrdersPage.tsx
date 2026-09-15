@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -15,6 +15,7 @@ import { fileToResizedDataUrl } from '@/lib/images';
 import { formatCurrency, formatDateTime, titleCase, toneForStatus } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { clearOrderBill, listOrders, sendOrderBill, setOrderStatus } from '@/api/orders';
+import { assignDeliveryBoy, listDeliveryBoys, type DeliveryBoy } from '@/api/deliveries';
 import type { Order, OrderStatus } from '@/types';
 
 const STATUS_OPTIONS = [
@@ -52,6 +53,12 @@ export default function OrdersPage() {
     null,
   );
 
+  // Delivery boys at the open order's branch — only fetched for a cash order
+  // still pending payment, so most modal opens don't pay for this query.
+  const [deliveryBoys, setDeliveryBoys] = useState<DeliveryBoy[]>([]);
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState<string | null>(null);
+
   const scoped = useMemo(() => scopeToStore(rows, user), [rows, user]);
   const branchBound = user?.role === 'pharmacy' && Boolean(user.storeCode);
 
@@ -65,6 +72,32 @@ export default function OrdersPage() {
   }, [scoped]);
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
+
+  // Only a still-pending cash order needs a delivery-boy picker — fetch the
+  // branch's roster just for that case, and drop it once the modal closes.
+  const needsDeliveryBoy =
+    Boolean(selected) &&
+    selected!.paymentMethodCode === 'cash' &&
+    selected!.paymentStatus === 'pending';
+
+  useEffect(() => {
+    if (!needsDeliveryBoy || !selected) {
+      setDeliveryBoys([]);
+      return;
+    }
+    let alive = true;
+    listDeliveryBoys(selected.storeCode || undefined)
+      .then((boys) => {
+        if (alive) setDeliveryBoys(boys);
+      })
+      .catch(() => {
+        if (alive) setDeliveryBoys([]);
+      });
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsDeliveryBoy, selected?.storeCode]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -119,6 +152,21 @@ export default function OrdersPage() {
       setBillError(err instanceof Error ? err.message : 'Could not remove the bill.');
     } finally {
       setBillSaving(false);
+    }
+  }
+
+  async function handleAssignDeliveryBoy(orderId: string, boyId: string) {
+    setAssignError(null);
+    setAssigning(true);
+    try {
+      await assignDeliveryBoy(orderId, boyId || null);
+      reload();
+    } catch (err) {
+      setAssignError(
+        err instanceof Error ? err.message : 'Could not assign a delivery boy.',
+      );
+    } finally {
+      setAssigning(false);
     }
   }
 
@@ -296,13 +344,58 @@ export default function OrdersPage() {
                 { label: 'Phone', value: selected.memberPhone },
                 { label: 'Branch', value: selected.storeName },
                 { label: 'Kind', value: titleCase(selected.kind) },
+                {
+                  label: 'Fulfilment',
+                  value: titleCase(selected.fulfillmentType),
+                },
                 { label: 'Payment', value: selected.paymentMethod },
+                {
+                  label: 'Payment status',
+                  value: (
+                    <Badge tone={selected.paymentStatus === 'paid' ? 'green' : 'amber'}>
+                      {titleCase(selected.paymentStatus)}
+                    </Badge>
+                  ),
+                },
                 { label: 'MRP total', value: formatCurrency(selected.mrpTotal) },
                 { label: 'Delivery fee', value: formatCurrency(selected.deliveryFee) },
                 { label: 'Paid', value: formatCurrency(selected.paidTotal) },
                 { label: 'Placed', value: formatDateTime(selected.placedAt) },
               ]}
             />
+
+            {needsDeliveryBoy && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Delivery boy
+                </p>
+                <select
+                  value={selected.deliveryBoyId}
+                  disabled={assigning}
+                  onChange={(e) => handleAssignDeliveryBoy(selected.id, e.target.value)}
+                  className="w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                >
+                  <option value="">Unassigned</option>
+                  {/* Falls back to a synthetic option so the select still shows
+                      the current name even if that boy didn't come back in
+                      this branch's fetched roster (moved branch, deactivated). */}
+                  {selected.deliveryBoyId &&
+                    !deliveryBoys.some((b) => b.id === selected.deliveryBoyId) && (
+                      <option value={selected.deliveryBoyId}>
+                        {selected.deliveryBoyName || 'Unassigned'}
+                      </option>
+                    )}
+                  {deliveryBoys.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+                {assignError && (
+                  <p className="mt-2 text-xs text-rose-600">{assignError}</p>
+                )}
+              </div>
+            )}
             <div className="mt-4">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Items

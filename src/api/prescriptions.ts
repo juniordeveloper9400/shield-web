@@ -1,6 +1,8 @@
 import { query } from '@/lib/db';
 import { fromEnum, iso, num, toEnum } from '@/lib/mappers';
 import type {
+  FulfillmentType,
+  PaymentStatus,
   Prescription,
   PrescriptionMedicine,
   PrescriptionMedicineInput,
@@ -55,7 +57,11 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
            rx.duration, rx.custom_days, rx.status,
            COALESCE(rs.code, os.code, hs.code) AS store_code,
            COALESCE(rs.name, os.name, hs.name) AS store_name,
-           rx.created_at
+           rx.created_at,
+           pxo.order_id AS linked_order_id,
+           rxo.fulfillment_type::text AS order_fulfillment_type,
+           rxb.amount AS order_bill_amount,
+           rxb.status::text AS order_bill_status
     FROM app.prescription rx
     LEFT JOIN app.users m         ON m.id  = rx.member_id
     LEFT JOIN app.patient pt       ON pt.id = rx.patient_id
@@ -69,6 +75,18 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
       LIMIT 1
     ) pol ON true
     LEFT JOIN app.shield_store os  ON os.id = pol.store_id
+    -- The order (kind PRESCRIPTION) this script was submitted with — the
+    -- most recent prescription_order row that actually has one, since a
+    -- prescription can carry more than one over its lifetime (re-submits).
+    LEFT JOIN LATERAL (
+      SELECT po.order_id
+      FROM app.prescription_order po
+      WHERE po.prescription_id = rx.id AND po.order_id IS NOT NULL
+      ORDER BY po.id DESC
+      LIMIT 1
+    ) pxo ON true
+    LEFT JOIN app."order" rxo ON rxo.id = pxo.order_id
+    LEFT JOIN app.bill rxb     ON rxb.order_id = rxo.id
     WHERE rx.deleted_at IS NULL
       AND ($1::bigint IS NULL OR rx.member_id = $1::bigint)
     ORDER BY rx.created_at DESC
@@ -121,6 +139,12 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
     storeName: String(r.store_name ?? '—'),
     createdAt: iso(r.created_at) ?? new Date(0).toISOString(),
     medicines: medsByRx.get(String(r.id)) ?? [],
+    orderId: r.linked_order_id == null ? '' : String(r.linked_order_id),
+    fulfillmentType: fromEnum<FulfillmentType>(
+      String(r.order_fulfillment_type ?? 'HOME_DELIVERY'),
+    ),
+    billAmount: num(r.order_bill_amount),
+    billStatus: fromEnum<PaymentStatus>(String(r.order_bill_status ?? 'PENDING')),
   }));
 }
 
