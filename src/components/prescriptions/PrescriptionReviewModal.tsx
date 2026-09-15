@@ -19,8 +19,12 @@ import {
 } from '@/lib/intakeFrequencies';
 import {
   addCustomRouteTime,
+  composeDropRoute,
+  isDropRouteCode,
   loadCustomRouteTimes,
+  parseDropRoute,
   ROUTE_TIME_PRESETS,
+  type DropRouteCode,
 } from '@/lib/routeTimes';
 import {
   savePrescriptionIntake,
@@ -312,12 +316,53 @@ export function PrescriptionReviewModal({
   );
   const [newRouteTimeValue, setNewRouteTimeValue] = useState('');
 
+  // Which route code the "Route & time" dropdown shows as picked, per row —
+  // tracked separately from row.routeTime because a drop route's actual
+  // stored value is the composed "OD (2 drops)" string, which doesn't match
+  // any option's own value, so the dropdown couldn't otherwise tell it was
+  // still "OD" that got picked. Every non-drop route stores its bare code
+  // directly in row.routeTime, so this only ever diverges from it for the
+  // six drop routes.
+  const [selectedRouteCode, setSelectedRouteCode] = useState<
+    Record<number, string>
+  >({});
+  // The drop count last picked per row — defaults to 1 the first time a
+  // drop route is chosen, same as picking a route always yields *some*
+  // valid, complete instruction rather than one silently missing its count.
+  const [dropCount, setDropCount] = useState<Record<number, number>>({});
+
+  /** Applies a Route & time pick. A drop route composes in the row's current
+   *  (or default) drop count immediately — the six of these must never save
+   *  as just the bare code with no count, which is the exact gap this
+   *  replaces. */
+  function applyRouteTime(i: number, code: string) {
+    setSelectedRouteCode((m) => ({ ...m, [i]: code }));
+    if (isDropRouteCode(code)) {
+      const drops = dropCount[i] ?? 1;
+      setDropCount((m) => ({ ...m, [i]: drops }));
+      patchRow(i, { routeTime: composeDropRoute(code, drops) });
+    } else {
+      patchRow(i, { routeTime: code });
+    }
+  }
+
+  /** Re-composes row [i]'s Route & time when its drop count changes — only
+   *  reachable while a drop route is actually selected for that row. */
+  function applyDropCount(i: number, drops: number) {
+    setDropCount((m) => ({ ...m, [i]: drops }));
+    const code = selectedRouteCode[i];
+    if (code && isDropRouteCode(code)) {
+      patchRow(i, { routeTime: composeDropRoute(code, drops) });
+    }
+  }
+
   function confirmNewRouteTime(i: number) {
     const trimmed = newRouteTimeValue.trim();
     setAddingRouteTimeFor(null);
     setNewRouteTimeValue('');
     if (!trimmed) return;
     setCustomRouteTimes(addCustomRouteTime(trimmed, ''));
+    setSelectedRouteCode((m) => ({ ...m, [i]: trimmed }));
     patchRow(i, { routeTime: trimmed });
   }
 
@@ -331,6 +376,8 @@ export function PrescriptionReviewModal({
     setNewPatientError(null);
     setBillSendError(null);
     if (!prescription) {
+      setSelectedRouteCode({});
+      setDropCount({});
       setDraft([]);
       setImageOpen(false);
       setRotation(0);
@@ -358,6 +405,22 @@ export function PrescriptionReviewModal({
           }))
         : [{ ...EMPTY_ROW }],
     );
+    // Re-derive the two Route & time pickers' own selections from each
+    // line's saved value — a drop route's composed "OD (2 drops)" string
+    // parses back into both; anything else (a plain preset code, or a
+    // reviewer's earlier free-text custom entry) is left for
+    // selectedRouteCode to fall back to row.routeTime directly.
+    const routeCodes: Record<number, string> = {};
+    const drops: Record<number, number> = {};
+    prescription.medicines.forEach((m, i) => {
+      const parsed = parseDropRoute(m.routeTime);
+      if (parsed) {
+        routeCodes[i] = parsed.code;
+        drops[i] = parsed.drops;
+      }
+    });
+    setSelectedRouteCode(routeCodes);
+    setDropCount(drops);
     setRotation(prescription.imageRotation);
     setStep('intake');
     setDoctor(prescription.doctor);
@@ -392,16 +455,18 @@ export function PrescriptionReviewModal({
    *  different line. */
   function removeRow(i: number) {
     setDraft((d) => d.filter((_, j) => j !== i));
-    const reindex = (m: Record<number, string>) => {
-      const next: Record<number, string> = {};
+    function reindex<T>(m: Record<number, T>): Record<number, T> {
+      const next: Record<number, T> = {};
       for (const [k, v] of Object.entries(m)) {
         const idx = Number(k);
         if (idx < i) next[idx] = v;
         else if (idx > i) next[idx - 1] = v;
       }
       return next;
-    };
+    }
     setSelectedFrequency(reindex);
+    setSelectedRouteCode(reindex);
+    setDropCount(reindex);
   }
 
   /** Rotates by [delta] degrees and saves it immediately — a reviewer
@@ -856,8 +921,8 @@ export function PrescriptionReviewModal({
                       </p>
                       <div className="flex items-center gap-1.5">
                         <Combobox
-                          value={row.routeTime}
-                          onChange={(v) => patchRow(i, { routeTime: v })}
+                          value={selectedRouteCode[i] ?? row.routeTime}
+                          onChange={(v) => applyRouteTime(i, v)}
                           options={routeTimeOptions.map((r) => ({
                             value: r.code,
                             label: r.description
@@ -868,6 +933,22 @@ export function PrescriptionReviewModal({
                           searchPlaceholder="Search route & time…"
                           className="flex-1"
                         />
+                        {isDropRouteCode(selectedRouteCode[i] ?? '') && (
+                          <select
+                            value={dropCount[i] ?? 1}
+                            onChange={(e) =>
+                              applyDropCount(i, Number(e.target.value))
+                            }
+                            title="Number of drops"
+                            className={`${inputClass} w-[92px] shrink-0`}
+                          >
+                            {[1, 2, 3, 4, 5, 6].map((n) => (
+                              <option key={n} value={n}>
+                                {n} drop{n === 1 ? '' : 's'}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         <button
                           type="button"
                           title="Add a new route / time"

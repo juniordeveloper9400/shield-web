@@ -4,14 +4,51 @@
  * preset, but this one always sets Route & time as text, and only Route &
  * time (there's no digit code for it to fit into either way).
  *
- * A few (the eye/ear drop routes) carry a "___" placeholder for a drop
- * count the source table leaves blank too -- inserted as-is; the reviewer
- * fills in the number by editing the text afterwards.
+ * The six eye/ear routes ([DROP_ROUTE_CODES]) are dosed in drops, not just
+ * named by location -- the source table's own "___ (1drp,2drp......)"
+ * notation says as much. This used to leave that blank as literal text for
+ * the reviewer to hand-edit afterwards; nothing enforced that they actually
+ * did, and a sent prescription reading just "OU" (with no drop count at
+ * all) is a real dosing instruction quietly missing the one number that
+ * makes it usable. [composeDropRoute] / [parseDropRoute] fold the count
+ * into the stored value itself instead, so the UI can require it up front.
  */
 export interface RoutePreset {
   /** The clinical shorthand, e.g. "SL" or "SC / SQ". */
   code: string;
   description: string;
+}
+
+/** The six routes dosed by drop count rather than just a fixed location. */
+export const DROP_ROUTE_CODES = ['OU', 'OD', 'OS', 'AU', 'AD', 'AS'] as const;
+
+export type DropRouteCode = (typeof DROP_ROUTE_CODES)[number];
+
+export function isDropRouteCode(code: string): code is DropRouteCode {
+  return (DROP_ROUTE_CODES as readonly string[]).includes(code);
+}
+
+/** `"OD (2 drops)"` -- what a drop route's Route & time field actually
+ *  stores, so the sent instruction always names a real count. */
+export function composeDropRoute(code: DropRouteCode, drops: number): string {
+  return `${code} (${drops} drop${drops === 1 ? '' : 's'})`;
+}
+
+const DROP_ROUTE_PATTERN = /^(OU|OD|OS|AU|AD|AS)\s*\((\d+)\s*drops?\)$/i;
+
+/** Reads a [composeDropRoute] string back into its route code and drop
+ *  count -- an existing prescription's saved Route & time, reopened for
+ *  editing, needs both to preselect the two pickers correctly. Null for
+ *  anything else (every other preset, or free text a reviewer typed). */
+export function parseDropRoute(
+  value: string,
+): { code: DropRouteCode; drops: number } | null {
+  const match = DROP_ROUTE_PATTERN.exec(value.trim());
+  if (!match) return null;
+  const code = match[1].toUpperCase() as DropRouteCode;
+  const drops = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(drops) || drops < 1) return null;
+  return { code, drops };
 }
 
 export const ROUTE_TIME_PRESETS: RoutePreset[] = [
@@ -22,12 +59,12 @@ export const ROUTE_TIME_PRESETS: RoutePreset[] = [
   { code: 'IM', description: 'Into a muscle' },
   { code: 'SC / SQ', description: 'Under the skin' },
   { code: 'LA / TOP', description: 'Applied to skin' },
-  { code: 'OU', description: 'Both eyes (___ drop(s))' },
-  { code: 'OD', description: 'Right eye (___ drop(s))' },
-  { code: 'OS', description: 'Left eye (___ drop(s))' },
-  { code: 'AU', description: 'Both ears (___ drop(s))' },
-  { code: 'AD', description: 'Right ear (___ drop(s))' },
-  { code: 'AS', description: 'Left ear (___ drop(s))' },
+  { code: 'OU', description: 'Both eyes' },
+  { code: 'OD', description: 'Right eye' },
+  { code: 'OS', description: 'Left eye' },
+  { code: 'AU', description: 'Both ears' },
+  { code: 'AD', description: 'Right ear' },
+  { code: 'AS', description: 'Left ear' },
   { code: 'DENT', description: 'Applied to teeth / gums' },
   { code: 'AF / AC', description: 'Before meals' },
   { code: 'BF / PC', description: 'After meals' },
