@@ -11,8 +11,10 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { formatCurrency, formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { clearOrderBill, listOrders } from '@/api/orders';
+import { listStores } from '@/api/stores';
 import { BillEditorModal } from '@/components/orders/BillEditorModal';
-import type { Order } from '@/types';
+import { InvoiceModal } from '@/components/orders/InvoiceModal';
+import type { Order, Store } from '@/types';
 
 const BILL_OPTIONS = [
   { value: 'all', label: 'All orders' },
@@ -30,6 +32,12 @@ export default function BillsPage() {
   const { user } = useAuth();
   const { data, loading, error, reload } = useAsync(listOrders, []);
   const rows = useMemo(() => data ?? [], [data]);
+  const { data: stores } = useAsync(listStores, []);
+  const storesByCode = useMemo(() => {
+    const map = new Map<string, Store>();
+    for (const s of stores ?? []) map.set(s.code, s);
+    return map;
+  }, [stores]);
 
   const [search, setSearch] = useState('');
   const [store, setStore] = useState('all');
@@ -42,6 +50,7 @@ export default function BillsPage() {
     null,
   );
   const [editing, setEditing] = useState<Order | null>(null);
+  const [viewingInvoice, setViewingInvoice] = useState<Order | null>(null);
 
   const scoped = useMemo(() => scopeToStore(rows, user), [rows, user]);
   const branchBound = user?.role === 'pharmacy' && Boolean(user.storeCode);
@@ -154,9 +163,10 @@ export default function BillsPage() {
             {row.billImage && (
               <button
                 type="button"
-                onClick={() =>
-                  setViewImage({ src: row.billImage, title: `${row.code} — invoice` })
-                }
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setViewImage({ src: row.billImage, title: `${row.code} — invoice` });
+                }}
                 className="h-9 w-8 shrink-0 overflow-hidden rounded border border-slate-200 bg-slate-50"
               >
                 <img
@@ -170,9 +180,10 @@ export default function BillsPage() {
         ) : row.billImage ? (
           <button
             type="button"
-            onClick={() =>
-              setViewImage({ src: row.billImage, title: `${row.code} — invoice` })
-            }
+            onClick={(e) => {
+              e.stopPropagation();
+              setViewImage({ src: row.billImage, title: `${row.code} — invoice` });
+            }}
             className="h-14 w-11 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50"
           >
             <img
@@ -198,7 +209,10 @@ export default function BillsPage() {
           <button
             type="button"
             className="text-xs font-medium text-brand-600"
-            onClick={() => setEditing(row)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setEditing(row);
+            }}
           >
             Manage bill
           </button>
@@ -207,7 +221,10 @@ export default function BillsPage() {
               type="button"
               disabled={savingId === row.id}
               className="text-xs font-medium text-rose-600 disabled:opacity-50"
-              onClick={() => remove(row.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                remove(row.id);
+              }}
             >
               Remove
             </button>
@@ -264,6 +281,7 @@ export default function BillsPage() {
           loading={loading}
           error={error}
           empty="No orders match your filters."
+          onRowClick={setViewingInvoice}
         />
         {rowError && (
           <p className="border-t border-slate-200 px-4 py-2 text-xs text-rose-600">
@@ -292,6 +310,15 @@ export default function BillsPage() {
           open={Boolean(editing)}
           onClose={() => setEditing(null)}
           onSaved={reload}
+        />
+      )}
+
+      {viewingInvoice && (
+        <InvoiceModal
+          order={viewingInvoice}
+          store={storesByCode.get(viewingInvoice.storeCode)}
+          open={Boolean(viewingInvoice)}
+          onClose={() => setViewingInvoice(null)}
         />
       )}
     </>

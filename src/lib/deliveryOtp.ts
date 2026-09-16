@@ -32,20 +32,36 @@ function otpApp(): FirebaseApp {
   return existing ?? initializeApp(FIREBASE_CONFIG, OTP_APP_NAME);
 }
 
-let recaptcha: RecaptchaVerifier | null = null;
-
 /**
- * An invisible reCAPTCHA bound to [containerId] — `signInWithPhoneNumber`
- * requires one to prove the send request isn't scripted abuse. Built once
- * and reused: a fresh verifier per send trips Firebase's own throttling
- * faster than reusing one does.
+ * Builds a fresh invisible reCAPTCHA bound to [containerId] every call,
+ * clearing whatever the previous one was bound to first.
+ *
+ * This used to cache and reuse one verifier across calls — reasonable in a
+ * plain page, but `containerId` here is a `<div>` React mounts inside
+ * `BillEditorModal`, which is destroyed the moment the modal closes (or a
+ * different order's modal opens with a different id). A cached verifier
+ * still pointed at that now-detached node, so the *second* "Send OTP" ever
+ * attempted — a reopened modal, a different order, a plain "Resend" —
+ * failed with Firebase's own "reCAPTCHA client element has been removed."
+ * Always building fresh, against whatever container is live right now, is
+ * what actually matches this component's lifecycle. The previous instance
+ * is cleared first — needed for "Resend" specifically, where the container
+ * is still mounted and Google's own widget would otherwise render twice
+ * into the same `<div>`; harmless (Firebase swallows it) when the previous
+ * container is already gone.
  */
-function verifier(containerId: string): RecaptchaVerifier {
-  if (recaptcha) return recaptcha;
-  recaptcha = new RecaptchaVerifier(getAuth(otpApp()), containerId, {
+let lastVerifier: RecaptchaVerifier | null = null;
+
+function freshVerifier(containerId: string): RecaptchaVerifier {
+  try {
+    lastVerifier?.clear();
+  } catch {
+    // Already gone (its container was unmounted) — nothing to clean up.
+  }
+  lastVerifier = new RecaptchaVerifier(getAuth(otpApp()), containerId, {
     size: 'invisible',
   });
-  return recaptcha;
+  return lastVerifier;
 }
 
 /**
@@ -60,7 +76,7 @@ export async function sendDeliveryOtp(
   containerId: string,
 ): Promise<ConfirmationResult> {
   const auth = getAuth(otpApp());
-  return signInWithPhoneNumber(auth, `+91${phone}`, verifier(containerId));
+  return signInWithPhoneNumber(auth, `+91${phone}`, freshVerifier(containerId));
 }
 
 /**

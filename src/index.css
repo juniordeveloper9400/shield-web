@@ -15,3 +15,20 @@
     @apply bg-brand-50 font-sans text-slate-800 antialiased;
   }
 }
+
+/* "Print / Save as PDF" on an invoice (InvoiceModal) — print only the
+   invoice itself, none of the app chrome or modal backdrop around it. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #invoice-print-area,
+  #invoice-print-area * {
+    visibility: visible;
+  }
+  #invoice-print-area {
+    position: absolute;
+    inset: 0;
+    padding: 24px;
+  }
+}
