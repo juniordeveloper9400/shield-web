@@ -468,3 +468,22 @@ export async function revokePersona(userId: string): Promise<void> {
   await query(`DELETE FROM app.agent    WHERE member_id = $1`, [userId]);
   await query(`DELETE FROM app.investor WHERE member_id = $1`, [userId]);
 }
+
+/**
+ * Soft-deletes a member's account: sets `app.users.deleted_at`, the same
+ * column `listUsers`/`getUser` already filter out. The row and every order,
+ * prescription, wallet and address record under it are kept — nothing is
+ * actually erased — but the member disappears from the console's Users list,
+ * and `PersonaGate` on the app checks this same column at sign-in and on its
+ * periodic re-check, so a deleted member is refused entry (or signed out of
+ * an already-open session) with no further change needed on that side.
+ *
+ * Any `app.agent`/`app.investor` row underneath is left untouched — call
+ * `revokePersona` first if that should go too.
+ */
+export async function deleteUser(userId: string): Promise<void> {
+  await query(
+    `UPDATE app.users SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL`,
+    [userId],
+  );
+}

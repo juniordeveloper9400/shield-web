@@ -26,6 +26,7 @@ import {
   convertToAgent,
   convertToInvestor,
   revokePersona,
+  deleteUser,
 } from '@/api/users';
 import { listActivationsForMember } from '@/api/activations';
 import { listMemberTransactions, moneyFlowKindLabel } from '@/api/accounts';
@@ -164,6 +165,8 @@ export default function UserDetailPage() {
   // Confirm step for dropping an agent / investor back to a plain member — the
   // delete cascades their downline, payouts and plan-change requests.
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  // Confirm step for deleting the account outright — blocks app sign-in.
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // The prescription open in the review modal, for the Prescriptions tab.
   const [selectedRxId, setSelectedRxId] = useState<string | null>(null);
@@ -381,6 +384,21 @@ export default function UserDetailPage() {
     }
   }
 
+  async function doDelete() {
+    setSaving(true);
+    setFormError(null);
+    try {
+      await deleteUser(id);
+      setConfirmDelete(false);
+      // The user no longer appears in listUsers() — nothing left to show here.
+      back();
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not delete this user.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <>
       <PageHeader
@@ -432,6 +450,17 @@ export default function UserDetailPage() {
                     Switch to member
                   </Button>
                 )}
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() => {
+                    setFormError(null);
+                    setConfirmDelete(true);
+                  }}
+                >
+                  Delete user
+                </Button>
               </>
             )}
             <Button
@@ -1143,6 +1172,56 @@ export default function UserDetailPage() {
                 </ul>
               )}
               <p className="font-medium text-rose-600">This cannot be undone.</p>
+              {formError && (
+                <p className="rounded-lg bg-rose-50 px-3 py-2 text-rose-700">
+                  {formError}
+                </p>
+              )}
+            </div>
+          </Modal>
+
+          <Modal
+            open={confirmDelete}
+            onClose={() => {
+              if (!saving) setConfirmDelete(false);
+            }}
+            title={`Delete ${selected.name}?`}
+            footer={
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={saving}
+                  onClick={() => setConfirmDelete(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={saving}
+                  onClick={doDelete}
+                >
+                  {saving ? 'Deleting…' : 'Yes, delete this user'}
+                </Button>
+              </>
+            }
+          >
+            <div className="space-y-3 text-sm text-slate-600">
+              <p>
+                This removes{' '}
+                <span className="font-medium text-slate-800">{selected.name}</span>{' '}
+                from the Users list and immediately blocks their sign-in on the
+                app — the next time they open SHIELD, or the next check while
+                they're already inside, they're signed out with no way back in.
+              </p>
+              <p>
+                Their orders, prescriptions, wallet and other records are kept —
+                this does not erase their history.
+              </p>
+              <p className="font-medium text-rose-600">
+                This cannot be undone from here.
+              </p>
               {formError && (
                 <p className="rounded-lg bg-rose-50 px-3 py-2 text-rose-700">
                   {formError}
