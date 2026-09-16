@@ -22,6 +22,7 @@ import LabOrdersPage from '@/pages/LabOrdersPage';
 import AppointmentsPage from '@/pages/AppointmentsPage';
 import LabsPage from '@/pages/LabsPage';
 import AccountsPage from '@/pages/AccountsPage';
+import CommissionReservePage from '@/pages/CommissionReservePage';
 import AdminsPage from '@/pages/AdminsPage';
 import DeliveriesPage from '@/pages/DeliveriesPage';
 import UsersPage from '@/pages/UsersPage';
@@ -192,6 +193,14 @@ export default function App() {
           element={
             <ProtectedRoute module="accounts">
               <AccountsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/commission-reserve"
+          element={
+            <ProtectedRoute module="commission_reserve">
+              <CommissionReservePage />
             </ProtectedRoute>
           }
         />

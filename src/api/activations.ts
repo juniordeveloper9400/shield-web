@@ -140,58 +140,30 @@ export async function getWalletActivity(
 }
 
 /**
- * Approves a pending (or on-hold) activation in one statement: flips the
- * card to `APPROVED`, writes the `ACTIVATION` + `BONUS` ledger lines, credits
- * the wallet balance (load + bonus), stamps `opened_at`, and — when this
- * member was registered under an agent's code (`app.agent_customer` already
- * links them) — records the sale as that agent's direct sale
- * (`app.agent_customer_plan`), which is what the agent portal's "Direct
- * sale" and "Team sales" figures are worked out from. A no-op — and returns
- * `false` — if the card is already decided (or a stale id).
+ * Approves a pending (or on-hold) activation in one call: flips the card to
+ * `APPROVED`, writes the `ACTIVATION` + `BONUS` ledger lines, credits the
+ * wallet balance (load + bonus), stamps `opened_at`, records the sale as
+ * `app.agent_customer_plan` when this member was registered under an
+ * agent's code (what the agent portal's "Direct sale" / "Team sales"
+ * figures are worked out from), and splits the Health Pass commission pool
+ * between the direct-selling agent, the one national agent, and the
+ * company's own reserved share.
+ *
+ * That whole write is now `app.approve_wallet_card_activation` (migration
+ * 0033), a single Postgres function rather than the multi-CTE statement this
+ * used to be inline: this driver is one HTTP call per statement with no
+ * cross-statement transaction, and the commission split's own conditional
+ * branching (who sold it, whether they're the national agent, whether a
+ * national agent exists at all) doesn't fit that shape cleanly enough to
+ * trust as a correlated-subquery CTE chain for something crediting real
+ * money. See that function's own doc for the split itself.
+ *
+ * A no-op — and returns `false` — if the card is already decided (or a
+ * stale id).
  */
 export async function approveActivation(id: string): Promise<boolean> {
   const rows = await query<Row>(
-    `
-    WITH card AS (
-      UPDATE app.wallet_card
-         SET status = 'APPROVED', reviewed_at = now()
-       WHERE id = $1 AND status IN ('PENDING', 'ON_HOLD')
-       RETURNING id, wallet_id, tier_id, amount, bonus
-    ),
-    tier AS (
-      SELECT c.id, c.wallet_id, c.tier_id, c.amount, c.bonus, mt.name AS tier_name
-      FROM card c
-      JOIN app.membership_tier mt ON mt.id = c.tier_id
-    ),
-    ledger AS (
-      INSERT INTO app.wallet_entry
-        (wallet_id, kind, label, amount, occurred_on, wallet_card_id)
-      SELECT wallet_id, 'ACTIVATION'::app.wallet_entry_kind,
-             tier_name || ' activation', amount, current_date, id FROM tier
-      UNION ALL
-      SELECT wallet_id, 'BONUS'::app.wallet_entry_kind,
-             tier_name || ' bonus · 10%', bonus, current_date, id FROM tier
-      RETURNING 1
-    ),
-    balance AS (
-      UPDATE app.wallet w
-         SET balance    = w.balance + (SELECT amount + bonus FROM tier),
-             opened_at  = COALESCE(w.opened_at, now()),
-             updated_at = now()
-       WHERE w.id = (SELECT wallet_id FROM tier)
-       RETURNING w.id
-    ),
-    agent_plan AS (
-      INSERT INTO app.agent_customer_plan
-        (agent_customer_id, tier_id, amount, activated_on, wallet_card_id)
-      SELECT ac.id, t.tier_id, t.amount, current_date, t.id
-      FROM tier t
-      JOIN app.wallet w         ON w.id = t.wallet_id
-      JOIN app.agent_customer ac ON ac.member_id = w.member_id
-      RETURNING 1
-    )
-    SELECT id FROM card
-    `,
+    `SELECT * FROM app.approve_wallet_card_activation($1)`,
     [id],
   );
   return rows.length > 0;

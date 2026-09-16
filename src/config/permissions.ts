@@ -130,6 +130,13 @@ export const MODULES: NavItem[] = [
     icon: 'deliveries',
     description: 'Cash order handoff & delivery boys',
   },
+  {
+    key: 'commission_reserve',
+    label: 'Reserved',
+    path: '/commission-reserve',
+    icon: 'accounts',
+    description: "The company's own share of every agent's Health Pass sale",
+  },
 ];
 
 /**
@@ -158,7 +165,10 @@ const APP_MODULES: ModuleKey[] = [
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
-  superadmin: [...APP_MODULES, 'admins'],
+  // 'commission_reserve' is deliberately not in APP_MODULES (which admin
+  // gets too) — it's the company's own share of every agent commission
+  // split, not something an Admin reviewing activations needs to see.
+  superadmin: [...APP_MODULES, 'admins', 'commission_reserve'],
   admin: [...APP_MODULES],
   pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries'],
   lab: ['dashboard', 'lab_orders', 'lab_tests'],

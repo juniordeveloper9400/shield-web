@@ -155,26 +155,6 @@ export function CategoryBannerPanel() {
     }
   }
 
-  async function handleChipPick(file: File) {
-    setFormError(null);
-    try {
-      const url = await fileToResizedDataUrl(file, 320, 0.8);
-      patchDraft({ image: url });
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Could not load the image.');
-    }
-  }
-
-  async function handleSubImagePick(row: SubDraft, file: File) {
-    setFormError(null);
-    try {
-      const url = await fileToResizedDataUrl(file, 320, 0.8);
-      patchSub(row.key, { image: url });
-    } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Could not load the image.');
-    }
-  }
-
   async function save() {
     if (!draft.title.trim()) {
       setFormError('Give the category a title.');
@@ -404,7 +384,7 @@ export function CategoryBannerPanel() {
           </EditField>
 
           <div className="grid grid-cols-2 gap-3">
-            <EditField label="Icon — fallback when there is no chip image">
+            <EditField label="Icon — shown on the home strip chip and the Categories tab">
               <select
                 value={draft.iconName}
                 onChange={(e) => patchDraft({ iconName: e.target.value })}
@@ -443,16 +423,6 @@ export function CategoryBannerPanel() {
               onPick={handleBannerPick}
               onClear={() => patchDraft({ bannerImage: '' })}
               aspect="aspect-[21/9]"
-            />
-          </EditField>
-
-          <EditField label="Chip image — the home strip's small artwork (optional, falls back to the icon)">
-            <ImagePicker
-              value={draft.image}
-              onPick={handleChipPick}
-              onClear={() => patchDraft({ image: '' })}
-              aspect="aspect-square"
-              compact
             />
           </EditField>
 
@@ -495,14 +465,6 @@ export function CategoryBannerPanel() {
                     key={row.key}
                     className="flex items-start gap-2 rounded-lg border border-slate-200 p-2.5"
                   >
-                    <ImagePicker
-                      value={row.image}
-                      onPick={(f) => handleSubImagePick(row, f)}
-                      onClear={() => patchSub(row.key, { image: '' })}
-                      aspect="aspect-square"
-                      compact
-                      tiny
-                    />
                     <div className="grid flex-1 grid-cols-2 gap-2">
                       <input
                         value={row.label}
@@ -559,31 +521,26 @@ function ImagePicker({
   onPick,
   onClear,
   aspect,
-  compact,
-  tiny,
 }: {
   value: string;
   onPick: (file: File) => void;
   onClear: () => void;
   aspect: string;
-  compact?: boolean;
-  tiny?: boolean;
 }) {
-  const size = tiny ? 'h-14 w-14' : compact ? 'h-24 w-24' : 'w-full';
   return (
-    <div className={tiny || compact ? 'shrink-0' : ''}>
+    <div>
       <div
-        className={`relative ${size} ${compact || tiny ? '' : aspect} overflow-hidden rounded-lg border border-dashed border-slate-300 bg-slate-50`}
+        className={`relative w-full ${aspect} overflow-hidden rounded-lg border border-dashed border-slate-300 bg-slate-50`}
       >
         {value ? (
           <img src={value} alt="" className="h-full w-full object-cover" />
         ) : (
           <div className="grid h-full w-full place-items-center text-slate-300">
-            <Icon name="banners" className={tiny ? 'h-4 w-4' : 'h-6 w-6'} />
+            <Icon name="banners" className="h-6 w-6" />
           </div>
         )}
       </div>
-      <div className={`mt-1 flex items-center gap-2 ${tiny ? 'flex-col items-start' : ''}`}>
+      <div className="mt-1 flex items-center gap-2">
         <label className="cursor-pointer text-xs font-medium text-brand-700">
           {value ? 'Replace' : 'Upload'}
           <input

@@ -36,7 +36,8 @@ export type ModuleKey =
   | 'appointments'
   | 'accounts'
   | 'admins'
-  | 'deliveries';
+  | 'deliveries'
+  | 'commission_reserve';
 
 export type AccountStatus = 'active' | 'suspended';
 
@@ -145,9 +146,12 @@ export interface ProductSubcategory {
 export interface SubcategoryAdmin {
   id: string;
   label: string;
-  /** One of the closed icon vocabulary in `src/lib/categoryIcons.ts`. */
+  /** One of the closed icon vocabulary in `src/lib/categoryIcons.ts` — the
+   *  only artwork a sub-category card shows; there is no image upload for
+   *  sub-categories in the console. */
   iconName: string;
-  /** A resized JPEG data URI, or '' for none (falls back to the icon). */
+  /** Legacy column, no longer editable from the console. Always falls back
+   *  to the icon. */
   image: string;
   offer: string;
   sort: number;
@@ -165,11 +169,16 @@ export interface CategoryGroupAdmin {
   title: string;
   /** Pre-wrapped chip caption on the home strip, e.g. "Personal\nCare". */
   tabLabel: string;
+  /** The chip on the home strip and the Categories tab render this icon —
+   *  fixed, from the closed vocabulary in `src/lib/categoryIcons.ts`; there
+   *  is no chip-image upload in the console. */
   iconName: string;
-  /** Chip artwork on the home strip — a resized JPEG data URI, or ''. */
+  /** Legacy column, no longer editable from the console. Always falls back
+   *  to the icon. */
   image: string;
-  /** The promotional banner shown at the top of this group's listing — a
-   *  resized JPEG data URI, or '' for none. */
+  /** The promotional banner shown at the top of this group's listing — the
+   *  only image an admin can upload for a category — a resized JPEG data
+   *  URI, or '' for none. */
   bannerImage: string;
   /** One of the named pastel tints in `src/lib/categoryIcons.ts`. */
   panelTint: string;
