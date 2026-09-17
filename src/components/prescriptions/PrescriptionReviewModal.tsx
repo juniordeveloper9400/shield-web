@@ -36,7 +36,7 @@ import {
   updatePrescriptionPatient,
 } from '@/api/prescriptions';
 import { sendOrderInvoice, setOrderStatus } from '@/api/orders';
-import { collectBillWithWallet } from '@/api/billPayments';
+import { collectBillWithWallet, getWalletBalanceForMember } from '@/api/billPayments';
 import { confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
 import { createPatient, listPatients, updateMemberContact } from '@/api/users';
 import { listStores } from '@/api/stores';
@@ -206,6 +206,16 @@ export function PrescriptionReviewModal({
   // locally so it shows selected right away, without waiting on a refetch.
   const { data: patientRows, reload: reloadPatients } = useAsync(
     () => (prescription ? listPatients(prescription.memberId) : Promise.resolve([])),
+    [prescription?.memberId],
+  );
+
+  // The member's live wallet balance, for the Bill step's wallet/cash
+  // breakdown below — fetched once per member, re-usable across edits to the
+  // bill lines since only the total (not the balance) changes as those are
+  // typed.
+  const { data: walletBalance } = useAsync(
+    () =>
+      prescription ? getWalletBalanceForMember(prescription.memberId) : Promise.resolve(0),
     [prescription?.memberId],
   );
   const [addedPatients, setAddedPatients] = useState<MemberPatient[]>([]);
@@ -688,6 +698,14 @@ export function PrescriptionReviewModal({
     () => billLinesToSend.reduce((sum, l) => sum + l.unitPrice * l.qty, 0),
     [billLinesToSend],
   );
+
+  // The step 5 validation: how much of this bill the wallet can actually
+  // cover right now, and what's left for cash-in-hand — the exact
+  // `LEAST(balance, amount)` split `collectBillWithWallet` performs, shown
+  // ahead of time so a reviewer knows what to expect (and what to ask the
+  // member for in cash) before they ever send the OTP.
+  const walletCoverage = Math.min(walletBalance ?? 0, billTotal);
+  const cashOwed = Math.max(billTotal - walletCoverage, 0);
 
   /** Prices this prescription's linked order and sends it — the upsert on
    *  `app.bill` (+ its `app.bill_line` rows) the member's own order screen
@@ -1598,6 +1616,38 @@ export function PrescriptionReviewModal({
                             to the bill amount), and any shortfall is collected in cash
                             at the counter — never before the code is verified.
                           </p>
+                          {billTotal > 0 && (
+                            <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                              <div className="flex items-center justify-between">
+                                <span>Member&apos;s wallet balance</span>
+                                <span className="font-medium text-slate-800">
+                                  {formatCurrency(walletBalance ?? 0)}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex items-center justify-between">
+                                <span>Will draw from wallet</span>
+                                <span className="font-medium text-slate-800">
+                                  {formatCurrency(walletCoverage)}
+                                </span>
+                              </div>
+                              <div className="mt-1 flex items-center justify-between">
+                                <span>
+                                  {cashOwed > 0
+                                    ? 'Collect in cash, hand to hand'
+                                    : 'Cash needed'}
+                                </span>
+                                <span
+                                  className={
+                                    cashOwed > 0
+                                      ? 'font-semibold text-amber-700'
+                                      : 'font-medium text-slate-800'
+                                  }
+                                >
+                                  {formatCurrency(cashOwed)}
+                                </span>
+                              </div>
+                            </div>
+                          )}
                           <div id={recaptchaContainerId} />
                           {!collectConfirmation ? (
                             <Button
@@ -1746,6 +1796,38 @@ export function PrescriptionReviewModal({
                         <span>Total</span>
                         <span>{formatCurrency(billTotal)}</span>
                       </div>
+                      {billTotal > 0 && (
+                        <div className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                          <div className="flex items-center justify-between">
+                            <span>Member&apos;s wallet balance</span>
+                            <span className="font-medium text-slate-800">
+                              {formatCurrency(walletBalance ?? 0)}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between">
+                            <span>From wallet</span>
+                            <span className="font-medium text-slate-800">
+                              {formatCurrency(walletCoverage)}
+                            </span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between">
+                            <span>
+                              {cashOwed > 0
+                                ? 'Collect in cash, hand to hand'
+                                : 'Cash needed'}
+                            </span>
+                            <span
+                              className={
+                                cashOwed > 0
+                                  ? 'font-semibold text-amber-700'
+                                  : 'font-medium text-slate-800'
+                              }
+                            >
+                              {formatCurrency(cashOwed)}
+                            </span>
+                          </div>
+                        </div>
+                      )}
                       {billSendError && (
                         <p className="mt-2 text-xs text-rose-600">{billSendError}</p>
                       )}
