@@ -52,7 +52,9 @@ export function BillEditorModal({
   const [otpCode, setOtpCode] = useState('');
   const [otpBusy, setOtpBusy] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
-  const [collected, setCollected] = useState(false);
+  const [collected, setCollected] = useState<{ walletAmount: number; cashAmount: number } | null>(
+    null,
+  );
   const recaptchaContainerId = `bill-otp-recaptcha-${order.id}`;
 
   async function sendOtp() {
@@ -79,7 +81,7 @@ export function BillEditorModal({
         setOtpError(result.reason);
         return;
       }
-      setCollected(true);
+      setCollected({ walletAmount: result.walletAmount, cashAmount: result.cashAmount });
       setOtpConfirmation(null);
       setOtpCode('');
       onSaved();
@@ -214,17 +216,23 @@ export function BillEditorModal({
       {mode === 'summary' && order.billStatus !== 'paid' && (
         <div className="mt-3 rounded-lg border border-slate-200 p-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Collect by wallet
+            Collect bill
           </p>
           {collected ? (
             <p className="mt-2 text-sm font-medium text-emerald-600">
-              Collected — the wallet has been debited and this bill is paid.
+              Collected —{' '}
+              {collected.walletAmount > 0 && `${formatCurrency(collected.walletAmount)} from wallet`}
+              {collected.walletAmount > 0 && collected.cashAmount > 0 && ' + '}
+              {collected.cashAmount > 0 && `${formatCurrency(collected.cashAmount)} in cash`}
+              . This bill is paid.
             </p>
           ) : (
             <>
               <p className="mt-1 text-xs text-slate-500">
                 Send a one-time code to the member's phone, then enter what they read out to
-                you. The wallet is only debited once that code checks out — never before.
+                you. Only once that code checks out: the member's wallet balance is used
+                automatically (up to the bill amount), and any shortfall is collected in cash
+                at the counter — never before the code is verified.
               </p>
               <div id={recaptchaContainerId} />
               {!otpConfirmation ? (

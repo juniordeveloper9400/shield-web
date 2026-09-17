@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import type { ConfirmationResult } from 'firebase/auth';
 import { Badge, type Tone } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
@@ -34,7 +35,9 @@ import {
   updatePrescriptionDetails,
   updatePrescriptionPatient,
 } from '@/api/prescriptions';
-import { sendOrderInvoice } from '@/api/orders';
+import { sendOrderInvoice, setOrderStatus } from '@/api/orders';
+import { collectBillWithWallet } from '@/api/billPayments';
+import { confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
 import { createPatient, listPatients, updateMemberContact } from '@/api/users';
 import { listStores } from '@/api/stores';
 import { useAsync } from '@/lib/useAsync';
@@ -124,6 +127,10 @@ export function PrescriptionReviewModal({
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
+  // Which of this prescription's photos is on screen — a script is often
+  // more than one page (migration 0040), shown one at a time with a
+  // thumbnail strip to switch between them when there's more than one.
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   // Every branch, for the "Branch" dropdown on the Details step.
   const { data: storeRows } = useAsync(listStores, []);
@@ -135,6 +142,12 @@ export function PrescriptionReviewModal({
   // no longer needed on screen -- that step is the details form alone,
   // full width. "Next" / "Back" move between them.
   const [step, setStep] = useState<'intake' | 'details' | 'bill'>('intake');
+  // Whether the intake card is showing as one grouped-by-status list rather
+  // than plain entry order — off until "Process" is pressed, once every
+  // row's stock status has been set, so lines needing the same follow-up
+  // (e.g. every out-of-stock line) sit together under one heading instead
+  // of scattered through the list in whatever order they were typed.
+  const [processed, setProcessed] = useState(false);
   // What the member sent up front, editable here: blank/wrong doctor names
   // and durations are exactly what a reviewer corrects while reading the
   // actual script. durationToken is the raw app.medicine_duration value;
@@ -165,6 +178,27 @@ export function PrescriptionReviewModal({
   const [billLines, setBillLines] = useState<BillLineDraft[]>([]);
   const [billSaving, setBillSaving] = useState(false);
   const [billSendError, setBillSendError] = useState<string | null>(null);
+
+  // "Collect bill" — OTP-gated, same mechanism `BillEditorModal` uses
+  // (see that file's own doc): the member reads back a code Firebase texted
+  // them, and only once that checks out does collectBillWithWallet actually
+  // move money. Its own state, separate from the pricing editor above —
+  // pricing and collecting are two different moments, often on different
+  // visits to this step.
+  const [collectConfirmation, setCollectConfirmation] =
+    useState<ConfirmationResult | null>(null);
+  const [collectOtpCode, setCollectOtpCode] = useState('');
+  const [collectBusy, setCollectBusy] = useState(false);
+  const [collectError, setCollectError] = useState<string | null>(null);
+  const [collected, setCollected] =
+    useState<{ walletAmount: number; cashAmount: number } | null>(null);
+
+  // "Complete order" — separate again from payment collection: a bill can
+  // be fully paid and still be missing a medicine nobody's billed for yet
+  // (out of stock, on order). Completing stays a reviewer's own explicit
+  // call, never an automatic side effect of collecting payment.
+  const [completing, setCompleting] = useState(false);
+  const [completeError, setCompleteError] = useState<string | null>(null);
 
   // Every patient this member has saved (self, family, …), for the Patient
   // picker — reloaded whenever a different prescription (so a different
@@ -226,12 +260,13 @@ export function PrescriptionReviewModal({
     }
   }
 
-  // Degrees clockwise, one of 0/90/180/270 — a script photographed sideways or
-  // upside down is common enough to need fixing. Starts from whatever was
-  // last saved for this prescription (app.prescription.image_rotation), not
-  // always 0, and every further rotation is saved the same way — the fix is
-  // permanent, not just for this one look.
-  const [rotation, setRotation] = useState(0);
+  // Degrees clockwise, one of 0/90/180/270, per image id — a script
+  // photographed sideways or upside down is common enough to need fixing,
+  // and independently per page since only one may need it. Starts from
+  // whatever was last saved for each image (app.prescription_image.
+  // image_rotation), and every further rotation is saved the same way —
+  // the fix is permanent, not just for this one look.
+  const [rotations, setRotations] = useState<Record<string, number>>({});
   const [rotating, setRotating] = useState(false);
 
   // "Type" dropdown options: the built-in list plus whatever a reviewer has
@@ -375,13 +410,20 @@ export function PrescriptionReviewModal({
     setAddingPatient(false);
     setNewPatientError(null);
     setBillSendError(null);
+    setCollectConfirmation(null);
+    setCollectOtpCode('');
+    setCollectError(null);
+    setCollected(null);
+    setCompleteError(null);
     if (!prescription) {
       setSelectedRouteCode({});
       setDropCount({});
       setDraft([]);
       setImageOpen(false);
-      setRotation(0);
+      setRotations({});
+      setSelectedImageIndex(0);
       setStep('intake');
+      setProcessed(false);
       setDoctor('');
       setDurationToken('');
       setCustomDays(0);
@@ -421,8 +463,10 @@ export function PrescriptionReviewModal({
     });
     setSelectedRouteCode(routeCodes);
     setDropCount(drops);
-    setRotation(prescription.imageRotation);
+    setRotations(Object.fromEntries(prescription.images.map((img) => [img.id, img.rotation])));
+    setSelectedImageIndex(0);
     setStep('intake');
+    setProcessed(false);
     setDoctor(prescription.doctor);
     setDurationToken(prescription.durationToken);
     setCustomDays(prescription.customDays);
@@ -469,35 +513,51 @@ export function PrescriptionReviewModal({
     setDropCount(reindex);
   }
 
-  /** Rotates by [delta] degrees and saves it immediately — a reviewer
-   *  rotating a sideways script fixes it for good, not just for this look,
-   *  so there is no separate "save rotation" step to forget. */
+  /** Rotates the selected image by [delta] degrees and saves it immediately
+   *  — a reviewer rotating a sideways script fixes it for good, not just
+   *  for this look, so there is no separate "save rotation" step to
+   *  forget. Only the image currently on screen is touched — the others on
+   *  a multi-page script keep whatever rotation they already had. */
   async function rotateImage(delta: 90 | -90) {
-    if (!prescription) return;
-    const next = (((rotation + delta) % 360) + 360) % 360;
-    setRotation(next);
+    const image = prescription?.images[selectedImageIndex];
+    if (!image) return;
+    const current = rotations[image.id] ?? image.rotation;
+    const next = (((current + delta) % 360) + 360) % 360;
+    setRotations((r) => ({ ...r, [image.id]: next }));
     setRotating(true);
     try {
-      await setPrescriptionImageRotation(prescription.id, next as 0 | 90 | 180 | 270);
+      await setPrescriptionImageRotation(image.id, next as 0 | 90 | 180 | 270);
     } finally {
       setRotating(false);
     }
   }
 
-  /** The final action, from the Details step: saves every correction on this
-   *  screen — the member's own name/phone, which patient this is for, the
-   *  pinned branch, and the doctor/duration — alongside the intake card in
-   *  one go, then closes. */
-  async function sendIntake() {
-    if (!prescription) return;
+  /** The member name/phone/patient checks both {@link sendIntake} and
+   *  {@link placeOrder} need before writing anything — split out so
+   *  "Place order" (reachable straight from the Intake step) can catch a
+   *  gap here and send the reviewer to the Details step to fill it,
+   *  instead of failing silently on a step that isn't even on screen. */
+  function validateDetails(): boolean {
+    if (!prescription) return false;
     if (!memberName.trim() || !memberPhone.trim()) {
       setDetailsError('Member name and phone cannot be blank.');
-      return;
+      return false;
     }
     if (!patientId) {
       setDetailsError('Pick which patient this prescription is for.');
-      return;
+      return false;
     }
+    return true;
+  }
+
+  /** Saves every correction on the Details step — the member's own
+   *  name/phone, which patient this is for, the pinned branch, and the
+   *  doctor/duration — alongside the intake card, in one go. Assumes
+   *  {@link validateDetails} has already passed; returns whether it
+   *  actually wrote. Shared by {@link sendIntake} (closes the modal after)
+   *  and {@link placeOrder} (moves on to the Bill step instead). */
+  async function saveDetailsAndIntake(): Promise<boolean> {
+    if (!prescription) return false;
     setSending(true);
     setDetailsError(null);
     try {
@@ -512,7 +572,7 @@ export function PrescriptionReviewModal({
         setDetailsError(
           `${memberPhone.trim()} is already used by a different account — pick a different number.`,
         );
-        return;
+        return false;
       }
       await updatePrescriptionPatient(prescription.id, patientId);
       await updatePrescriptionBranch(prescription.id, storeId || null);
@@ -522,14 +582,45 @@ export function PrescriptionReviewModal({
         customDays,
       });
       await savePrescriptionIntake(prescription.id, draft);
-      onSaved();
-      onClose();
+      return true;
     } catch (err) {
       setDetailsError(
         err instanceof Error ? err.message : 'Could not save these details.',
       );
+      return false;
     } finally {
       setSending(false);
+    }
+  }
+
+  /** The Details step's own final action: saves everything, then closes. */
+  async function sendIntake() {
+    if (!validateDetails()) return;
+    if (await saveDetailsAndIntake()) {
+      onSaved();
+      onClose();
+    }
+  }
+
+  /** "Place order →", reachable from the Intake step once the medicines are
+   *  processed — the fast path step 4 of this flow calls for: skip the
+   *  Details step entirely when the member/patient info already on file is
+   *  complete (the common case — it's pre-filled from the account), save
+   *  everything the same way {@link sendIntake} does, and land straight on
+   *  the Bill step instead of closing. Only falls back to actually showing
+   *  the Details step when something on it needs a reviewer's attention
+   *  first (a blank contact field, no patient picked, or the save itself
+   *  failing) — the modal stays open either way, never closes on this path. */
+  async function placeOrder() {
+    if (!validateDetails()) {
+      setStep('details');
+      return;
+    }
+    if (await saveDetailsAndIntake()) {
+      onSaved();
+      setStep('bill');
+    } else {
+      setStep('details');
     }
   }
 
@@ -546,6 +637,28 @@ export function PrescriptionReviewModal({
   }
 
   const draftHasRows = draft.some((r) => r.name.trim().length > 0);
+
+  // The order the intake cards render in: plain entry order until
+  // "Process" is pressed, then grouped by stock status (available first,
+  // then out-of-stock, ordered, not-possible — STOCK_STATUS_OPTIONS' own
+  // order), each group's rows keeping their original relative order (a
+  // stable sort). Holds original draft indices, not rows themselves, so
+  // every existing per-row handler (patchRow(i, …), removeRow(i), the
+  // preset dropdowns keyed by index) keeps working unchanged underneath.
+  const statusRank = useMemo(
+    () =>
+      Object.fromEntries(
+        STOCK_STATUS_OPTIONS.map((o, rank) => [o.value, rank]),
+      ) as Record<PrescriptionMedicineStatus, number>,
+    [],
+  );
+  const displayOrder = useMemo(() => {
+    const indices = draft.map((_, i) => i);
+    if (!processed) return indices;
+    return [...indices].sort(
+      (a, b) => statusRank[draft[a].status] - statusRank[draft[b].status],
+    );
+  }, [draft, processed, statusRank]);
 
   // Can this prescription's order be billed at all -- the same "at least
   // read" gate that unlocks the Bill nav button in the footer, and a linked
@@ -578,7 +691,10 @@ export function PrescriptionReviewModal({
 
   /** Prices this prescription's linked order and sends it — the upsert on
    *  `app.bill` (+ its `app.bill_line` rows) the member's own order screen
-   *  then reads as a real, payable invoice. */
+   *  then reads as a real, payable invoice. Stays on the Bill step in
+   *  'summary' mode afterwards rather than closing — collecting payment and
+   *  completing the order both happen right here, on the same step, once
+   *  the bill itself is sent. */
   async function submitBill() {
     if (!prescription || !prescription.orderId) return;
     setBillSaving(true);
@@ -589,13 +705,113 @@ export function PrescriptionReviewModal({
         lines: billLinesToSend,
       });
       onSaved();
-      onClose();
+      setBillMode('summary');
     } catch (err) {
       setBillSendError(
         err instanceof Error ? err.message : 'Could not send this bill.',
       );
     } finally {
       setBillSaving(false);
+    }
+  }
+
+  // Every prescribed medicine the counter is actually expected to supply --
+  // everything except a line the reviewer has marked "Not possible" (that
+  // one is never going to be billed, so it can't be the reason completion
+  // stays blocked). Compared against the bill's own line names rather than
+  // prescription.medicines: draft is this session's own up-to-date list,
+  // not dependent on the parent's reload landing before this reads it.
+  const billableMedicineNames = useMemo(
+    () =>
+      draft
+        .filter((m) => m.name.trim() && m.status !== 'not_possible')
+        .map((m) => m.name.trim().toLowerCase()),
+    [draft],
+  );
+  const billedMedicineNames = useMemo(
+    () => new Set(billLinesToSend.map((l) => l.name.toLowerCase())),
+    [billLinesToSend],
+  );
+  const unbilledMedicineCount = useMemo(
+    () => billableMedicineNames.filter((n) => !billedMedicineNames.has(n)).length,
+    [billableMedicineNames, billedMedicineNames],
+  );
+  const fullyBilled =
+    billableMedicineNames.length > 0 && unbilledMedicineCount === 0;
+
+  // Whichever lands first: the prop's own billStatus (once the parent has
+  // reloaded after collectBillWithWallet, or on reopening an already-paid
+  // prescription) or this session's own `collected` result, set the moment
+  // collection succeeds and before that reload has necessarily landed.
+  const billIsPaid = collected !== null || prescription?.billStatus === 'paid';
+
+  const recaptchaContainerId = prescription
+    ? `rx-bill-otp-recaptcha-${prescription.id}`
+    : 'rx-bill-otp-recaptcha';
+
+  async function sendCollectOtp() {
+    if (!prescription) return;
+    setCollectBusy(true);
+    setCollectError(null);
+    try {
+      const confirmation = await sendDeliveryOtp(
+        prescription.memberPhone,
+        recaptchaContainerId,
+      );
+      setCollectConfirmation(confirmation);
+    } catch (err) {
+      setCollectError(describeOtpError(err));
+    } finally {
+      setCollectBusy(false);
+    }
+  }
+
+  /** Only reachable once the member's own code has checked out — see
+   *  `collectBillWithWallet`'s own doc for exactly how the wallet/cash
+   *  split it performs works. */
+  async function verifyAndCollectBill() {
+    if (!prescription || !prescription.orderId) return;
+    if (!collectConfirmation || collectOtpCode.trim().length === 0) return;
+    setCollectBusy(true);
+    setCollectError(null);
+    try {
+      await confirmDeliveryOtp(collectConfirmation, collectOtpCode);
+      const result = await collectBillWithWallet(prescription.orderId);
+      if (!result.ok) {
+        setCollectError(result.reason);
+        return;
+      }
+      setCollected({ walletAmount: result.walletAmount, cashAmount: result.cashAmount });
+      setCollectConfirmation(null);
+      setCollectOtpCode('');
+      onSaved();
+    } catch (err) {
+      setCollectError(describeOtpError(err));
+    } finally {
+      setCollectBusy(false);
+    }
+  }
+
+  /** Step 7 of this flow: closing out the order is always this explicit
+   *  click, never a side effect of sending or paying the bill — and it's
+   *  blocked while any medicine that's actually expected (i.e. not marked
+   *  "Not possible") is still missing from the bill, so a partially-filled
+   *  script can't accidentally read as finished. */
+  async function completeOrder() {
+    if (!prescription || !prescription.orderId) return;
+    if (!fullyBilled || !billIsPaid) return;
+    setCompleting(true);
+    setCompleteError(null);
+    try {
+      await setOrderStatus(prescription.orderId, 'delivered');
+      onSaved();
+      onClose();
+    } catch (err) {
+      setCompleteError(
+        err instanceof Error ? err.message : 'Could not complete this order.',
+      );
+    } finally {
+      setCompleting(false);
     }
   }
 
@@ -620,11 +836,23 @@ export function PrescriptionReviewModal({
                 </Button>
               )}
               <Button
-                variant="primary"
+                variant="secondary"
                 disabled={!draftHasRows}
                 onClick={() => setStep('details')}
               >
                 Next: Details →
+              </Button>
+              <Button
+                variant="primary"
+                disabled={!draftHasRows || !processed || sending}
+                title={
+                  !processed
+                    ? 'Click "Process" above to group the medicines by status first'
+                    : undefined
+                }
+                onClick={() => void placeOrder()}
+              >
+                {sending ? 'Placing order…' : 'Place order →'}
               </Button>
             </>
           ) : step === 'details' ? (
@@ -684,6 +912,22 @@ export function PrescriptionReviewModal({
                       : 'Send bill'}
                 </Button>
               )}
+              {billMode === 'summary' && (
+                <Button
+                  variant="primary"
+                  disabled={completing || !fullyBilled || !billIsPaid}
+                  title={
+                    !fullyBilled
+                      ? `${unbilledMedicineCount} medicine${unbilledMedicineCount === 1 ? '' : 's'} still not on the bill`
+                      : !billIsPaid
+                        ? 'Collect the bill before completing the order'
+                        : undefined
+                  }
+                  onClick={() => void completeOrder()}
+                >
+                  {completing ? 'Completing…' : 'Complete order'}
+                </Button>
+              )}
             </>
           ))
         }
@@ -727,13 +971,28 @@ export function PrescriptionReviewModal({
                   <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                     Intake card
                   </p>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-brand-600"
-                    onClick={() => setDraft((d) => [...d, { ...EMPTY_ROW }])}
-                  >
-                    + Add medicine
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      disabled={!draftHasRows}
+                      title={
+                        processed
+                          ? 'Show the medicines in plain entry order again'
+                          : "Group the medicines below by stock status once every row's status is set"
+                      }
+                      className="text-xs font-medium text-brand-600 disabled:cursor-not-allowed disabled:text-slate-300"
+                      onClick={() => setProcessed((p) => !p)}
+                    >
+                      {processed ? '← Unprocess' : 'Process ✓'}
+                    </button>
+                    <button
+                      type="button"
+                      className="text-xs font-medium text-brand-600"
+                      onClick={() => setDraft((d) => [...d, { ...EMPTY_ROW }])}
+                    >
+                      + Add medicine
+                    </button>
+                  </div>
                 </div>
                 <p className="mb-2 text-xs text-slate-400">
                   Pick an Intake preset below for how often each medicine is
@@ -741,9 +1000,37 @@ export function PrescriptionReviewModal({
                   code the customer's app expands when you send this.
                 </p>
                 <div className="space-y-2">
-                  {draft.map((row, i) => (
+                  {displayOrder.map((i, pos) => {
+                    const row = draft[i];
+                    const groupStart =
+                      processed &&
+                      (pos === 0 ||
+                        draft[displayOrder[pos - 1]].status !== row.status);
+                    return (
+                    <div key={i}>
+                      {groupStart && (
+                        <div
+                          className={`mb-1.5 flex items-center gap-2 ${pos === 0 ? '' : 'mt-3'}`}
+                        >
+                          <Badge tone={STOCK_STATUS_TONE[row.status]}>
+                            {STOCK_STATUS_LABEL[row.status]}
+                          </Badge>
+                          <span className="text-xs font-medium text-slate-400">
+                            {
+                              displayOrder.filter(
+                                (j) => draft[j].status === row.status,
+                              ).length
+                            }{' '}
+                            medicine
+                            {displayOrder.filter(
+                              (j) => draft[j].status === row.status,
+                            ).length === 1
+                              ? ''
+                              : 's'}
+                          </span>
+                        </div>
+                      )}
                     <div
-                      key={i}
                       className="rounded-lg border border-blue-700 bg-blue-600 p-3 text-white"
                     >
                       <div className="mb-1.5 flex items-center justify-between">
@@ -1022,7 +1309,9 @@ export function PrescriptionReviewModal({
                         For the counter only — never shown in the member's app.
                       </p>
                     </div>
-                  ))}
+                    </div>
+                    );
+                  })}
                   {draft.length === 0 && (
                     <p className="text-sm text-slate-400">
                       No lines yet — add the medicines from the script.
@@ -1269,20 +1558,104 @@ export function PrescriptionReviewModal({
                       billed from here.
                     </p>
                   ) : billMode === 'summary' ? (
-                    <div className="rounded-lg border border-slate-200 p-4">
-                      <p className="text-sm text-slate-800">
-                        Bill sent — {formatCurrency(prescription.billAmount)} (
-                        {prescription.billStatus === 'paid' ? 'Paid' : 'Pending'})
-                      </p>
-                      <div className="mt-3">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setBillMode('edit')}
-                        >
-                          Edit bill
-                        </Button>
+                    <div className="space-y-3">
+                      <div className="rounded-lg border border-slate-200 p-4">
+                        <p className="text-sm text-slate-800">
+                          Bill sent — {formatCurrency(prescription.billAmount)} (
+                          {billIsPaid ? 'Paid' : 'Pending'})
+                        </p>
+                        <div className="mt-2">
+                          {fullyBilled ? (
+                            <Badge tone="green">All medicines billed</Badge>
+                          ) : (
+                            <Badge tone="amber">
+                              {unbilledMedicineCount} medicine
+                              {unbilledMedicineCount === 1 ? '' : 's'} not on the bill —
+                              partially billed
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="mt-3">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setBillMode('edit')}
+                          >
+                            Edit bill
+                          </Button>
+                        </div>
                       </div>
+
+                      {!billIsPaid && (
+                        <div className="rounded-lg border border-slate-200 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                            Collect bill
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Send a one-time code to the member&apos;s phone, then enter
+                            what they read out to you. Only once that code checks out:
+                            the member&apos;s wallet balance is used automatically (up
+                            to the bill amount), and any shortfall is collected in cash
+                            at the counter — never before the code is verified.
+                          </p>
+                          <div id={recaptchaContainerId} />
+                          {!collectConfirmation ? (
+                            <Button
+                              size="sm"
+                              className="mt-3"
+                              disabled={collectBusy}
+                              onClick={() => void sendCollectOtp()}
+                            >
+                              {collectBusy ? 'Sending…' : 'Send OTP to member'}
+                            </Button>
+                          ) : (
+                            <div className="mt-3 flex items-center gap-2">
+                              <input
+                                value={collectOtpCode}
+                                onChange={(e) => setCollectOtpCode(e.target.value)}
+                                placeholder="6-digit code"
+                                inputMode="numeric"
+                                autoFocus
+                                className={inputClass}
+                              />
+                              <Button
+                                size="sm"
+                                disabled={collectBusy || collectOtpCode.trim().length === 0}
+                                onClick={() => void verifyAndCollectBill()}
+                              >
+                                {collectBusy ? 'Verifying…' : 'Verify & collect'}
+                              </Button>
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                disabled={collectBusy}
+                                onClick={() => void sendCollectOtp()}
+                              >
+                                Resend
+                              </Button>
+                            </div>
+                          )}
+                          {collectError && (
+                            <p className="mt-2 text-xs text-rose-600">{collectError}</p>
+                          )}
+                        </div>
+                      )}
+
+                      {collected && (
+                        <p className="text-sm font-medium text-emerald-600">
+                          Collected —{' '}
+                          {collected.walletAmount > 0 &&
+                            `${formatCurrency(collected.walletAmount)} from wallet`}
+                          {collected.walletAmount > 0 && collected.cashAmount > 0 && ' + '}
+                          {collected.cashAmount > 0 &&
+                            `${formatCurrency(collected.cashAmount)} in cash`}
+                          . This bill is paid.
+                        </p>
+                      )}
+
+                      {completeError && (
+                        <p className="text-xs text-rose-600">{completeError}</p>
+                      )}
                     </div>
                   ) : (
                     <div>
@@ -1383,14 +1756,22 @@ export function PrescriptionReviewModal({
             </div>
 
             {/* Right — the uploaded script, kept in view against the intake
-                card; no longer needed once it's just the details form. */}
-            {step === 'intake' && (
+                card; no longer needed once it's just the details form. A
+                script is often more than one page (migration 0040) — a
+                thumbnail strip switches between them when there's more
+                than one, and only the page on screen is rotated. */}
+            {step === 'intake' && (() => {
+              const images = prescription.images;
+              const current = images[selectedImageIndex];
+              const currentRotation = current ? (rotations[current.id] ?? current.rotation) : 0;
+              return (
             <div className="order-1 md:order-2 md:sticky md:top-0 md:self-start">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Uploaded script
+                  {images.length > 1 && ` (${selectedImageIndex + 1} of ${images.length})`}
                 </p>
-                {prescription.image && (
+                {current && (
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
@@ -1413,7 +1794,7 @@ export function PrescriptionReviewModal({
                   </div>
                 )}
               </div>
-              {prescription.image ? (
+              {current ? (
                 <div className="flex w-full items-center justify-center overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-2">
                   <button
                     type="button"
@@ -1421,17 +1802,17 @@ export function PrescriptionReviewModal({
                     className="block"
                   >
                     <img
-                      src={prescription.image}
-                      alt={`Prescription ${prescription.code}`}
+                      src={current.image}
+                      alt={`Prescription ${prescription.code} — page ${selectedImageIndex + 1}`}
                       className="object-contain transition-transform duration-200"
                       style={{
-                        transform: `rotate(${rotation}deg)`,
+                        transform: `rotate(${currentRotation}deg)`,
                         // A quarter-turn swaps the image's effective footprint
                         // — capped to the sidebar's own width when on its
                         // side, rather than the taller-than-wide budget an
                         // upright script reads comfortably at.
-                        maxWidth: rotation % 180 === 0 ? '100%' : 220,
-                        maxHeight: rotation % 180 === 0 ? '55vh' : '100%',
+                        maxWidth: currentRotation % 180 === 0 ? '100%' : 220,
+                        maxHeight: currentRotation % 180 === 0 ? '55vh' : '100%',
                       }}
                     />
                   </button>
@@ -1441,14 +1822,38 @@ export function PrescriptionReviewModal({
                   No image was uploaded with this prescription.
                 </div>
               )}
-              {prescription.image && (
+              {images.length > 1 && (
+                <div className="mt-2 flex gap-1.5">
+                  {images.map((img, i) => (
+                    <button
+                      key={img.id}
+                      type="button"
+                      onClick={() => setSelectedImageIndex(i)}
+                      className={`h-12 w-12 shrink-0 overflow-hidden rounded-md border-2 ${
+                        i === selectedImageIndex
+                          ? 'border-brand-500'
+                          : 'border-transparent opacity-70 hover:opacity-100'
+                      }`}
+                    >
+                      <img
+                        src={img.image}
+                        alt={`Page ${i + 1} thumbnail`}
+                        className="h-full w-full object-cover"
+                        style={{ transform: `rotate(${rotations[img.id] ?? img.rotation}deg)` }}
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+              {current && (
                 <p className="mt-1.5 text-xs text-slate-400">
                   Tap the image to view it full size, or use the rotate
                   buttons above to fix a sideways scan for good.
                 </p>
               )}
             </div>
-            )}
+              );
+            })()}
           </div>
         )}
       </Modal>
@@ -1456,9 +1861,17 @@ export function PrescriptionReviewModal({
       <Modal
         open={imageOpen}
         onClose={() => setImageOpen(false)}
-        title={prescription ? `${prescription.code} — script` : ''}
+        title={
+          prescription
+            ? `${prescription.code} — script${
+                prescription.images.length > 1
+                  ? ` (${selectedImageIndex + 1} of ${prescription.images.length})`
+                  : ''
+              }`
+            : ''
+        }
         footer={
-          prescription?.image && (
+          prescription?.images[selectedImageIndex] && (
             <>
               <Button
                 variant="secondary"
@@ -1482,23 +1895,28 @@ export function PrescriptionReviewModal({
           )
         }
       >
-        {prescription?.image && (
-          <div className="flex min-h-[50vh] items-center justify-center overflow-hidden">
-            <img
-              src={prescription.image}
-              alt={`Prescription ${prescription.code}`}
-              className="object-contain transition-transform duration-200"
-              style={{
-                transform: `rotate(${rotation}deg)`,
-                // A quarter-turn swaps the image's effective footprint, so the
-                // side capped to the viewport has to swap too or a portrait
-                // script rotated on its side would overflow the modal width.
-                maxWidth: rotation % 180 === 0 ? '100%' : '70vh',
-                maxHeight: rotation % 180 === 0 ? '70vh' : '80vw',
-              }}
-            />
-          </div>
-        )}
+        {prescription?.images[selectedImageIndex] &&
+          (() => {
+            const current = prescription.images[selectedImageIndex];
+            const currentRotation = rotations[current.id] ?? current.rotation;
+            return (
+              <div className="flex min-h-[50vh] items-center justify-center overflow-hidden">
+                <img
+                  src={current.image}
+                  alt={`Prescription ${prescription.code} — page ${selectedImageIndex + 1}`}
+                  className="object-contain transition-transform duration-200"
+                  style={{
+                    transform: `rotate(${currentRotation}deg)`,
+                    // A quarter-turn swaps the image's effective footprint, so the
+                    // side capped to the viewport has to swap too or a portrait
+                    // script rotated on its side would overflow the modal width.
+                    maxWidth: currentRotation % 180 === 0 ? '100%' : '70vh',
+                    maxHeight: currentRotation % 180 === 0 ? '70vh' : '80vw',
+                  }}
+                />
+              </div>
+            );
+          })()}
       </Modal>
     </>
   );

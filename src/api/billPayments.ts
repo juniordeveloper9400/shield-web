@@ -1,49 +1,65 @@
 import { query } from '@/lib/db';
+import { num } from '@/lib/mappers';
 
 type Row = Record<string, unknown>;
 
 /**
- * Settles a sent-and-priced bill off the member's wallet, staff-triggered —
- * the collection half of `BillEditorModal`'s OTP flow: the member reads the
- * code Firebase texted them out to staff, staff verifies it client-side
- * (`confirmDeliveryOtp`), and only on that success does this get called.
+ * Settles a sent-and-priced bill, staff-triggered — the collection half of
+ * `BillEditorModal`'s (and `PrescriptionReviewModal`'s Bill step's) OTP
+ * flow: the member reads the code Firebase texted them out to staff, staff
+ * verifies it client-side (`confirmDeliveryOtp`), and only on that success
+ * does this get called.
+ *
+ * Draws on the member's wallet first — up to whatever it actually holds,
+ * never more — and treats anything still owed after that as collected in
+ * cash at the counter, in this same action (migration 0041's
+ * `wallet_collected` / `cash_collected` columns are exactly this split,
+ * kept for the record). A wallet with nothing in it collects the bill
+ * entirely in cash; a wallet that covers it in full collects entirely from
+ * the wallet, same as this function's own previous, wallet-only behaviour.
+ * Either way the bill is marked PAID the moment this returns `ok`, since
+ * the cash portion (if any) is handed over in person at the same moment the
+ * admin clicks this — there is no "pay the cash part later" state.
  *
  * One statement, same atomic-CTE shape `activations.ts`'s `approveActivation`
- * uses — debits `app.wallet.balance`, posts the matching `SPEND` ledger
- * line, and marks both the order and its bill PAID, all together or not at
- * all. The `eligible` CTE is the whole guard: a bill that's already paid,
- * unpriced, or a wallet that can't cover it makes the row set empty and
- * nothing downstream writes — mirrors `order.service.ts`'s
- * `debitWalletForOrder` guard on the backend/api side of this same
- * operation, which this console does not call (shieldweb writes to Neon
- * directly, same as every other money-moving action here).
+ * uses — debits `app.wallet.balance` by only the wallet's share, posts the
+ * matching `SPEND` ledger line for that share, and marks both the order and
+ * its bill PAID, all together or not at all. The `eligible` CTE is the
+ * whole guard: a bill that's already paid or unpriced makes the row set
+ * empty and nothing downstream writes.
  */
 export async function collectBillWithWallet(
   orderId: string,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<
+  { ok: true; walletAmount: number; cashAmount: number } | { ok: false; reason: string }
+> {
   const rows = await query<Row>(
     `
     WITH eligible AS (
-      SELECT o.id AS order_id, o.code, b.id AS bill_id, b.amount, w.id AS wallet_id
+      SELECT o.id AS order_id, o.code, b.id AS bill_id, b.amount,
+             w.id AS wallet_id, COALESCE(w.balance, 0) AS wallet_balance,
+             LEAST(COALESCE(w.balance, 0), b.amount) AS wallet_amount,
+             b.amount - LEAST(COALESCE(w.balance, 0), b.amount) AS cash_amount
         FROM app."order" o
         JOIN app.bill b ON b.order_id = o.id
-        JOIN app.wallet w ON w.member_id = o.member_id
+        LEFT JOIN app.wallet w ON w.member_id = o.member_id
        WHERE o.id = $1
          AND b.status = 'PENDING'::app.order_payment_status
          AND b.amount > 0
-         AND w.balance >= b.amount
     ),
     debit AS (
       UPDATE app.wallet w
-         SET balance = w.balance - (SELECT amount FROM eligible),
+         SET balance = w.balance - (SELECT wallet_amount FROM eligible),
              updated_at = now()
        WHERE w.id = (SELECT wallet_id FROM eligible)
+         AND (SELECT wallet_amount FROM eligible) > 0
        RETURNING w.id
     ),
     ledger AS (
       INSERT INTO app.wallet_entry (wallet_id, kind, label, amount, occurred_on, order_id)
-      SELECT wallet_id, 'SPEND'::app.wallet_entry_kind, 'Order ' || code, -amount, current_date, order_id
+      SELECT wallet_id, 'SPEND'::app.wallet_entry_kind, 'Order ' || code, -wallet_amount, current_date, order_id
         FROM eligible
+       WHERE wallet_amount > 0
       RETURNING 1
     ),
     mark_order AS (
@@ -54,27 +70,32 @@ export async function collectBillWithWallet(
     ),
     mark_bill AS (
       UPDATE app.bill b
-         SET status = 'PAID'::app.order_payment_status, paid_at = now(), updated_at = now()
+         SET status = 'PAID'::app.order_payment_status, paid_at = now(), updated_at = now(),
+             wallet_collected = (SELECT wallet_amount FROM eligible),
+             cash_collected = (SELECT cash_amount FROM eligible)
        WHERE b.id = (SELECT bill_id FROM eligible)
       RETURNING 1
     )
-    SELECT order_id FROM eligible
+    SELECT order_id, wallet_amount, cash_amount FROM eligible
     `,
     [orderId],
   );
 
   if (rows.length > 0) {
-    return { ok: true };
+    return {
+      ok: true,
+      walletAmount: num(rows[0].wallet_amount),
+      cashAmount: num(rows[0].cash_amount),
+    };
   }
 
   // Nothing written — work out why, so staff sees a real reason instead of a
   // silent no-op.
   const diagnosis = await query<Row>(
     `
-    SELECT b.status::text AS bill_status, b.amount AS bill_amount, w.balance AS wallet_balance
+    SELECT b.status::text AS bill_status, b.amount AS bill_amount
       FROM app."order" o
       LEFT JOIN app.bill b ON b.order_id = o.id
-      LEFT JOIN app.wallet w ON w.member_id = o.member_id
      WHERE o.id = $1
     `,
     [orderId],
@@ -89,11 +110,5 @@ export async function collectBillWithWallet(
   if (Number(d.bill_amount ?? 0) <= 0) {
     return { ok: false, reason: 'This bill has not been priced yet.' };
   }
-  if (d.wallet_balance == null) {
-    return { ok: false, reason: "This member hasn't opened a wallet yet." };
-  }
-  return {
-    ok: false,
-    reason: `Wallet balance (₹${Number(d.wallet_balance)}) is short of the bill (₹${Number(d.bill_amount)}).`,
-  };
+  return { ok: false, reason: 'Could not collect this bill — try again.' };
 }

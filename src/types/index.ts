@@ -429,6 +429,18 @@ export interface PrescriptionMedicineInput {
   status: PrescriptionMedicineStatus;
 }
 
+/** One photo of an uploaded prescription — `app.prescription_image`. */
+export interface PrescriptionImage {
+  id: string;
+  /** A resized JPEG data URI. */
+  image: string;
+  /** Degrees clockwise (0/90/180/270) to display this image rotated by —
+   *  fixed by a reviewer once, applied wherever it renders from then on.
+   *  Independent per image, since only one page of a multi-page script may
+   *  need fixing. */
+  rotation: number;
+}
+
 /** An uploaded prescription — `app.prescription` + `app.prescription_medicine`. */
 export interface Prescription {
   id: string;
@@ -446,11 +458,10 @@ export interface Prescription {
   patientName: string;
   doctor: string;
   fileName: string;
-  /** The uploaded script itself — a resized JPEG data URI, or '' when none. */
-  image: string;
-  /** Degrees clockwise (0/90/180/270) to display [image] rotated by — fixed
-   *  by a reviewer once, applied wherever the image renders from then on. */
-  imageRotation: number;
+  /** Up to a handful of photos of the uploaded script, in upload order —
+   *  `app.prescription_image` (migration 0040), a script is often more
+   *  than one page. Empty when none were uploaded (a script phoned in). */
+  images: PrescriptionImage[];
   /** Display label — "1 week", "12 days", "—". Read-only; edit through
    *  [durationToken] / [customDays] instead. */
   duration: string;

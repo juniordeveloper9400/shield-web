@@ -4,6 +4,7 @@ import type {
   FulfillmentType,
   PaymentStatus,
   Prescription,
+  PrescriptionImage,
   PrescriptionMedicine,
   PrescriptionMedicineInput,
   PrescriptionStatus,
@@ -53,7 +54,7 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
            m.name  AS member_name,
            m.phone AS member_phone,
            pt.name AS patient_name,
-           rx.doctor, rx.file_name, rx.image, rx.image_rotation,
+           rx.doctor, rx.file_name,
            rx.duration, rx.custom_days, rx.status,
            COALESCE(rs.code, os.code, hs.code) AS store_code,
            COALESCE(rs.name, os.name, hs.name) AS store_name,
@@ -118,6 +119,30 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
     bucket.push(toMedicine(mr));
   }
 
+  // Up to a handful of photos per prescription (migration 0040) — see
+  // `PrescriptionImage`'s own doc.
+  const imageRows = await query<Row>(
+    `SELECT prescription_id, id, image, image_rotation
+       FROM app.prescription_image
+      WHERE prescription_id = ANY($1::bigint[])
+      ORDER BY sort, id`,
+    [ids],
+  );
+  const imagesByRx = new Map<string, PrescriptionImage[]>();
+  for (const ir of imageRows) {
+    const key = String(ir.prescription_id);
+    let bucket = imagesByRx.get(key);
+    if (!bucket) {
+      bucket = [];
+      imagesByRx.set(key, bucket);
+    }
+    bucket.push({
+      id: String(ir.id),
+      image: String(ir.image ?? ''),
+      rotation: Number(ir.image_rotation ?? 0),
+    });
+  }
+
   return rows.map((r) => ({
     id: String(r.id),
     code: String(r.code),
@@ -128,8 +153,7 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
     patientName: String(r.patient_name ?? '—'),
     doctor: String(r.doctor ?? ''),
     fileName: String(r.file_name ?? ''),
-    image: String(r.image ?? ''),
-    imageRotation: Number(r.image_rotation ?? 0),
+    images: imagesByRx.get(String(r.id)) ?? [],
     duration: durationLabel(r),
     durationToken: r.duration ? fromEnum(String(r.duration)) : '',
     customDays: num(r.custom_days),
@@ -242,19 +266,20 @@ export async function updatePrescriptionPatient(
 }
 
 /**
- * Fixes the uploaded script's display rotation (a script photographed
- * sideways or upside down is common enough to need this) — permanently,
- * not just for the reviewer's own look: the next person to open this
- * prescription, from either the small preview or the full-size viewer,
- * sees it rotated the same way.
+ * Fixes one image's display rotation (a script photographed sideways or
+ * upside down is common enough to need this) — permanently, not just for
+ * the reviewer's own look: the next person to open this prescription sees
+ * it rotated the same way. [imageId] is one row of `app.prescription_image`
+ * (migration 0040) — per image, not per prescription, since only one page
+ * of a multi-page script may need fixing.
  */
 export async function setPrescriptionImageRotation(
-  id: string,
+  imageId: string,
   degrees: 0 | 90 | 180 | 270,
 ): Promise<void> {
   await query(
-    `UPDATE app.prescription SET image_rotation = $2 WHERE id = $1`,
-    [id, degrees],
+    `UPDATE app.prescription_image SET image_rotation = $2 WHERE id = $1`,
+    [imageId, degrees],
   );
 }
 

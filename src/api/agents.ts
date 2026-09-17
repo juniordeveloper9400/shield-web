@@ -133,6 +133,33 @@ export async function approveAgent(
     throw new Error('That position is already held by another agent.');
   }
 
+  // An agent can only ever be a real, registered app member — never a bare
+  // KYC form with nobody behind it. The INSERT below resolves member_id by
+  // phone with no guard at all ("this recruit isn't a member row yet in
+  // every legacy case" — see its own comment): left unchecked, a phone that
+  // matches no app.users row silently lands as member_id NULL, and one that
+  // matches a member who never finished registering (no store, no profile)
+  // still goes through. Both are exactly the "orphan agent" shape this
+  // console's own approval queue is meant to keep out.
+  const [member] = await query<Row>(
+    `SELECT u.registration_completed_at
+       FROM app.agent_request r
+       JOIN app.users u ON u.phone = r.phone
+      WHERE r.id = $1
+      LIMIT 1`,
+    [id],
+  );
+  if (!member) {
+    throw new Error(
+      'No registered member matches this phone number — an agent can only be created for a real registered app user.',
+    );
+  }
+  if (!member.registration_completed_at) {
+    throw new Error(
+      "This member hasn't finished their SHIELD registration yet — approve once they have.",
+    );
+  }
+
   // An admin who leaves "Parent agent" at "(top of tree)" almost always
   // means "I haven't thought about it", not "this agent truly reports to
   // nobody" -- derive the geographically correct one instead of taking that
