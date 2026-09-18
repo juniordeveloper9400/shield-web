@@ -718,23 +718,11 @@ export function PrescriptionReviewModal({
                 </Button>
               )}
               <Button
-                variant="secondary"
+                variant="primary"
                 disabled={!draftHasRows}
                 onClick={() => setStep('details')}
               >
                 Next: Details →
-              </Button>
-              <Button
-                variant="primary"
-                disabled={!draftHasRows || !processed || sending}
-                title={
-                  !processed
-                    ? 'Click "Process" above to group the medicines by status first'
-                    : undefined
-                }
-                onClick={() => void convertToBill()}
-              >
-                {sending ? 'Converting…' : 'Convert to bill →'}
               </Button>
             </>
           ) : (
