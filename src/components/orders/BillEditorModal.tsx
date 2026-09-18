@@ -9,12 +9,14 @@ import { useAsync } from '@/lib/useAsync';
 import { sendOrderInvoice } from '@/api/orders';
 import { collectBillWithWallet, getWalletBalanceForOrder } from '@/api/billPayments';
 import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
+import { listStores } from '@/api/stores';
 import { confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
 import {
   STOCK_STATUS_OPTIONS,
   STOCK_STATUS_TONE,
 } from '@/lib/prescriptionMedicine';
-import type { Order, PrescriptionMedicine } from '@/types';
+import { InvoiceModal } from './InvoiceModal';
+import type { Order, PaymentStatus, PrescriptionMedicine } from '@/types';
 
 const inputClass =
   'w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
@@ -50,6 +52,20 @@ export function BillEditorModal({
 }) {
   const hasBill = order.billAmount > 0;
   const [mode, setMode] = useState<'summary' | 'edit'>(hasBill ? 'summary' : 'edit');
+  // Whether a priced bill exists at all — true from a previous visit
+  // (`hasBill`) or the moment `submit()` sends one in this session. Once
+  // true, the summary below reads the bill from this component's own
+  // `lines`/`total` state rather than the `order` prop, which the parent
+  // has no reason to have refreshed yet (the modal stays open straight
+  // through sending → collecting → viewing the invoice, all one visit).
+  const [billSent, setBillSent] = useState(hasBill);
+  const [showInvoice, setShowInvoice] = useState(false);
+
+  // For the invoice's letterhead — resolved by the order's own branch code
+  // rather than passed in, so this modal (shared by BillsPage and
+  // OrdersPage) doesn't need a store prop threaded through both call sites.
+  const { data: stores } = useAsync(listStores, []);
+  const store = stores?.find((s) => s.code === order.storeCode);
 
   // This order's own intake medicines, when it has any (a prescription
   // order only) — the picker below offers them by stock status instead of
@@ -144,6 +160,18 @@ export function BillEditorModal({
   const walletCoverage = Math.min(walletBalance ?? 0, total);
   const cashOwed = Math.max(total - walletCoverage, 0);
 
+  // The bill as it actually stands right now — `total`/`usableLines` once
+  // one has been sent in this session or an earlier one (`billSent`),
+  // falling back to the order prop only for an order that has never been
+  // billed at all. `collected` (set the moment `verifyAndCollect` succeeds)
+  // is what flips this to paid without waiting on a parent reload.
+  const effectiveBillAmount = billSent ? total : order.billAmount;
+  const effectiveBillLines = billSent ? usableLines : order.billLines;
+  // `order.billStatus` is otherwise trusted as-is (correct whether nothing's
+  // been sent yet, or a bill from an earlier visit is already paid) —
+  // `collected` is the one thing this session knows that prop can't yet.
+  const effectiveBillStatus: PaymentStatus = collected ? 'paid' : order.billStatus;
+
   function patchLine(i: number, patch: Partial<BillLineDraft>) {
     setLines((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   }
@@ -179,6 +207,10 @@ export function BillEditorModal({
     }
   }
 
+  /** Sends the priced bill and stays open, switching to the summary — the
+   *  admin's own next moves (collecting payment, then viewing/printing the
+   *  invoice) both happen right here in the same visit, rather than closing
+   *  and needing "Manage bill" reopened to reach them. */
   async function submit() {
     if (usableLines.length === 0) {
       setError('Add at least one priced line before sending.');
@@ -189,7 +221,8 @@ export function BillEditorModal({
     try {
       await sendOrderInvoice(order.id, { amount: total, lines: usableLines });
       onSaved();
-      onClose();
+      setBillSent(true);
+      setMode('summary');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send this bill.');
     } finally {
@@ -198,6 +231,7 @@ export function BillEditorModal({
   }
 
   return (
+    <>
     <Modal
       open={open}
       onClose={onClose}
@@ -209,7 +243,7 @@ export function BillEditorModal({
               Cancel
             </Button>
             <Button size="sm" onClick={() => void submit()} disabled={saving}>
-              {hasBill ? 'Resend bill' : 'Send bill'}
+              {billSent ? 'Resend bill' : 'Send bill'}
             </Button>
           </>
         ) : (
@@ -226,12 +260,12 @@ export function BillEditorModal({
       {mode === 'summary' ? (
         <div className="rounded-lg border border-slate-200 p-4">
           <p className="text-sm text-slate-800">
-            Bill sent — {formatCurrency(order.billAmount)} (
-            {order.billStatus === 'paid' ? 'Paid' : 'Pending'})
+            Bill sent — {formatCurrency(effectiveBillAmount)} (
+            {effectiveBillStatus === 'paid' ? 'Paid' : 'Pending'})
           </p>
-          {order.billLines.length > 0 && (
+          {effectiveBillLines.length > 0 && (
             <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
-              {order.billLines.map((l, i) => (
+              {effectiveBillLines.map((l, i) => (
                 <li key={i}>
                   {l.name} {l.pack && `(${l.pack})`} × {l.qty} — {formatCurrency(l.unitPrice * l.qty)}
                 </li>
@@ -256,13 +290,10 @@ export function BillEditorModal({
         </div>
       ) : null}
 
-      {mode === 'summary' && order.billStatus !== 'paid' && (
+      {mode === 'summary' && effectiveBillStatus === 'paid' && (
         <div className="mt-3 rounded-lg border border-slate-200 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Collect bill
-          </p>
           {collected ? (
-            <p className="mt-2 text-sm font-medium text-emerald-600">
+            <p className="text-sm font-medium text-emerald-600">
               Collected —{' '}
               {collected.walletAmount > 0 && `${formatCurrency(collected.walletAmount)} from wallet`}
               {collected.walletAmount > 0 && collected.cashAmount > 0 && ' + '}
@@ -270,77 +301,87 @@ export function BillEditorModal({
               . This bill is paid.
             </p>
           ) : (
-            <>
-              <p className="mt-1 text-xs text-slate-500">
-                Send a one-time code to the member's phone, then enter what they read out to
-                you. Only once that code checks out: the member's wallet balance is used
-                automatically (up to the bill amount), and any shortfall is collected in cash
-                at the counter — never before the code is verified.
-              </p>
-              <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                <div className="flex items-center justify-between">
-                  <span>Member's wallet balance</span>
-                  <span className="font-medium text-slate-800">
-                    {formatCurrency(walletBalance ?? 0)}
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center justify-between">
-                  <span>Will draw from wallet</span>
-                  <span className="font-medium text-slate-800">
-                    {formatCurrency(walletCoverage)}
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center justify-between">
-                  <span>{cashOwed > 0 ? 'Collect in cash, hand to hand' : 'Cash needed'}</span>
-                  <span
-                    className={
-                      cashOwed > 0 ? 'font-semibold text-amber-700' : 'font-medium text-slate-800'
-                    }
-                  >
-                    {formatCurrency(cashOwed)}
-                  </span>
-                </div>
-              </div>
-              <div id={recaptchaContainerId} />
-              {!otpConfirmation ? (
-                <Button
-                  size="sm"
-                  className="mt-3"
-                  disabled={otpBusy}
-                  onClick={() => void sendOtp()}
-                >
-                  {otpBusy ? 'Sending…' : 'Send OTP to member'}
-                </Button>
-              ) : (
-                <div className="mt-3 flex items-center gap-2">
-                  <input
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value)}
-                    placeholder="6-digit code"
-                    inputMode="numeric"
-                    autoFocus
-                    className={inputClass}
-                  />
-                  <Button
-                    size="sm"
-                    disabled={otpBusy || otpCode.trim().length === 0}
-                    onClick={() => void verifyAndCollect()}
-                  >
-                    {otpBusy ? 'Verifying…' : 'Verify & collect'}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    disabled={otpBusy}
-                    onClick={() => void sendOtp()}
-                  >
-                    Resend
-                  </Button>
-                </div>
-              )}
-              {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
-            </>
+            <p className="text-sm font-medium text-emerald-600">This bill is paid.</p>
           )}
+          <Button size="sm" className="mt-3" onClick={() => setShowInvoice(true)}>
+            View / print invoice
+          </Button>
+        </div>
+      )}
+
+      {mode === 'summary' && effectiveBillStatus !== 'paid' && (
+        <div className="mt-3 rounded-lg border border-slate-200 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Collect bill
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Send a one-time code to the member's phone, then enter what they read out to
+            you. Only once that code checks out: the member's wallet balance is used
+            automatically (up to the bill amount), and any shortfall is collected in cash
+            at the counter — never before the code is verified.
+          </p>
+          <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+            <div className="flex items-center justify-between">
+              <span>Member's wallet balance</span>
+              <span className="font-medium text-slate-800">
+                {formatCurrency(walletBalance ?? 0)}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center justify-between">
+              <span>Will draw from wallet</span>
+              <span className="font-medium text-slate-800">
+                {formatCurrency(walletCoverage)}
+              </span>
+            </div>
+            <div className="mt-1 flex items-center justify-between">
+              <span>{cashOwed > 0 ? 'Collect in cash, hand to hand' : 'Cash needed'}</span>
+              <span
+                className={
+                  cashOwed > 0 ? 'font-semibold text-amber-700' : 'font-medium text-slate-800'
+                }
+              >
+                {formatCurrency(cashOwed)}
+              </span>
+            </div>
+          </div>
+          <div id={recaptchaContainerId} />
+          {!otpConfirmation ? (
+            <Button
+              size="sm"
+              className="mt-3"
+              disabled={otpBusy}
+              onClick={() => void sendOtp()}
+            >
+              {otpBusy ? 'Sending…' : 'Send OTP to member'}
+            </Button>
+          ) : (
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+                placeholder="6-digit code"
+                inputMode="numeric"
+                autoFocus
+                className={inputClass}
+              />
+              <Button
+                size="sm"
+                disabled={otpBusy || otpCode.trim().length === 0}
+                onClick={() => void verifyAndCollect()}
+              >
+                {otpBusy ? 'Verifying…' : 'Verify & collect'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={otpBusy}
+                onClick={() => void sendOtp()}
+              >
+                Resend
+              </Button>
+            </div>
+          )}
+          {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
         </div>
       )}
 
@@ -505,5 +546,18 @@ export function BillEditorModal({
         </div>
       )}
     </Modal>
+    <InvoiceModal
+      order={{
+        ...order,
+        billAmount: effectiveBillAmount,
+        billLines: effectiveBillLines,
+        billStatus: 'paid',
+        paidTotal: effectiveBillAmount,
+      }}
+      store={store}
+      open={showInvoice}
+      onClose={() => setShowInvoice(false)}
+    />
+    </>
   );
 }
