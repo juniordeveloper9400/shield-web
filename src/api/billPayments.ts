@@ -4,21 +4,24 @@ import { num } from '@/lib/mappers';
 type Row = Record<string, unknown>;
 
 /**
- * A member's current wallet balance, read-only — `0` for a member with no
- * wallet row at all (never activated one), same as `collectBillWithWallet`'s
- * own `COALESCE(w.balance, 0)` treats it. Lets the Bill step show what
- * collecting a given total would actually draw from the wallet, and what's
- * left over for cash, before the reviewer commits to anything — the same
- * `LEAST(balance, amount)` split `collectBillWithWallet` performs, worked out
- * here ahead of time against whatever total is on screen right now rather
- * than what's saved on `app.bill` yet.
+ * The wallet balance of whichever member placed [orderId], read-only — `0`
+ * for a member with no wallet row at all (never activated one), same as
+ * `collectBillWithWallet`'s own `COALESCE(w.balance, 0)` treats it, and the
+ * same join it uses (`app."order" → app.wallet` on `member_id`) rather than
+ * needing the member's id on hand separately. Lets `BillEditorModal` show
+ * what collecting a given total would actually draw from the wallet, and
+ * what's left over for cash, before the reviewer commits to anything — the
+ * same `LEAST(balance, amount)` split `collectBillWithWallet` performs,
+ * worked out here ahead of time against whatever total is on screen right
+ * now rather than what's saved on `app.bill` yet.
  */
-export async function getWalletBalanceForMember(memberId: string): Promise<number> {
+export async function getWalletBalanceForOrder(orderId: string): Promise<number> {
   const rows = await query<Row>(
     `SELECT COALESCE(w.balance, 0) AS balance
-       FROM app.wallet w
-      WHERE w.member_id = $1`,
-    [memberId],
+       FROM app."order" o
+       LEFT JOIN app.wallet w ON w.member_id = o.member_id
+      WHERE o.id = $1`,
+    [orderId],
   );
   return rows.length > 0 ? num(rows[0].balance) : 0;
 }

@@ -1,4 +1,4 @@
-import { sql, query } from '@/lib/db';
+import { query } from '@/lib/db';
 import { fromEnum, iso, num } from '@/lib/mappers';
 import type {
   BillLine,
@@ -32,9 +32,10 @@ function toBillLine(r: Row): BillLine {
   };
 }
 
-/** Every member order, newest first, with its line items attached. */
-export async function listOrders(): Promise<Order[]> {
-  const rows = (await sql`
+/** The columns and joins every order read needs — shared between
+ *  {@link listOrders} (every order) and {@link getOrder} (one, by id), so
+ *  the two can never map a row differently. */
+const ORDER_SELECT = `
     SELECT o.id, o.code,
            m.name  AS member_name,
            m.phone AS member_phone,
@@ -64,10 +65,25 @@ export async function listOrders(): Promise<Order[]> {
       WHERE order_id = o.id
       ORDER BY uploaded_at DESC
       LIMIT 1
-    ) r ON true
-    ORDER BY o.placed_at DESC
-  `) as Row[];
+    ) r ON true`;
 
+/** Every member order, newest first, with its line items attached. */
+export async function listOrders(): Promise<Order[]> {
+  const rows = await query<Row>(`${ORDER_SELECT} ORDER BY o.placed_at DESC`);
+  return mapOrderRows(rows);
+}
+
+/** One order, by id — the same shape {@link listOrders} returns, for a
+ *  caller that only needs to read back a single order it already knows the
+ *  id of (e.g. re-checking a bill's real, saved state) rather than fetching
+ *  and filtering the whole list. Null when no such order exists. */
+export async function getOrder(id: string): Promise<Order | null> {
+  const rows = await query<Row>(`${ORDER_SELECT} WHERE o.id = $1::bigint`, [id]);
+  const orders = await mapOrderRows(rows);
+  return orders[0] ?? null;
+}
+
+async function mapOrderRows(rows: Row[]): Promise<Order[]> {
   if (rows.length === 0) return [];
 
   const ids = rows.map((r) => String(r.id));

@@ -2,12 +2,19 @@ import { useMemo, useState } from 'react';
 import type { ConfirmationResult } from 'firebase/auth';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/format';
 import { fileToResizedDataUrl } from '@/lib/images';
+import { useAsync } from '@/lib/useAsync';
 import { sendOrderInvoice } from '@/api/orders';
-import { collectBillWithWallet } from '@/api/billPayments';
+import { collectBillWithWallet, getWalletBalanceForOrder } from '@/api/billPayments';
+import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
 import { confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
-import type { Order } from '@/types';
+import {
+  STOCK_STATUS_OPTIONS,
+  STOCK_STATUS_TONE,
+} from '@/lib/prescriptionMedicine';
+import type { Order, PrescriptionMedicine } from '@/types';
 
 const inputClass =
   'w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
@@ -24,9 +31,11 @@ interface BillLineDraft {
  * shared by `BillsPage` and `OrdersPage` rather than each growing its own
  * copy. Pre-fills from the order's own cart lines for a standard order (the
  * price is already known at checkout time); a prescription order has none of
- * those, so it opens empty for the admin to key in from the intake card —
- * the same shape `PrescriptionReviewModal`'s own bill step writes through
- * `sendOrderInvoice`.
+ * those, so its own intake medicines (see `getPrescriptionMedicinesForOrder`)
+ * are offered below as one-tap "Add to bill" candidates, grouped by the same
+ * stock status the intake card set — an admin choosing what actually goes on
+ * the bill rather than retyping every line from the script by hand. Also
+ * where "Convert to bill →" on `PrescriptionReviewModal` now lands.
  */
 export function BillEditorModal({
   order,
@@ -41,6 +50,26 @@ export function BillEditorModal({
 }) {
   const hasBill = order.billAmount > 0;
   const [mode, setMode] = useState<'summary' | 'edit'>(hasBill ? 'summary' : 'edit');
+
+  // This order's own intake medicines, when it has any (a prescription
+  // order only) — the picker below offers them by stock status instead of
+  // making the admin retype the script from scratch.
+  const { data: prescriptionMedicines } = useAsync(
+    () =>
+      order.kind === 'prescription'
+        ? getPrescriptionMedicinesForOrder(order.id)
+        : Promise.resolve(null),
+    [order.id, order.kind],
+  );
+
+  // What collecting the total on screen right now would actually draw from
+  // the wallet, and what's left for cash — the same `LEAST(balance, amount)`
+  // split `collectBillWithWallet` performs, shown ahead of time so the
+  // admin knows what to expect before ever sending the OTP.
+  const { data: walletBalance } = useAsync(
+    () => getWalletBalanceForOrder(order.id),
+    [order.id],
+  );
 
   // --- OTP-gated wallet collection ----------------------------------------
   // Nothing here ever debits the wallet on its own — sendOtp only asks
@@ -112,6 +141,8 @@ export function BillEditorModal({
     () => usableLines.reduce((sum, l) => sum + l.unitPrice * l.qty, 0),
     [usableLines],
   );
+  const walletCoverage = Math.min(walletBalance ?? 0, total);
+  const cashOwed = Math.max(total - walletCoverage, 0);
 
   function patchLine(i: number, patch: Partial<BillLineDraft>) {
     setLines((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -119,6 +150,18 @@ export function BillEditorModal({
 
   function removeLine(i: number) {
     setLines((rows) => rows.filter((_, idx) => idx !== i));
+  }
+
+  const addedNames = useMemo(
+    () => new Set(lines.map((l) => l.name.trim().toLowerCase())),
+    [lines],
+  );
+
+  function addMedicineToBill(m: PrescriptionMedicine) {
+    setLines((rows) => [
+      ...rows,
+      { name: m.name, pack: m.pack, unitPrice: 0, qty: m.totalUnits || 1 },
+    ]);
   }
 
   async function attachImage(file: File) {
@@ -234,6 +277,30 @@ export function BillEditorModal({
                 automatically (up to the bill amount), and any shortfall is collected in cash
                 at the counter — never before the code is verified.
               </p>
+              <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                <div className="flex items-center justify-between">
+                  <span>Member's wallet balance</span>
+                  <span className="font-medium text-slate-800">
+                    {formatCurrency(walletBalance ?? 0)}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span>Will draw from wallet</span>
+                  <span className="font-medium text-slate-800">
+                    {formatCurrency(walletCoverage)}
+                  </span>
+                </div>
+                <div className="mt-1 flex items-center justify-between">
+                  <span>{cashOwed > 0 ? 'Collect in cash, hand to hand' : 'Cash needed'}</span>
+                  <span
+                    className={
+                      cashOwed > 0 ? 'font-semibold text-amber-700' : 'font-medium text-slate-800'
+                    }
+                  >
+                    {formatCurrency(cashOwed)}
+                  </span>
+                </div>
+              </div>
               <div id={recaptchaContainerId} />
               {!otpConfirmation ? (
                 <Button
@@ -274,6 +341,54 @@ export function BillEditorModal({
               {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
             </>
           )}
+        </div>
+      )}
+
+      {mode === 'edit' && prescriptionMedicines && prescriptionMedicines.length > 0 && (
+        <div className="mb-4 rounded-lg border border-slate-200 p-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Prescription medicines
+          </p>
+          <div className="space-y-2">
+            {STOCK_STATUS_OPTIONS.map(({ value, label }) => {
+              const group = prescriptionMedicines.filter((m) => m.status === value);
+              if (group.length === 0) return null;
+              return (
+                <div key={value}>
+                  <Badge tone={STOCK_STATUS_TONE[value]}>{label}</Badge>
+                  <div className="mt-1.5 space-y-1">
+                    {group.map((m, i) => {
+                      const added = addedNames.has(m.name.trim().toLowerCase());
+                      return (
+                        <div
+                          key={i}
+                          className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-2.5 py-1.5 text-xs"
+                        >
+                          <div>
+                            <span className="font-medium text-slate-700">{m.name}</span>
+                            {m.pack && <span className="text-slate-400"> · {m.pack}</span>}
+                            <span className="text-slate-400"> · Qty {m.totalUnits}</span>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={added}
+                            onClick={() => addMedicineToBill(m)}
+                            className={
+                              added
+                                ? 'text-slate-300'
+                                : 'font-medium text-brand-600 hover:text-brand-700'
+                            }
+                          >
+                            {added ? 'Added' : 'Add to bill'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -344,6 +459,32 @@ export function BillEditorModal({
             <span>Total</span>
             <span>{formatCurrency(total)}</span>
           </div>
+          {total > 0 && (
+            <div className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              <div className="flex items-center justify-between">
+                <span>Member's wallet balance</span>
+                <span className="font-medium text-slate-800">
+                  {formatCurrency(walletBalance ?? 0)}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between">
+                <span>From wallet</span>
+                <span className="font-medium text-slate-800">
+                  {formatCurrency(walletCoverage)}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center justify-between">
+                <span>{cashOwed > 0 ? 'Collect in cash, hand to hand' : 'Cash needed'}</span>
+                <span
+                  className={
+                    cashOwed > 0 ? 'font-semibold text-amber-700' : 'font-medium text-slate-800'
+                  }
+                >
+                  {formatCurrency(cashOwed)}
+                </span>
+              </div>
+            </div>
+          )}
           <div className="mt-3 flex items-center justify-between">
             <label className="cursor-pointer text-xs font-medium text-brand-600">
               {order.billImage ? 'Replace attached picture' : 'Attach a picture instead'}

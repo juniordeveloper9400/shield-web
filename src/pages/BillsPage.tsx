@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -51,6 +52,31 @@ export default function BillsPage() {
   );
   const [editing, setEditing] = useState<Order | null>(null);
   const [viewingInvoice, setViewingInvoice] = useState<Order | null>(null);
+
+  // "Convert to bill →" on the prescription review modal lands here with
+  // `?open=<orderId>` — opens that order's bill editor immediately, once the
+  // list has actually loaded, instead of leaving the admin to search for it
+  // themselves. Clears the param right after so a later reload doesn't
+  // re-trigger it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openId = searchParams.get('open');
+  useEffect(() => {
+    if (!openId || !data) return;
+    const match = data.find((o) => o.id === openId);
+    if (match) {
+      setEditing(match);
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('open');
+        return next;
+      },
+      { replace: true },
+    );
+    // Only when the param or the list itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId, data]);
 
   const scoped = useMemo(() => scopeToStore(rows, user), [rows, user]);
   const branchBound = user?.role === 'pharmacy' && Boolean(user.storeCode);

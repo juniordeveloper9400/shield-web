@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { ConfirmationResult } from 'firebase/auth';
-import { Badge, type Tone } from '@/components/ui/Badge';
+import { useNavigate } from 'react-router-dom';
+import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { Combobox } from '@/components/ui/Combobox';
 import { DetailList } from '@/components/ui/DetailList';
 import { formatCurrency, formatDateTime, toneForStatus } from '@/lib/format';
+import {
+  STOCK_STATUS_LABEL,
+  STOCK_STATUS_OPTIONS,
+  STOCK_STATUS_TONE,
+} from '@/lib/prescriptionMedicine';
 import {
   addCustomMedicineType,
   loadCustomMedicineTypes,
@@ -35,9 +40,7 @@ import {
   updatePrescriptionDetails,
   updatePrescriptionPatient,
 } from '@/api/prescriptions';
-import { sendOrderInvoice, setOrderStatus } from '@/api/orders';
-import { collectBillWithWallet, getWalletBalanceForMember } from '@/api/billPayments';
-import { confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
+import { getOrder, setOrderStatus } from '@/api/orders';
 import { createPatient, listPatients, updateMemberContact } from '@/api/users';
 import { listStores } from '@/api/stores';
 import { useAsync } from '@/lib/useAsync';
@@ -68,24 +71,6 @@ const RELATION_OPTIONS: { value: string; label: string }[] = [
   { value: 'parent', label: 'Parent' },
   { value: 'other', label: 'Other' },
 ];
-
-/** `PrescriptionMedicineStatus` — a pharmacist-only note on each medicine
- *  line, changeable any time it's edited; never shown in the member's app. */
-const STOCK_STATUS_LABEL: Record<PrescriptionMedicineStatus, string> = {
-  available: 'Stock available',
-  out_of_stock: 'Out of stock',
-  ordered: 'Ordered',
-  not_possible: 'Not possible',
-};
-const STOCK_STATUS_TONE: Record<PrescriptionMedicineStatus, Tone> = {
-  available: 'green',
-  out_of_stock: 'amber',
-  ordered: 'blue',
-  not_possible: 'red',
-};
-const STOCK_STATUS_OPTIONS = (
-  Object.keys(STOCK_STATUS_LABEL) as PrescriptionMedicineStatus[]
-).map((value) => ({ value, label: STOCK_STATUS_LABEL[value] }));
 
 const EMPTY_ROW: PrescriptionMedicineInput = {
   name: '',
@@ -123,6 +108,7 @@ export function PrescriptionReviewModal({
   /** Called after a successful save, so the caller's list re-reads the row. */
   onSaved: () => void;
 }) {
+  const navigate = useNavigate();
   const [draft, setDraft] = useState<PrescriptionMedicineInput[]>([]);
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -141,7 +127,7 @@ export function PrescriptionReviewModal({
   // it; the prescription's own details second, once the script itself is
   // no longer needed on screen -- that step is the details form alone,
   // full width. "Next" / "Back" move between them.
-  const [step, setStep] = useState<'intake' | 'details' | 'bill'>('intake');
+  const [step, setStep] = useState<'intake' | 'details'>('intake');
   // Whether the intake card is showing as one grouped-by-status list rather
   // than plain entry order — off until "Process" is pressed, once every
   // row's stock status has been set, so lines needing the same follow-up
@@ -167,36 +153,11 @@ export function PrescriptionReviewModal({
   const [storeId, setStoreId] = useState('');
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
-  // The "Send bill" panel — prices this prescription's linked order into a
-  // real invoice. Seeded one row per intake medicine (qty from totalUnits,
-  // price starts blank); freeform extra lines (consultation, delivery, …)
-  // can be added alongside. 'summary' shows what was already sent, when
-  // there is one; 'edit' is the row editor, entered either fresh (nothing
-  // sent yet) or via "Edit bill" on an existing one.
-  type BillLineDraft = { name: string; pack: string; unitPrice: number; qty: number };
-  const [billMode, setBillMode] = useState<'summary' | 'edit'>('edit');
-  const [billLines, setBillLines] = useState<BillLineDraft[]>([]);
-  const [billSaving, setBillSaving] = useState(false);
-  const [billSendError, setBillSendError] = useState<string | null>(null);
-
-  // "Collect bill" — OTP-gated, same mechanism `BillEditorModal` uses
-  // (see that file's own doc): the member reads back a code Firebase texted
-  // them, and only once that checks out does collectBillWithWallet actually
-  // move money. Its own state, separate from the pricing editor above —
-  // pricing and collecting are two different moments, often on different
-  // visits to this step.
-  const [collectConfirmation, setCollectConfirmation] =
-    useState<ConfirmationResult | null>(null);
-  const [collectOtpCode, setCollectOtpCode] = useState('');
-  const [collectBusy, setCollectBusy] = useState(false);
-  const [collectError, setCollectError] = useState<string | null>(null);
-  const [collected, setCollected] =
-    useState<{ walletAmount: number; cashAmount: number } | null>(null);
-
-  // "Complete order" — separate again from payment collection: a bill can
-  // be fully paid and still be missing a medicine nobody's billed for yet
-  // (out of stock, on order). Completing stays a reviewer's own explicit
-  // call, never an automatic side effect of collecting payment.
+  // "Complete order" — separate from payment collection, which now happens
+  // entirely in the Bills page's `BillEditorModal`: a bill can be fully
+  // paid and still be missing a medicine nobody's billed for yet (out of
+  // stock, on order). Completing stays a reviewer's own explicit call,
+  // never an automatic side effect of collecting payment.
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
 
@@ -209,14 +170,14 @@ export function PrescriptionReviewModal({
     [prescription?.memberId],
   );
 
-  // The member's live wallet balance, for the Bill step's wallet/cash
-  // breakdown below — fetched once per member, re-usable across edits to the
-  // bill lines since only the total (not the balance) changes as those are
-  // typed.
-  const { data: walletBalance } = useAsync(
-    () =>
-      prescription ? getWalletBalanceForMember(prescription.memberId) : Promise.resolve(0),
-    [prescription?.memberId],
+  // The linked order's real, saved state — read back fresh rather than kept
+  // from any local draft, since pricing now happens entirely on the Bills
+  // page. This is what gates "Complete order" below: every billable intake
+  // medicine actually has to be on the order's real bill, and that bill has
+  // to be paid, before a reviewer can close the order out.
+  const { data: linkedOrder } = useAsync(
+    () => (prescription?.orderId ? getOrder(prescription.orderId) : Promise.resolve(null)),
+    [prescription?.orderId, prescription?.billStatus, prescription?.billAmount],
   );
   const [addedPatients, setAddedPatients] = useState<MemberPatient[]>([]);
   const patients = [...(patientRows ?? []), ...addedPatients];
@@ -419,11 +380,6 @@ export function PrescriptionReviewModal({
     setAddedPatients([]);
     setAddingPatient(false);
     setNewPatientError(null);
-    setBillSendError(null);
-    setCollectConfirmation(null);
-    setCollectOtpCode('');
-    setCollectError(null);
-    setCollected(null);
     setCompleteError(null);
     if (!prescription) {
       setSelectedRouteCode({});
@@ -441,8 +397,6 @@ export function PrescriptionReviewModal({
       setMemberPhone('');
       setPatientId('');
       setStoreId('');
-      setBillLines([]);
-      setBillMode('edit');
       return;
     }
     setDraft(
@@ -484,17 +438,6 @@ export function PrescriptionReviewModal({
     setMemberPhone(prescription.memberPhone);
     setPatientId(prescription.patientId);
     setStoreId(prescription.storeId);
-    setBillLines(
-      prescription.medicines.length > 0
-        ? prescription.medicines.map((m) => ({
-            name: m.name,
-            pack: m.pack,
-            unitPrice: 0,
-            qty: m.totalUnits || 1,
-          }))
-        : [{ name: '', pack: '', unitPrice: 0, qty: 1 }],
-    );
-    setBillMode(prescription.billAmount > 0 ? 'summary' : 'edit');
     // Only when the open prescription changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prescription?.id]);
@@ -563,9 +506,9 @@ export function PrescriptionReviewModal({
   }
 
   /** The member name/phone/patient checks both {@link sendIntake} and
-   *  {@link placeOrder} need before writing anything — split out so
-   *  "Place order" (reachable straight from the Intake step) can catch a
-   *  gap here and send the reviewer to the Details step to fill it,
+   *  {@link convertToBill} need before writing anything — split out so
+   *  "Convert to bill" (reachable straight from the Intake step) can catch
+   *  a gap here and send the reviewer to the Details step to fill it,
    *  instead of failing silently on a step that isn't even on screen. */
   function validateDetails(): boolean {
     if (!prescription) return false;
@@ -585,7 +528,7 @@ export function PrescriptionReviewModal({
    *  doctor/duration — alongside the intake card, in one go. Assumes
    *  {@link validateDetails} has already passed; returns whether it
    *  actually wrote. Shared by {@link sendIntake} (closes the modal after)
-   *  and {@link placeOrder} (moves on to the Bill step instead). */
+   *  and {@link convertToBill} (hands off to the Bills page instead). */
   async function saveDetailsAndIntake(): Promise<boolean> {
     if (!prescription) return false;
     setSending(true);
@@ -632,23 +575,29 @@ export function PrescriptionReviewModal({
     }
   }
 
-  /** "Place order →", reachable from the Intake step once the medicines are
-   *  processed — the fast path step 4 of this flow calls for: skip the
-   *  Details step entirely when the member/patient info already on file is
-   *  complete (the common case — it's pre-filled from the account), save
-   *  everything the same way {@link sendIntake} does, and land straight on
-   *  the Bill step instead of closing. Only falls back to actually showing
-   *  the Details step when something on it needs a reviewer's attention
-   *  first (a blank contact field, no patient picked, or the save itself
-   *  failing) — the modal stays open either way, never closes on this path. */
-  async function placeOrder() {
+  /** "Convert to bill →", reachable from both the Intake and Details steps
+   *  once the medicines are processed — the same "save everything, skip
+   *  ahead" shortcut {@link sendIntake} offers, except instead of closing
+   *  the modal it hands off to the Bills page (`BillEditorModal`), which
+   *  now does all the pricing, the medicine-by-status picker, and the
+   *  OTP-gated wallet/cash collection for this order. Only falls back to
+   *  actually showing the Details step when something on it needs a
+   *  reviewer's attention first (a blank contact field, no patient picked,
+   *  the save itself failing, or the prescription somehow has no linked
+   *  order yet) — the modal stays open either way, never closes on this
+   *  path. */
+  async function convertToBill() {
     if (!validateDetails()) {
       setStep('details');
       return;
     }
     if (await saveDetailsAndIntake()) {
       onSaved();
-      setStep('bill');
+      if (prescription?.orderId) {
+        navigate(`/bills?open=${prescription.orderId}`);
+      } else {
+        setStep('details');
+      }
     } else {
       setStep('details');
     }
@@ -691,74 +640,19 @@ export function PrescriptionReviewModal({
   }, [draft, processed, statusRank]);
 
   // Can this prescription's order be billed at all -- the same "at least
-  // read" gate that unlocks the Bill nav button in the footer, and a linked
-  // order to actually invoice against.
+  // read" gate that unlocks the "Convert to bill" button in the footer, and
+  // a linked order to actually invoice against.
   const canBill = Boolean(
     prescription && prescription.status !== 'awaiting_review',
   );
 
-  function patchBillLine(i: number, patch: Partial<BillLineDraft>) {
-    setBillLines((rows) => rows.map((row, j) => (j === i ? { ...row, ...patch } : row)));
-  }
-
-  function removeBillLine(i: number) {
-    setBillLines((rows) => rows.filter((_, j) => j !== i));
-  }
-
-  // Blank-named rows are dropped before totalling/sending, same convention
-  // as the intake card's own draft rows.
-  const billLinesToSend = useMemo(
-    () =>
-      billLines
-        .map((l) => ({ ...l, name: l.name.trim() }))
-        .filter((l) => l.name.length > 0),
-    [billLines],
-  );
-  const billTotal = useMemo(
-    () => billLinesToSend.reduce((sum, l) => sum + l.unitPrice * l.qty, 0),
-    [billLinesToSend],
-  );
-
-  // The step 5 validation: how much of this bill the wallet can actually
-  // cover right now, and what's left for cash-in-hand — the exact
-  // `LEAST(balance, amount)` split `collectBillWithWallet` performs, shown
-  // ahead of time so a reviewer knows what to expect (and what to ask the
-  // member for in cash) before they ever send the OTP.
-  const walletCoverage = Math.min(walletBalance ?? 0, billTotal);
-  const cashOwed = Math.max(billTotal - walletCoverage, 0);
-
-  /** Prices this prescription's linked order and sends it — the upsert on
-   *  `app.bill` (+ its `app.bill_line` rows) the member's own order screen
-   *  then reads as a real, payable invoice. Stays on the Bill step in
-   *  'summary' mode afterwards rather than closing — collecting payment and
-   *  completing the order both happen right here, on the same step, once
-   *  the bill itself is sent. */
-  async function submitBill() {
-    if (!prescription || !prescription.orderId) return;
-    setBillSaving(true);
-    setBillSendError(null);
-    try {
-      await sendOrderInvoice(prescription.orderId, {
-        amount: billTotal,
-        lines: billLinesToSend,
-      });
-      onSaved();
-      setBillMode('summary');
-    } catch (err) {
-      setBillSendError(
-        err instanceof Error ? err.message : 'Could not send this bill.',
-      );
-    } finally {
-      setBillSaving(false);
-    }
-  }
-
   // Every prescribed medicine the counter is actually expected to supply --
   // everything except a line the reviewer has marked "Not possible" (that
   // one is never going to be billed, so it can't be the reason completion
-  // stays blocked). Compared against the bill's own line names rather than
-  // prescription.medicines: draft is this session's own up-to-date list,
-  // not dependent on the parent's reload landing before this reads it.
+  // stays blocked). Compared against the *real* order's own bill lines —
+  // `linkedOrder`, read back fresh above — rather than any local draft,
+  // since pricing now happens entirely on the Bills page and this modal
+  // never sees it as it's typed.
   const billableMedicineNames = useMemo(
     () =>
       draft
@@ -767,8 +661,8 @@ export function PrescriptionReviewModal({
     [draft],
   );
   const billedMedicineNames = useMemo(
-    () => new Set(billLinesToSend.map((l) => l.name.toLowerCase())),
-    [billLinesToSend],
+    () => new Set((linkedOrder?.billLines ?? []).map((l) => l.name.trim().toLowerCase())),
+    [linkedOrder],
   );
   const unbilledMedicineCount = useMemo(
     () => billableMedicineNames.filter((n) => !billedMedicineNames.has(n)).length,
@@ -776,65 +670,15 @@ export function PrescriptionReviewModal({
   );
   const fullyBilled =
     billableMedicineNames.length > 0 && unbilledMedicineCount === 0;
-
-  // Whichever lands first: the prop's own billStatus (once the parent has
-  // reloaded after collectBillWithWallet, or on reopening an already-paid
-  // prescription) or this session's own `collected` result, set the moment
-  // collection succeeds and before that reload has necessarily landed.
-  const billIsPaid = collected !== null || prescription?.billStatus === 'paid';
-
-  const recaptchaContainerId = prescription
-    ? `rx-bill-otp-recaptcha-${prescription.id}`
-    : 'rx-bill-otp-recaptcha';
-
-  async function sendCollectOtp() {
-    if (!prescription) return;
-    setCollectBusy(true);
-    setCollectError(null);
-    try {
-      const confirmation = await sendDeliveryOtp(
-        prescription.memberPhone,
-        recaptchaContainerId,
-      );
-      setCollectConfirmation(confirmation);
-    } catch (err) {
-      setCollectError(describeOtpError(err));
-    } finally {
-      setCollectBusy(false);
-    }
-  }
-
-  /** Only reachable once the member's own code has checked out — see
-   *  `collectBillWithWallet`'s own doc for exactly how the wallet/cash
-   *  split it performs works. */
-  async function verifyAndCollectBill() {
-    if (!prescription || !prescription.orderId) return;
-    if (!collectConfirmation || collectOtpCode.trim().length === 0) return;
-    setCollectBusy(true);
-    setCollectError(null);
-    try {
-      await confirmDeliveryOtp(collectConfirmation, collectOtpCode);
-      const result = await collectBillWithWallet(prescription.orderId);
-      if (!result.ok) {
-        setCollectError(result.reason);
-        return;
-      }
-      setCollected({ walletAmount: result.walletAmount, cashAmount: result.cashAmount });
-      setCollectConfirmation(null);
-      setCollectOtpCode('');
-      onSaved();
-    } catch (err) {
-      setCollectError(describeOtpError(err));
-    } finally {
-      setCollectBusy(false);
-    }
-  }
+  const hasBill = (linkedOrder?.billAmount ?? 0) > 0;
+  const billIsPaid = linkedOrder?.billStatus === 'paid';
 
   /** Step 7 of this flow: closing out the order is always this explicit
-   *  click, never a side effect of sending or paying the bill — and it's
+   *  click, never a side effect of sending or paying the bill (which now
+   *  happens entirely in `BillEditorModal` on the Bills page) — and it's
    *  blocked while any medicine that's actually expected (i.e. not marked
-   *  "Not possible") is still missing from the bill, so a partially-filled
-   *  script can't accidentally read as finished. */
+   *  "Not possible") is still missing from the real bill, so a
+   *  partially-filled script can't accidentally read as finished. */
   async function completeOrder() {
     if (!prescription || !prescription.orderId) return;
     if (!fullyBilled || !billIsPaid) return;
@@ -888,12 +732,12 @@ export function PrescriptionReviewModal({
                     ? 'Click "Process" above to group the medicines by status first'
                     : undefined
                 }
-                onClick={() => void placeOrder()}
+                onClick={() => void convertToBill()}
               >
-                {sending ? 'Placing order…' : 'Place order →'}
+                {sending ? 'Converting…' : 'Convert to bill →'}
               </Button>
             </>
-          ) : step === 'details' ? (
+          ) : (
             <>
               <Button
                 variant="secondary"
@@ -915,44 +759,14 @@ export function PrescriptionReviewModal({
                 <Button
                   variant="secondary"
                   disabled={sending}
-                  onClick={() => setStep('bill')}
+                  onClick={() => void convertToBill()}
                 >
-                  Price & send bill →
+                  {sending ? 'Converting…' : 'Convert to bill →'}
                 </Button>
               )}
-              <Button variant="primary" disabled={sending} onClick={sendIntake}>
-                {sending
-                  ? 'Sending…'
-                  : prescription.medicines.length > 0
-                    ? 'Update intake card'
-                    : 'Send intake card'}
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button
-                variant="secondary"
-                disabled={billSaving}
-                onClick={() => setStep('details')}
-              >
-                ← Back to details
-              </Button>
-              {billMode === 'edit' && (
+              {canBill && hasBill && (
                 <Button
-                  variant="primary"
-                  disabled={billSaving || !prescription.orderId}
-                  onClick={submitBill}
-                >
-                  {billSaving
-                    ? 'Sending…'
-                    : prescription.billAmount > 0
-                      ? 'Update bill'
-                      : 'Send bill'}
-                </Button>
-              )}
-              {billMode === 'summary' && (
-                <Button
-                  variant="primary"
+                  variant="secondary"
                   disabled={completing || !fullyBilled || !billIsPaid}
                   title={
                     !fullyBilled
@@ -966,6 +780,13 @@ export function PrescriptionReviewModal({
                   {completing ? 'Completing…' : 'Complete order'}
                 </Button>
               )}
+              <Button variant="primary" disabled={sending} onClick={sendIntake}>
+                {sending
+                  ? 'Sending…'
+                  : prescription.medicines.length > 0
+                    ? 'Update intake card'
+                    : 'Send intake card'}
+              </Button>
             </>
           ))
         }
@@ -1002,15 +823,7 @@ export function PrescriptionReviewModal({
                   </Badge>
                 </div>
                 <span className="text-xs font-medium text-slate-400">
-                  {step === 'intake'
-                    ? canBill
-                      ? '1 of 3 · Intake card'
-                      : '1 of 2 · Intake card'
-                    : step === 'details'
-                      ? canBill
-                        ? '2 of 3 · Details'
-                        : '2 of 2 · Details'
-                      : '3 of 3 · Billing'}
+                  {step === 'intake' ? '1 of 2 · Intake card' : '2 of 2 · Details'}
                 </span>
               </div>
 
@@ -1371,7 +1184,7 @@ export function PrescriptionReviewModal({
                   )}
                 </div>
               </div>
-              ) : step === 'details' ? (
+              ) : (
                 <>
                   <DetailList
                     rows={[
@@ -1610,276 +1423,23 @@ export function PrescriptionReviewModal({
                       {detailsError}
                     </p>
                   )}
-                </>
-              ) : (
-                <div>
-                  <p className="mb-3 text-xs text-slate-400">
-                    {prescription.memberName} · {prescription.patientName}
-                  </p>
-                  {!prescription.orderId ? (
-                    <p className="rounded-lg border border-dashed border-slate-300 px-3 py-6 text-center text-sm text-slate-400">
-                      No linked order found — this prescription can&apos;t be
-                      billed from here.
+                  {canBill && (
+                    <p className="mt-3 text-xs text-slate-500">
+                      {hasBill
+                        ? `Bill: ${linkedOrder ? formatCurrency(linkedOrder.billAmount) : '—'} (${billIsPaid ? 'Paid' : 'Pending'})${
+                            !fullyBilled
+                              ? ` — ${unbilledMedicineCount} medicine${unbilledMedicineCount === 1 ? '' : 's'} still not on the bill`
+                              : ''
+                          }`
+                        : 'Not billed yet — use "Convert to bill" to price and send it from the Bills page.'}
                     </p>
-                  ) : billMode === 'summary' ? (
-                    <div className="space-y-3">
-                      <div className="rounded-lg border border-slate-200 p-4">
-                        <p className="text-sm text-slate-800">
-                          Bill sent — {formatCurrency(prescription.billAmount)} (
-                          {billIsPaid ? 'Paid' : 'Pending'})
-                        </p>
-                        <div className="mt-2">
-                          {fullyBilled ? (
-                            <Badge tone="green">All medicines billed</Badge>
-                          ) : (
-                            <Badge tone="amber">
-                              {unbilledMedicineCount} medicine
-                              {unbilledMedicineCount === 1 ? '' : 's'} not on the bill —
-                              partially billed
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="mt-3">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => setBillMode('edit')}
-                          >
-                            Edit bill
-                          </Button>
-                        </div>
-                      </div>
-
-                      {!billIsPaid && (
-                        <div className="rounded-lg border border-slate-200 p-4">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                            Collect bill
-                          </p>
-                          <p className="mt-1 text-xs text-slate-500">
-                            Send a one-time code to the member&apos;s phone, then enter
-                            what they read out to you. Only once that code checks out:
-                            the member&apos;s wallet balance is used automatically (up
-                            to the bill amount), and any shortfall is collected in cash
-                            at the counter — never before the code is verified.
-                          </p>
-                          {billTotal > 0 && (
-                            <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                              <div className="flex items-center justify-between">
-                                <span>Member&apos;s wallet balance</span>
-                                <span className="font-medium text-slate-800">
-                                  {formatCurrency(walletBalance ?? 0)}
-                                </span>
-                              </div>
-                              <div className="mt-1 flex items-center justify-between">
-                                <span>Will draw from wallet</span>
-                                <span className="font-medium text-slate-800">
-                                  {formatCurrency(walletCoverage)}
-                                </span>
-                              </div>
-                              <div className="mt-1 flex items-center justify-between">
-                                <span>
-                                  {cashOwed > 0
-                                    ? 'Collect in cash, hand to hand'
-                                    : 'Cash needed'}
-                                </span>
-                                <span
-                                  className={
-                                    cashOwed > 0
-                                      ? 'font-semibold text-amber-700'
-                                      : 'font-medium text-slate-800'
-                                  }
-                                >
-                                  {formatCurrency(cashOwed)}
-                                </span>
-                              </div>
-                            </div>
-                          )}
-                          <div id={recaptchaContainerId} />
-                          {!collectConfirmation ? (
-                            <Button
-                              size="sm"
-                              className="mt-3"
-                              disabled={collectBusy}
-                              onClick={() => void sendCollectOtp()}
-                            >
-                              {collectBusy ? 'Sending…' : 'Send OTP to member'}
-                            </Button>
-                          ) : (
-                            <div className="mt-3 flex items-center gap-2">
-                              <input
-                                value={collectOtpCode}
-                                onChange={(e) => setCollectOtpCode(e.target.value)}
-                                placeholder="6-digit code"
-                                inputMode="numeric"
-                                autoFocus
-                                className={inputClass}
-                              />
-                              <Button
-                                size="sm"
-                                disabled={collectBusy || collectOtpCode.trim().length === 0}
-                                onClick={() => void verifyAndCollectBill()}
-                              >
-                                {collectBusy ? 'Verifying…' : 'Verify & collect'}
-                              </Button>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                disabled={collectBusy}
-                                onClick={() => void sendCollectOtp()}
-                              >
-                                Resend
-                              </Button>
-                            </div>
-                          )}
-                          {collectError && (
-                            <p className="mt-2 text-xs text-rose-600">{collectError}</p>
-                          )}
-                        </div>
-                      )}
-
-                      {collected && (
-                        <p className="text-sm font-medium text-emerald-600">
-                          Collected —{' '}
-                          {collected.walletAmount > 0 &&
-                            `${formatCurrency(collected.walletAmount)} from wallet`}
-                          {collected.walletAmount > 0 && collected.cashAmount > 0 && ' + '}
-                          {collected.cashAmount > 0 &&
-                            `${formatCurrency(collected.cashAmount)} in cash`}
-                          . This bill is paid.
-                        </p>
-                      )}
-
-                      {completeError && (
-                        <p className="text-xs text-rose-600">{completeError}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="mb-2 flex items-center justify-between">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Bill lines
-                        </p>
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-brand-600"
-                          onClick={() =>
-                            setBillLines((rows) => [
-                              ...rows,
-                              { name: '', pack: '', unitPrice: 0, qty: 1 },
-                            ])
-                          }
-                        >
-                          + Add line
-                        </button>
-                      </div>
-                      <div className="space-y-2">
-                        {billLines.map((line, i) => (
-                          <div
-                            key={i}
-                            className="rounded-lg border border-slate-200 p-3"
-                          >
-                            <div className="mb-1.5 flex items-center justify-between">
-                              <span className="text-xs font-medium text-slate-500">
-                                Line {i + 1}
-                              </span>
-                              <button
-                                type="button"
-                                className="text-xs font-medium text-rose-600 hover:text-rose-700"
-                                onClick={() => removeBillLine(i)}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                            <input
-                              value={line.name}
-                              onChange={(e) =>
-                                patchBillLine(i, { name: e.target.value })
-                              }
-                              placeholder="Item name"
-                              className={inputClass}
-                            />
-                            <div className="mt-2 grid grid-cols-3 gap-1.5">
-                              <input
-                                value={line.pack}
-                                onChange={(e) =>
-                                  patchBillLine(i, { pack: e.target.value })
-                                }
-                                placeholder="Pack"
-                                className={inputClass}
-                              />
-                              <input
-                                value={line.unitPrice || ''}
-                                onChange={(e) =>
-                                  patchBillLine(i, {
-                                    unitPrice: Number(e.target.value) || 0,
-                                  })
-                                }
-                                placeholder="Unit price"
-                                inputMode="decimal"
-                                className={inputClass}
-                              />
-                              <input
-                                value={line.qty || ''}
-                                onChange={(e) =>
-                                  patchBillLine(i, {
-                                    qty: Number(e.target.value) || 0,
-                                  })
-                                }
-                                placeholder="Qty"
-                                inputMode="numeric"
-                                className={inputClass}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                        {billLines.length === 0 && (
-                          <p className="text-sm text-slate-400">
-                            No lines yet — add at least one.
-                          </p>
-                        )}
-                      </div>
-                      <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-semibold text-slate-800">
-                        <span>Total</span>
-                        <span>{formatCurrency(billTotal)}</span>
-                      </div>
-                      {billTotal > 0 && (
-                        <div className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                          <div className="flex items-center justify-between">
-                            <span>Member&apos;s wallet balance</span>
-                            <span className="font-medium text-slate-800">
-                              {formatCurrency(walletBalance ?? 0)}
-                            </span>
-                          </div>
-                          <div className="mt-1 flex items-center justify-between">
-                            <span>From wallet</span>
-                            <span className="font-medium text-slate-800">
-                              {formatCurrency(walletCoverage)}
-                            </span>
-                          </div>
-                          <div className="mt-1 flex items-center justify-between">
-                            <span>
-                              {cashOwed > 0
-                                ? 'Collect in cash, hand to hand'
-                                : 'Cash needed'}
-                            </span>
-                            <span
-                              className={
-                                cashOwed > 0
-                                  ? 'font-semibold text-amber-700'
-                                  : 'font-medium text-slate-800'
-                              }
-                            >
-                              {formatCurrency(cashOwed)}
-                            </span>
-                          </div>
-                        </div>
-                      )}
-                      {billSendError && (
-                        <p className="mt-2 text-xs text-rose-600">{billSendError}</p>
-                      )}
-                    </div>
                   )}
-                </div>
+                  {completeError && (
+                    <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                      {completeError}
+                    </p>
+                  )}
+                </>
               )}
             </div>
 

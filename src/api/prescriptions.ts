@@ -219,6 +219,43 @@ export async function listPrescriptionsForMember(
   return fetchPrescriptions(memberId);
 }
 
+/**
+ * The medicines on whichever prescription [orderId] was billed against —
+ * `BillEditorModal`'s source for offering a prescription order's real
+ * intake list (name, pack, quantity, stock status) as bill-line candidates,
+ * instead of a blank form. A focused query rather than {@link fetchPrescriptions}
+ * — no images, patient, or doctor details, none of which a bill needs.
+ *
+ * Null when [orderId] has no linked prescription at all (a standard order,
+ * or a gap); an empty array when it does but nothing was ever added to its
+ * intake card.
+ */
+export async function getPrescriptionMedicinesForOrder(
+  orderId: string,
+): Promise<PrescriptionMedicine[] | null> {
+  const rxRows = await query<Row>(
+    `SELECT rx.id
+       FROM app.prescription_order po
+       JOIN app.prescription rx ON rx.id = po.prescription_id
+      WHERE po.order_id = $1
+      ORDER BY po.id DESC
+      LIMIT 1`,
+    [orderId],
+  );
+  if (rxRows.length === 0) {
+    return null;
+  }
+  const medRows = await query<Row>(
+    `SELECT name, pack, dose_morning, dose_afternoon, dose_night, total_units,
+            route_time, status
+       FROM app.prescription_medicine
+      WHERE prescription_id = $1
+      ORDER BY sort, id`,
+    [rxRows[0].id],
+  );
+  return medRows.map(toMedicine);
+}
+
 export async function setPrescriptionStatus(
   id: string,
   status: PrescriptionStatus,
