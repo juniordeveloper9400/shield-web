@@ -523,6 +523,26 @@ export function PrescriptionReviewModal({
     setDropCount(reindex);
   }
 
+  /** Adds a blank row at the top of the intake card rather than the bottom —
+   *  a reviewer working down a script adds each next medicine right where
+   *  they're already looking, instead of it landing off-screen below
+   *  whatever's already been filled in. Every existing row shifts down one
+   *  index, so the preset-dropdown selections keyed by index have to shift
+   *  with them, same as removeRow's own reindex the other way. */
+  function addRow() {
+    setDraft((d) => [{ ...EMPTY_ROW }, ...d]);
+    function reindex<T>(m: Record<number, T>): Record<number, T> {
+      const next: Record<number, T> = {};
+      for (const [k, v] of Object.entries(m)) {
+        next[Number(k) + 1] = v;
+      }
+      return next;
+    }
+    setSelectedFrequency(reindex);
+    setSelectedRouteCode(reindex);
+    setDropCount(reindex);
+  }
+
   /** Rotates the selected image by [delta] degrees and saves it immediately
    *  — a reviewer rotating a sideways script fixes it for good, not just
    *  for this look, so there is no separate "save rotation" step to
@@ -964,9 +984,23 @@ export function PrescriptionReviewModal({
                 screen by then. */}
             <div className={step === 'intake' ? 'order-2 md:order-1' : ''}>
               <div className="mb-3 flex items-center justify-between">
-                <Badge tone={toneForStatus(prescription.status)}>
-                  {STATUS_LABEL[prescription.status]}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Badge tone={toneForStatus(prescription.status)}>
+                    {STATUS_LABEL[prescription.status]}
+                  </Badge>
+                  {/* Store pickup vs home delivery — the same fact Orders
+                      shows on every order, surfaced here too since a
+                      prescription's fulfilment decides whether the counter
+                      hands the script over in person or a delivery boy takes
+                      it out. */}
+                  <Badge tone={prescription.fulfillmentType === 'home_delivery' ? 'blue' : 'gray'}>
+                    <Icon
+                      name={prescription.fulfillmentType === 'home_delivery' ? 'deliveries' : 'stores'}
+                      className="h-3 w-3"
+                    />
+                    {prescription.fulfillmentType === 'home_delivery' ? 'Home Delivery' : 'Store Pickup'}
+                  </Badge>
+                </div>
                 <span className="text-xs font-medium text-slate-400">
                   {step === 'intake'
                     ? canBill
@@ -1006,7 +1040,7 @@ export function PrescriptionReviewModal({
                     <button
                       type="button"
                       className="text-xs font-medium text-brand-600"
-                      onClick={() => setDraft((d) => [...d, { ...EMPTY_ROW }])}
+                      onClick={addRow}
                     >
                       + Add medicine
                     </button>
@@ -1508,6 +1542,18 @@ export function PrescriptionReviewModal({
                               </option>
                             ))}
                           </select>
+                        ),
+                      },
+                      {
+                        label: 'Fulfilment',
+                        value: (
+                          <Badge tone={prescription.fulfillmentType === 'home_delivery' ? 'blue' : 'gray'}>
+                            <Icon
+                              name={prescription.fulfillmentType === 'home_delivery' ? 'deliveries' : 'stores'}
+                              className="h-3 w-3"
+                            />
+                            {prescription.fulfillmentType === 'home_delivery' ? 'Home Delivery' : 'Store Pickup'}
+                          </Badge>
                         ),
                       },
                       {

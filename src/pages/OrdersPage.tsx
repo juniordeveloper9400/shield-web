@@ -330,7 +330,15 @@ export default function OrdersPage() {
                 { label: 'Kind', value: titleCase(selected.kind) },
                 {
                   label: 'Fulfilment',
-                  value: titleCase(selected.fulfillmentType),
+                  value: (
+                    <Badge tone={selected.fulfillmentType === 'home_delivery' ? 'blue' : 'gray'}>
+                      <Icon
+                        name={selected.fulfillmentType === 'home_delivery' ? 'deliveries' : 'stores'}
+                        className="h-3 w-3"
+                      />
+                      {titleCase(selected.fulfillmentType)}
+                    </Badge>
+                  ),
                 },
                 { label: 'Payment', value: selected.paymentMethod },
                 {
