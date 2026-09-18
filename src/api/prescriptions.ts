@@ -56,6 +56,7 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
            pt.name AS patient_name,
            rx.doctor, rx.file_name,
            rx.duration, rx.custom_days, rx.status,
+           (rx.image IS NOT NULL) AS has_legacy_image,
            COALESCE(rs.code, os.code, hs.code) AS store_code,
            COALESCE(rs.name, os.name, hs.name) AS store_name,
            rx.created_at,
@@ -141,6 +142,35 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
       image: String(ir.image ?? ''),
       rotation: Number(ir.image_rotation ?? 0),
     });
+  }
+
+  // Scripts uploaded before migration 0040 carry their one photo directly on
+  // `app.prescription.image`/`image_rotation` instead of a `prescription_image`
+  // row — never backfilled into the new table, so without this they show as
+  // "no image was uploaded" in the console despite the photo being right
+  // there. Only fetched for the rows that actually need it (no new-table rows,
+  // legacy column non-null): `rx.image` is a 100KB+ base64 string, too heavy
+  // to pull for every prescription in the main list query above.
+  const legacyIds = rows
+    .filter(
+      (r) => (imagesByRx.get(String(r.id)) ?? []).length === 0 && r.has_legacy_image,
+    )
+    .map((r) => String(r.id));
+  if (legacyIds.length > 0) {
+    const legacyRows = await query<Row>(
+      `SELECT id, image, image_rotation FROM app.prescription WHERE id = ANY($1::bigint[])`,
+      [legacyIds],
+    );
+    for (const lr of legacyRows) {
+      const key = String(lr.id);
+      imagesByRx.set(key, [
+        {
+          id: `legacy-${key}`,
+          image: String(lr.image ?? ''),
+          rotation: Number(lr.image_rotation ?? 0),
+        },
+      ]);
+    }
   }
 
   return rows.map((r) => ({
@@ -271,12 +301,22 @@ export async function updatePrescriptionPatient(
  * the reviewer's own look: the next person to open this prescription sees
  * it rotated the same way. [imageId] is one row of `app.prescription_image`
  * (migration 0040) — per image, not per prescription, since only one page
- * of a multi-page script may need fixing.
+ * of a multi-page script may need fixing. A `legacy-<id>` id (see
+ * `fetchPrescriptions`'s own doc) has no such row to update — it's the
+ * pre-migration `app.prescription.image_rotation` column instead.
  */
 export async function setPrescriptionImageRotation(
   imageId: string,
   degrees: 0 | 90 | 180 | 270,
 ): Promise<void> {
+  const legacyMatch = imageId.match(/^legacy-(\d+)$/);
+  if (legacyMatch) {
+    await query(
+      `UPDATE app.prescription SET image_rotation = $2 WHERE id = $1`,
+      [legacyMatch[1], degrees],
+    );
+    return;
+  }
   await query(
     `UPDATE app.prescription_image SET image_rotation = $2 WHERE id = $1`,
     [imageId, degrees],
