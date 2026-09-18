@@ -283,25 +283,6 @@ export default function OrdersPage() {
         footer={
           selected && (
             <>
-              {selected.status === 'processing' && (
-                <Button
-                  variant="primary"
-                  disabled={saving}
-                  onClick={() => changeStatus(selected.id, 'out_for_delivery')}
-                >
-                  Out for delivery
-                </Button>
-              )}
-              {(selected.status === 'processing' ||
-                selected.status === 'out_for_delivery') && (
-                <Button
-                  variant="success"
-                  disabled={saving}
-                  onClick={() => changeStatus(selected.id, 'delivered')}
-                >
-                  <Icon name="check" className="h-4 w-4" /> Mark delivered
-                </Button>
-              )}
               {selected.status !== 'delivered' && selected.status !== 'cancelled' && (
                 <Button
                   variant="danger"
@@ -311,6 +292,9 @@ export default function OrdersPage() {
                   Cancel
                 </Button>
               )}
+              <Button variant="primary" onClick={() => setBillEditorOpen(true)}>
+                Manage bill
+              </Button>
             </>
           )
         }

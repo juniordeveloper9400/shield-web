@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { formatCurrency } from '@/lib/format';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { useAsync } from '@/lib/useAsync';
-import { sendOrderInvoice } from '@/api/orders';
+import { sendOrderInvoice, setOrderStatus } from '@/api/orders';
 import { collectBillWithWallet, getWalletBalanceForOrder } from '@/api/billPayments';
 import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
 import { listStores } from '@/api/stores';
@@ -60,6 +60,14 @@ export function BillEditorModal({
   // through sending → collecting → viewing the invoice, all one visit).
   const [billSent, setBillSent] = useState(hasBill);
   const [showInvoice, setShowInvoice] = useState(false);
+  // "Complete order" — the order's own tracked status (`Order placed →
+  // Store will contact → Billed → Completed`, see the member app's own
+  // `OrderTrack`) now moves on this click rather than a separate raw
+  // status button: once the bill is paid, this is what actually closes
+  // the order out. Explicit and admin-driven, never automatic — a paid
+  // bill alone doesn't mean the order has actually gone out.
+  const [completing, setCompleting] = useState(false);
+  const [completeError, setCompleteError] = useState<string | null>(null);
 
   // For the invoice's letterhead — resolved by the order's own branch code
   // rather than passed in, so this modal (shared by BillsPage and
@@ -167,10 +175,20 @@ export function BillEditorModal({
   // is what flips this to paid without waiting on a parent reload.
   const effectiveBillAmount = billSent ? total : order.billAmount;
   const effectiveBillLines = billSent ? usableLines : order.billLines;
-  // `order.billStatus` is otherwise trusted as-is (correct whether nothing's
-  // been sent yet, or a bill from an earlier visit is already paid) —
-  // `collected` is the one thing this session knows that prop can't yet.
-  const effectiveBillStatus: PaymentStatus = collected ? 'paid' : order.billStatus;
+  // `app.bill.status` (`order.billStatus`) and `app.order.payment_status`
+  // (`order.paymentStatus`) are two independently-tracked "is this paid"
+  // facts, and only one of them is guaranteed to exist yet: a standard
+  // order paid in full by wallet at checkout (`order.service.ts`'s own
+  // `checkout`) is `paymentStatus: 'paid'` the moment it's placed, well
+  // before any bill has ever been sent for it — `billStatus` only starts
+  // existing once a bill row does, defaulting PENDING regardless. Without
+  // this, sending a bill for an order like that would still show the
+  // "Collect bill" OTP section and ask staff to take payment a second time
+  // for money the member already paid at checkout. `collected` (this
+  // session's own confirmation) and `order.paymentStatus` both independently
+  // being able to say "paid" is exactly what closes that gap.
+  const effectiveBillStatus: PaymentStatus =
+    collected || order.paymentStatus === 'paid' ? 'paid' : order.billStatus;
 
   function patchLine(i: number, patch: Partial<BillLineDraft>) {
     setLines((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -227,6 +245,26 @@ export function BillEditorModal({
       setError(err instanceof Error ? err.message : 'Could not send this bill.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** Moves the order to its final tracked stage — reachable only once the
+   *  bill is actually paid (the button is only ever shown then), so a
+   *  reviewer can't complete an order nobody's paid for yet. Closes the
+   *  modal on success: this is the last thing there is to do here. */
+  async function completeOrder() {
+    setCompleting(true);
+    setCompleteError(null);
+    try {
+      await setOrderStatus(order.id, 'delivered');
+      onSaved();
+      onClose();
+    } catch (err) {
+      setCompleteError(
+        err instanceof Error ? err.message : 'Could not complete this order.',
+      );
+    } finally {
+      setCompleting(false);
     }
   }
 
@@ -303,9 +341,28 @@ export function BillEditorModal({
           ) : (
             <p className="text-sm font-medium text-emerald-600">This bill is paid.</p>
           )}
-          <Button size="sm" className="mt-3" onClick={() => setShowInvoice(true)}>
-            View / print invoice
-          </Button>
+          <div className="mt-3 flex items-center gap-2">
+            <Button size="sm" onClick={() => setShowInvoice(true)}>
+              View / print invoice
+            </Button>
+            {order.status === 'delivered' ? (
+              <span className="text-xs font-medium text-slate-500">Order completed</span>
+            ) : order.status === 'cancelled' ? (
+              <span className="text-xs font-medium text-slate-500">Order cancelled</span>
+            ) : (
+              <Button
+                variant="success"
+                size="sm"
+                disabled={completing}
+                onClick={() => void completeOrder()}
+              >
+                {completing ? 'Completing…' : 'Complete order'}
+              </Button>
+            )}
+          </div>
+          {completeError && (
+            <p className="mt-2 text-xs text-rose-600">{completeError}</p>
+          )}
         </div>
       )}
 
