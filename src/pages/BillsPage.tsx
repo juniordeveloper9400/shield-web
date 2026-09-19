@@ -53,6 +53,16 @@ export default function BillsPage() {
   const [editing, setEditing] = useState<Order | null>(null);
   const [viewingInvoice, setViewingInvoice] = useState<Order | null>(null);
 
+  // Set the moment "Convert to bill →" lands here and finds its order —
+  // the banner that confirms the hand-off actually worked, since the
+  // prescription modal itself closed silently on the way over here. Cleared
+  // once the admin dismisses it or the bill editor it points at is closed,
+  // so it never lingers past the OTP flow it was announcing.
+  const [justConverted, setJustConverted] = useState<{
+    id: string;
+    code: string;
+  } | null>(null);
+
   // "Convert to bill →" on the prescription review modal lands here with
   // `?open=<orderId>` — opens that order's bill editor immediately, once the
   // list has actually loaded, instead of leaving the admin to search for it
@@ -65,6 +75,7 @@ export default function BillsPage() {
     const match = data.find((o) => o.id === openId);
     if (match) {
       setEditing(match);
+      setJustConverted({ id: match.id, code: match.code });
     }
     setSearchParams(
       (prev) => {
@@ -272,6 +283,23 @@ export default function BillsPage() {
         }
       />
 
+      {justConverted && (
+        <div className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <span>
+            <strong>{justConverted.code}</strong> converted to a bill —
+            price it below, then collect payment via OTP to finish.
+          </span>
+          <button
+            type="button"
+            onClick={() => setJustConverted(null)}
+            className="shrink-0 text-emerald-600 hover:text-emerald-800"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard label="Total orders" value={scoped.length} icon="orders" tone="blue" />
         <StatCard label="Bill sent" value={sentCount} icon="check" tone="green" />
@@ -334,7 +362,10 @@ export default function BillsPage() {
         <BillEditorModal
           order={editing}
           open={Boolean(editing)}
-          onClose={() => setEditing(null)}
+          onClose={() => {
+            setEditing(null);
+            if (justConverted?.id === editing.id) setJustConverted(null);
+          }}
           onSaved={reload}
         />
       )}
