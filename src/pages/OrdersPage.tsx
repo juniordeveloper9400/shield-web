@@ -32,6 +32,12 @@ const KIND_OPTIONS = [
   { value: 'prescription', label: 'Prescription' },
 ];
 
+const FULFILLMENT_OPTIONS = [
+  { value: 'all', label: 'All delivery types' },
+  { value: 'home_delivery', label: 'Home Delivery' },
+  { value: 'store_pickup', label: 'Store Pickup' },
+];
+
 export default function OrdersPage() {
   const { user } = useAuth();
   const { data, loading, error, reload } = useAsync(listOrders, []);
@@ -40,6 +46,7 @@ export default function OrdersPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [kind, setKind] = useState('all');
+  const [fulfillment, setFulfillment] = useState('all');
   const [store, setStore] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -110,10 +117,12 @@ export default function OrdersPage() {
         row.memberPhone.includes(q);
       const matchesStatus = status === 'all' || row.status === status;
       const matchesKind = kind === 'all' || row.kind === kind;
+      const matchesFulfillment =
+        fulfillment === 'all' || row.fulfillmentType === fulfillment;
       const matchesStore = store === 'all' || row.storeCode === store;
-      return matchesQuery && matchesStatus && matchesKind && matchesStore;
+      return matchesQuery && matchesStatus && matchesKind && matchesFulfillment && matchesStore;
     });
-  }, [scoped, search, status, kind, store]);
+  }, [scoped, search, status, kind, fulfillment, store]);
 
   async function changeStatus(id: string, next: OrderStatus) {
     setSaving(true);
@@ -194,6 +203,15 @@ export default function OrdersPage() {
           } as Column<Order>,
         ]),
     {
+      key: 'fulfillment',
+      header: 'Delivery Type',
+      render: (row) => (
+        <Badge tone={row.fulfillmentType === 'home_delivery' ? 'blue' : 'gray'}>
+          {row.fulfillmentType === 'home_delivery' ? 'Home Delivery' : 'Store Pickup'}
+        </Badge>
+      ),
+    },
+    {
       key: 'items',
       header: 'Items',
       render: (row) => row.itemCount,
@@ -263,6 +281,7 @@ export default function OrdersPage() {
               <FilterSelect value={store} onChange={setStore} options={storeOptions} />
             )}
             <FilterSelect value={kind} onChange={setKind} options={KIND_OPTIONS} />
+            <FilterSelect value={fulfillment} onChange={setFulfillment} options={FULFILLMENT_OPTIONS} />
             <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
           </div>
         </div>

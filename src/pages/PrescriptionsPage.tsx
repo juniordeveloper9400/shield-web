@@ -28,6 +28,12 @@ const STATUS_OPTIONS = [
   { value: 'ordered', label: 'Ordered' },
 ];
 
+const FULFILLMENT_OPTIONS = [
+  { value: 'all', label: 'All delivery types' },
+  { value: 'home_delivery', label: 'Home Delivery' },
+  { value: 'store_pickup', label: 'Store Pickup' },
+];
+
 export default function PrescriptionsPage() {
   const { user } = useAuth();
   const { data, loading, error, reload } = useAsync(listPrescriptions, []);
@@ -35,6 +41,7 @@ export default function PrescriptionsPage() {
 
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
+  const [fulfillment, setFulfillment] = useState('all');
   const [store, setStore] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -62,10 +69,12 @@ export default function PrescriptionsPage() {
         row.patientName.toLowerCase().includes(q) ||
         row.doctor.toLowerCase().includes(q);
       const matchesStatus = status === 'all' || row.status === status;
+      const matchesFulfillment =
+        fulfillment === 'all' || row.fulfillmentType === fulfillment;
       const matchesStore = store === 'all' || row.storeCode === store;
-      return matchesQuery && matchesStatus && matchesStore;
+      return matchesQuery && matchesStatus && matchesFulfillment && matchesStore;
     });
-  }, [scoped, search, status, store]);
+  }, [scoped, search, status, fulfillment, store]);
 
   const counts = {
     awaiting: scoped.filter((r) => r.status === 'awaiting_review').length,
@@ -106,6 +115,15 @@ export default function PrescriptionsPage() {
             render: (row: Prescription) => row.storeName,
           } as Column<Prescription>,
         ]),
+    {
+      key: 'fulfillment',
+      header: 'Delivery Type',
+      render: (row) => (
+        <Badge tone={row.fulfillmentType === 'home_delivery' ? 'blue' : 'gray'}>
+          {row.fulfillmentType === 'home_delivery' ? 'Home Delivery' : 'Store Pickup'}
+        </Badge>
+      ),
+    },
     {
       key: 'status',
       header: 'Status',
@@ -152,6 +170,7 @@ export default function PrescriptionsPage() {
             {!branchBound && (
               <FilterSelect value={store} onChange={setStore} options={storeOptions} />
             )}
+            <FilterSelect value={fulfillment} onChange={setFulfillment} options={FULFILLMENT_OPTIONS} />
             <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
           </div>
         </div>
