@@ -43,25 +43,39 @@ function otpApp(): FirebaseApp {
  * still pointed at that now-detached node, so the *second* "Send OTP" ever
  * attempted — a reopened modal, a different order, a plain "Resend" —
  * failed with Firebase's own "reCAPTCHA client element has been removed."
- * Always building fresh, against whatever container is live right now, is
- * what actually matches this component's lifecycle. The previous instance
- * is cleared first — needed for "Resend" specifically, where the container
- * is still mounted and Google's own widget would otherwise render twice
- * into the same `<div>`; harmless (Firebase swallows it) when the previous
- * container is already gone.
+ *
+ * Keyed per [containerId] rather than one shared instance: two different
+ * orders' bill modals (opened one after another in the same page session)
+ * must never clear or race against each other's verifier.
+ *
+ * `verifier.clear()` alone is not enough to prevent Firebase's other error —
+ * "reCAPTCHA has already been rendered in this element" — because `clear()`
+ * only resets a widget that has *finished* rendering. `RecaptchaVerifier`
+ * renders lazily and asynchronously (on the first `verify()`/
+ * `signInWithPhoneNumber` call), so a `clear()` that lands while that render
+ * is still in flight is a silent no-op: the earlier render can still land in
+ * the container moments later, right as a fresh verifier's own render call
+ * hits the same `<div>` — grecaptcha refuses to render a second widget into
+ * a container that already carries one, regardless of which JS object asked.
+ * Wiping the container's own DOM content directly closes that race for good:
+ * whatever grecaptcha considers "already rendered" there is physically gone
+ * before the new verifier ever calls render.
  */
-let lastVerifier: RecaptchaVerifier | null = null;
+const verifiers = new Map<string, RecaptchaVerifier>();
 
 function freshVerifier(containerId: string): RecaptchaVerifier {
   try {
-    lastVerifier?.clear();
+    verifiers.get(containerId)?.clear();
   } catch {
     // Already gone (its container was unmounted) — nothing to clean up.
   }
-  lastVerifier = new RecaptchaVerifier(getAuth(otpApp()), containerId, {
+  document.getElementById(containerId)?.replaceChildren();
+
+  const verifier = new RecaptchaVerifier(getAuth(otpApp()), containerId, {
     size: 'invisible',
   });
-  return lastVerifier;
+  verifiers.set(containerId, verifier);
+  return verifier;
 }
 
 /**

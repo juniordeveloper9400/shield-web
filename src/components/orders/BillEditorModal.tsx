@@ -7,7 +7,11 @@ import { formatCurrency } from '@/lib/format';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { useAsync } from '@/lib/useAsync';
 import { sendOrderInvoice, setOrderStatus } from '@/api/orders';
-import { collectBillWithWallet, getWalletBalanceForOrder } from '@/api/billPayments';
+import {
+  collectBillWithWallet,
+  getMonthlyRedeemableForOrder,
+  getWalletBalanceForOrder,
+} from '@/api/billPayments';
 import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
 import { listStores } from '@/api/stores';
 import { confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
@@ -95,6 +99,16 @@ export function BillEditorModal({
     [order.id],
   );
 
+  // Informational only — see `getMonthlyRedeemableForOrder`'s own doc for
+  // why this never factors into `walletCoverage`/`cashOwed` below: the
+  // Health Pass "monthly allowance" is a member-facing display idea, not a
+  // real ceiling on the balance itself, which is fully spendable the
+  // moment it lands.
+  const { data: monthlyRedeemable } = useAsync(
+    () => getMonthlyRedeemableForOrder(order.id),
+    [order.id],
+  );
+
   // --- OTP-gated wallet collection ----------------------------------------
   // Nothing here ever debits the wallet on its own — sendOtp only asks
   // Firebase to text the member a code; verifyAndCollect is the one place
@@ -111,6 +125,11 @@ export function BillEditorModal({
   const recaptchaContainerId = `bill-otp-recaptcha-${order.id}`;
 
   async function sendOtp() {
+    // Defense in depth alongside the buttons' own `disabled={otpBusy}`: a
+    // click that lands before React has repainted that attribute must not
+    // start a second verifier against the same container while the first
+    // is still rendering.
+    if (otpBusy) return;
     setOtpBusy(true);
     setOtpError(null);
     try {
@@ -384,6 +403,14 @@ export function BillEditorModal({
                 {formatCurrency(walletBalance ?? 0)}
               </span>
             </div>
+            {(monthlyRedeemable ?? 0) > 0 && (
+              <div className="mt-1 flex items-center justify-between">
+                <span>Health Pass monthly redeemable</span>
+                <span className="font-medium text-slate-800">
+                  {formatCurrency(monthlyRedeemable ?? 0)}
+                </span>
+              </div>
+            )}
             <div className="mt-1 flex items-center justify-between">
               <span>Will draw from wallet</span>
               <span className="font-medium text-slate-800">
@@ -565,6 +592,14 @@ export function BillEditorModal({
                   {formatCurrency(walletBalance ?? 0)}
                 </span>
               </div>
+              {(monthlyRedeemable ?? 0) > 0 && (
+                <div className="mt-1 flex items-center justify-between">
+                  <span>Health Pass monthly redeemable</span>
+                  <span className="font-medium text-slate-800">
+                    {formatCurrency(monthlyRedeemable ?? 0)}
+                  </span>
+                </div>
+              )}
               <div className="mt-1 flex items-center justify-between">
                 <span>From wallet</span>
                 <span className="font-medium text-slate-800">

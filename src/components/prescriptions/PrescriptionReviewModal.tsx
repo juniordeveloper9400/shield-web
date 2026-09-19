@@ -566,26 +566,31 @@ export function PrescriptionReviewModal({
     }
   }
 
-  /** The Details step's own final action: saves everything, then closes. */
+  /** The Details step's first save — everything up to and including the
+   *  intake card, in one go. Stays open rather than closing: the moment
+   *  this succeeds, `onSaved()`'s reload flips the prescription off
+   *  `awaiting_review`, `canBill` turns true, and this same button's slot
+   *  in the footer swaps from "Update/Send intake card" to "Convert to
+   *  bill →" — so a reviewer never has to reopen the prescription just to
+   *  see it appear. */
   async function sendIntake() {
     if (!validateDetails()) return;
     if (await saveDetailsAndIntake()) {
       onSaved();
-      onClose();
     }
   }
 
-  /** "Convert to bill →", reachable from both the Intake and Details steps
-   *  once the medicines are processed — the same "save everything, skip
-   *  ahead" shortcut {@link sendIntake} offers, except instead of closing
-   *  the modal it hands off to the Bills page (`BillEditorModal`), which
-   *  now does all the pricing, the medicine-by-status picker, and the
-   *  OTP-gated wallet/cash collection for this order. Only falls back to
-   *  actually showing the Details step when something on it needs a
-   *  reviewer's attention first (a blank contact field, no patient picked,
-   *  the save itself failing, or the prescription somehow has no linked
-   *  order yet) — the modal stays open either way, never closes on this
-   *  path. */
+  /** "Convert to bill →" — the Details step's primary action once
+   *  {@link sendIntake} has run at least once (`canBill`), replacing it in
+   *  the footer rather than sitting alongside it. Re-saves everything (a
+   *  reviewer may have edited Details since) and hands off to the Bills
+   *  page (`BillEditorModal`), which does the pricing, the
+   *  medicine-by-status picker, and the OTP-gated wallet/cash collection
+   *  for this order. Only falls back to actually showing the Details step
+   *  when something on it needs a reviewer's attention first (a blank
+   *  contact field, no patient picked, the save itself failing, or the
+   *  prescription somehow has no linked order yet) — the modal stays open
+   *  either way, never closes on this path. */
   async function convertToBill() {
     if (!validateDetails()) {
       setStep('details');
@@ -743,15 +748,6 @@ export function PrescriptionReviewModal({
                   Back to awaiting
                 </Button>
               )}
-              {canBill && (
-                <Button
-                  variant="secondary"
-                  disabled={sending}
-                  onClick={() => void convertToBill()}
-                >
-                  {sending ? 'Converting…' : 'Convert to bill →'}
-                </Button>
-              )}
               {canBill && hasBill && (
                 <Button
                   variant="secondary"
@@ -768,13 +764,23 @@ export function PrescriptionReviewModal({
                   {completing ? 'Completing…' : 'Complete order'}
                 </Button>
               )}
-              <Button variant="primary" disabled={sending} onClick={sendIntake}>
-                {sending
-                  ? 'Sending…'
-                  : prescription.medicines.length > 0
-                    ? 'Update intake card'
-                    : 'Send intake card'}
-              </Button>
+              {canBill ? (
+                <Button
+                  variant="primary"
+                  disabled={sending}
+                  onClick={() => void convertToBill()}
+                >
+                  {sending ? 'Converting…' : 'Convert to bill →'}
+                </Button>
+              ) : (
+                <Button variant="primary" disabled={sending} onClick={sendIntake}>
+                  {sending
+                    ? 'Sending…'
+                    : prescription.medicines.length > 0
+                      ? 'Update intake card'
+                      : 'Send intake card'}
+                </Button>
+              )}
             </>
           ))
         }
