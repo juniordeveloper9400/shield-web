@@ -180,6 +180,18 @@ export async function setOrderStatus(id: string, status: OrderStatus): Promise<v
   );
 }
 
+/** Completion changes fulfilment only; it never collects money or marks a bill paid. */
+export async function completeBilledOrder(id: string): Promise<void> {
+  const rows = await query<{ id: unknown }>(
+    `UPDATE app."order" o SET status = 'DELIVERED'::app.order_status, updated_at = now()
+       WHERE o.id = $1 AND o.status <> 'CANCELLED'::app.order_status
+         AND EXISTS (SELECT 1 FROM app.bill b WHERE b.order_id = o.id AND b.amount > 0)
+       RETURNING o.id`,
+    [id],
+  );
+  if (!rows.length) throw new Error('Save a priced bill first. Cancelled orders cannot be completed.');
+}
+
 /**
  * Attaches (or replaces) the store's invoice for this order in `app.bill` —
  * what the member's own order-detail screen reads as "Invoice from the
@@ -219,13 +231,13 @@ export async function sendOrderInvoice(
     amount: number;
     lines?: { name: string; pack?: string; unitPrice: number; qty: number }[];
   },
-): Promise<void> {
+): Promise<string> {
   // app.bill.image is NOT NULL (it predates this priced-invoice path, which
   // often has no picture at all — a prescription bill is built from typed
   // line items, not a photo). '' is the same "no image" the read side
   // already treats a blank/whitespace image as (see listOrders/fetchPrescriptions),
   // so a lineitem-only bill inserts cleanly instead of violating the column.
-  const upserted = await query<{ id: unknown }>(
+  const upserted = await query<{ id: unknown; sent_at: unknown }>(
     `INSERT INTO app.bill (order_id, image, amount, sent_at, updated_at)
      VALUES ($1, $2, $3, now(), now())
      ON CONFLICT (order_id)
@@ -233,7 +245,7 @@ export async function sendOrderInvoice(
                    amount = excluded.amount,
                    sent_at = now(),
                    updated_at = now()
-     RETURNING id`,
+     RETURNING id, sent_at`,
     [id, opts.image ?? '', opts.amount],
   );
 
@@ -261,4 +273,5 @@ export async function sendOrderInvoice(
     'UPDATE app."order" SET mrp_total = $2, updated_at = now() WHERE id = $1',
     [id, opts.amount],
   );
+  return String(upserted[0]?.sent_at ?? '');
 }

@@ -98,3 +98,21 @@ hosted on its own). It's a static Vite SPA — `npm run build` emits `dist/`.
   build time, so a redeploy is needed after changing them.
 - After the domain is live, add it under Firebase console → Authentication →
   Settings → **Authorized domains**, or sign-in is rejected.
+
+### Bill collection SMS verification
+
+Bill OTP uses the Firebase project `shield-zabnix` configured in
+`src/lib/deliveryOtp.ts`. Register the **exact admin hostname** under
+Authentication → Settings → Authorized domains, including any custom or preview
+hostname staff actually use. `Hostname match not found (auth/captcha-check-failed)`
+means the site was rejected before SMS sending; a frontend rebuild does not add
+that hostname to Firebase. After authorization, reload and request a fresh code.
+
+OTP retries create a fresh reCAPTCHA instance. Resending discards the previous
+confirmation. Only successful six-digit verification invokes the existing bill
+collection API; retrying collection after a consumed code requires another SMS.
+The OTP gate remains client-side in the current direct-database architecture.
+
+Run `npm run test:otp` with Node 22.18+ for OTP regression tests, then
+`npm run typecheck` and `npm run build`. Real SMS delivery and bill settlement
+must also be checked on the authorized deployment.

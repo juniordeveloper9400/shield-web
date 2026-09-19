@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, type FirebaseApp } from 'firebase/app';
 import {
   getAuth,
   RecaptchaVerifier,
@@ -32,54 +32,50 @@ function otpApp(): FirebaseApp {
   return existing ?? initializeApp(FIREBASE_CONFIG, OTP_APP_NAME);
 }
 
-/**
- * Builds a fresh invisible reCAPTCHA bound to [containerId] every call,
- * clearing whatever the previous one was bound to first.
- *
- * This used to cache and reuse one verifier across calls — reasonable in a
- * plain page, but `containerId` here is a `<div>` React mounts inside
- * `BillEditorModal`, which is destroyed the moment the modal closes (or a
- * different order's modal opens with a different id). A cached verifier
- * still pointed at that now-detached node, so the *second* "Send OTP" ever
- * attempted — a reopened modal, a different order, a plain "Resend" —
- * failed with Firebase's own "reCAPTCHA client element has been removed."
- *
- * Keyed per [containerId] rather than one shared instance: two different
- * orders' bill modals (opened one after another in the same page session)
- * must never clear or race against each other's verifier.
- *
- * `verifier.clear()` alone is not enough to prevent Firebase's other error —
- * "reCAPTCHA has already been rendered in this element" — because `clear()`
- * only resets a widget that has *finished* rendering. `RecaptchaVerifier`
- * renders lazily and asynchronously (on the first `verify()`/
- * `signInWithPhoneNumber` call), so a `clear()` that lands while that render
- * is still in flight is a silent no-op: the earlier render can still land in
- * the container moments later, right as a fresh verifier's own render call
- * hits the same `<div>` — grecaptcha refuses to render a second widget into
- * a container that already carries one, regardless of which JS object asked.
- * Wiping the container's own DOM content directly closes that race for good:
- * whatever grecaptcha considers "already rendered" there is physically gone
- * before the new verifier ever calls render.
- */
-const verifiers = new Map<string, RecaptchaVerifier>();
+/** Each send owns a separate reCAPTCHA node. A late render from an earlier
+ * attempt cannot collide with the next send or a reopened bill modal. */
+const verifiers = new Map<string, { verifier: RecaptchaVerifier; element: HTMLElement }>();
+
+export function clearDeliveryOtp(containerId: string): void {
+  const current = verifiers.get(containerId);
+  verifiers.delete(containerId);
+  try {
+    current?.verifier.clear();
+  } catch {
+    // The modal or Firebase may already have removed the widget.
+  }
+  current?.element.remove();
+}
 
 function freshVerifier(containerId: string): RecaptchaVerifier {
-  try {
-    verifiers.get(containerId)?.clear();
-  } catch {
-    // Already gone (its container was unmounted) — nothing to clean up.
-  }
-  document.getElementById(containerId)?.replaceChildren();
+  clearDeliveryOtp(containerId);
+  const container = document.getElementById(containerId);
+  if (!container) throw new Error('Reopen this bill before sending a code.');
+  // Give each attempt its own node. A late render from a previous attempt
+  // must never render into the new attempt's container.
+  const element = document.createElement('div');
+  container.replaceChildren(element);
 
-  const verifier = new RecaptchaVerifier(getAuth(otpApp()), containerId, {
+  const verifier = new RecaptchaVerifier(getAuth(otpApp()), element, {
     size: 'invisible',
   });
-  verifiers.set(containerId, verifier);
+  verifiers.set(containerId, { verifier, element });
   return verifier;
 }
 
+export function normalizeDeliveryPhone(phone: string): string {
+  const compact = phone.trim().replace(/[\s()-]/g, '');
+  const local = compact.replace(/^(?:\+91|91)(?=\d{10}$)/, '');
+  if (!/^[6-9]\d{9}$/.test(local)) {
+    throw Object.assign(new Error('Invalid member phone number.'), {
+      code: 'auth/invalid-phone-number',
+    });
+  }
+  return `+91${local}`;
+}
+
 /**
- * Sends a real SMS OTP to [phone] (10 digits, no `+91`) via Firebase Phone
+ * Sends a real SMS OTP to [phone] (Indian local or `+91` format) via Firebase Phone
  * Auth — the member's own phone, not the signed-in staff member's. Staff
  * reads back whatever code the member tells them and passes it to
  * [confirmDeliveryOtp]; nothing here signs anyone into anything, it is only
@@ -89,8 +85,16 @@ export async function sendDeliveryOtp(
   phone: string,
   containerId: string,
 ): Promise<ConfirmationResult> {
+  const recipient = normalizeDeliveryPhone(phone);
   const auth = getAuth(otpApp());
-  return signInWithPhoneNumber(auth, `+91${phone}`, freshVerifier(containerId));
+  const verifier = freshVerifier(containerId);
+  try {
+    return await signInWithPhoneNumber(auth, recipient, verifier);
+  } finally {
+    if (verifiers.get(containerId)?.verifier === verifier) {
+      clearDeliveryOtp(containerId);
+    }
+  }
 }
 
 /**
@@ -103,6 +107,11 @@ export async function confirmDeliveryOtp(
   confirmation: ConfirmationResult,
   code: string,
 ): Promise<void> {
+  if (!/^\d{6}$/.test(code.trim())) {
+    throw Object.assign(new Error('Enter the six-digit SMS code.'), {
+      code: 'auth/invalid-verification-code',
+    });
+  }
   const credential = await confirmation.confirm(code.trim());
   // A throwaway verification, not a sign-in this console keeps: drop it
   // immediately so it can never be mistaken for (or collide with) this
@@ -112,10 +121,24 @@ export async function confirmDeliveryOtp(
 }
 
 /** Firebase's own error code → what to tell the person holding the bill. */
-export function describeOtpError(error: unknown): string {
+export function describeOtpError(
+  error: unknown,
+  hostname = typeof window === 'undefined' ? 'this admin website' : window.location.hostname,
+): string {
   const code =
     error && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : '';
+  const message = error && typeof error === 'object' && 'message' in error
+    ? String(error.message) : '';
+  const domainHelp = `OTP is blocked for ${hostname}. Add this exact hostname in Firebase project shield-zabnix → Authentication → Settings → Authorized domains, then reload this page.`;
   switch (code) {
+    case 'auth/unauthorized-domain':
+      return domainHelp;
+    case 'auth/captcha-check-failed':
+      return /hostname match not found/i.test(message)
+        ? domainHelp
+        : 'The browser verification failed or expired. Please try again to get a fresh verification.';
+    case 'auth/network-request-failed':
+      return 'Could not reach the OTP service. Check your connection and try again.';
     case 'auth/invalid-verification-code':
       return 'That code is not right. Ask the member to read it out again.';
     case 'auth/code-expired':

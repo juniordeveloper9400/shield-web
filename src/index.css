@@ -16,19 +16,15 @@
   }
 }
 
-/* "Print / Save as PDF" on an invoice (InvoiceModal) — print only the
-   invoice itself, none of the app chrome or modal backdrop around it. */
+.invoice-print-root { display: none; }
+
+/* The print document is a direct body child, outside every modal/scroll box. */
 @media print {
-  body * {
-    visibility: hidden;
-  }
-  #invoice-print-area,
-  #invoice-print-area * {
-    visibility: visible;
-  }
-  #invoice-print-area {
-    position: absolute;
-    inset: 0;
-    padding: 24px;
-  }
+  @page { size: A4; margin: 12mm; }
+  html, body { height: auto !important; overflow: visible !important; background: white !important; }
+  body:has(.invoice-print-root) > :not(.invoice-print-root) { display: none !important; }
+  .invoice-print-root { display: block !important; position: static; width: 100%; }
+  .invoice-document { font-size: 11pt; }
+  .invoice-document thead { display: table-header-group; }
+  .invoice-document tr, .invoice-document header, .invoice-totals { break-inside: avoid; }
 }

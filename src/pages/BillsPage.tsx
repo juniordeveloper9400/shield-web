@@ -376,6 +376,7 @@ export default function BillsPage() {
           store={storesByCode.get(viewingInvoice.storeCode)}
           open={Boolean(viewingInvoice)}
           onClose={() => setViewingInvoice(null)}
+          onCompleted={reload}
         />
       )}
     </>

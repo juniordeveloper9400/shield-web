@@ -1,12 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ConfirmationResult } from 'firebase/auth';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { formatCurrency } from '@/lib/format';
+import { formatInvoiceCurrency as formatCurrency } from '@/lib/invoice';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { useAsync } from '@/lib/useAsync';
-import { sendOrderInvoice, setOrderStatus } from '@/api/orders';
+import { completeBilledOrder, sendOrderInvoice } from '@/api/orders';
 import {
   collectBillWithWallet,
   getMonthlyRedeemableForOrder,
@@ -14,7 +14,7 @@ import {
 } from '@/api/billPayments';
 import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
 import { listStores } from '@/api/stores';
-import { confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
+import { clearDeliveryOtp, confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
 import {
   STOCK_STATUS_OPTIONS,
   STOCK_STATUS_TONE,
@@ -63,7 +63,11 @@ export function BillEditorModal({
   // has no reason to have refreshed yet (the modal stays open straight
   // through sending → collecting → viewing the invoice, all one visit).
   const [billSent, setBillSent] = useState(hasBill);
+  const [savedBill, setSavedBill] = useState({ amount: order.billAmount, lines: order.billLines });
   const [showInvoice, setShowInvoice] = useState(false);
+  const [completed, setCompleted] = useState(order.status === 'delivered');
+  const [billedAt, setBilledAt] = useState(order.billedAt);
+  const completingRequest = useRef(false);
   // "Complete order" — the order's own tracked status (`Order placed →
   // Store will contact → Billed → Completed`, see the member app's own
   // `OrderTrack`) now moves on this click rather than a separate raw
@@ -123,31 +127,53 @@ export function BillEditorModal({
     null,
   );
   const recaptchaContainerId = `bill-otp-recaptcha-${order.id}`;
+  const otpInFlight = useRef(false);
+  const otpSession = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      otpSession.current += 1;
+      clearDeliveryOtp(recaptchaContainerId);
+    };
+  }, [recaptchaContainerId, open]);
 
   async function sendOtp() {
     // Defense in depth alongside the buttons' own `disabled={otpBusy}`: a
     // click that lands before React has repainted that attribute must not
     // start a second verifier against the same container while the first
     // is still rendering.
-    if (otpBusy) return;
+    if (otpInFlight.current) return;
+    otpInFlight.current = true;
+    const session = otpSession.current;
     setOtpBusy(true);
     setOtpError(null);
+    setOtpConfirmation(null);
+    setOtpCode('');
     try {
       const confirmation = await sendDeliveryOtp(order.memberPhone, recaptchaContainerId);
+      if (session !== otpSession.current) return;
       setOtpConfirmation(confirmation);
     } catch (err) {
+      if (session !== otpSession.current) return;
       setOtpError(describeOtpError(err));
     } finally {
+      otpInFlight.current = false;
       setOtpBusy(false);
     }
   }
 
   async function verifyAndCollect() {
-    if (!otpConfirmation || otpCode.trim().length === 0) return;
+    if (otpInFlight.current || !otpConfirmation || !/^\d{6}$/.test(otpCode.trim())) return;
+    otpInFlight.current = true;
+    const session = otpSession.current;
     setOtpBusy(true);
     setOtpError(null);
     try {
       await confirmDeliveryOtp(otpConfirmation, otpCode);
+      if (session !== otpSession.current) return;
+      // Firebase codes are single-use. A collection retry needs a fresh code.
+      setOtpConfirmation(null);
+      setOtpCode('');
       const result = await collectBillWithWallet(order.id);
       if (!result.ok) {
         setOtpError(result.reason);
@@ -160,6 +186,7 @@ export function BillEditorModal({
     } catch (err) {
       setOtpError(describeOtpError(err));
     } finally {
+      otpInFlight.current = false;
       setOtpBusy(false);
     }
   }
@@ -184,16 +211,17 @@ export function BillEditorModal({
     () => usableLines.reduce((sum, l) => sum + l.unitPrice * l.qty, 0),
     [usableLines],
   );
-  const walletCoverage = Math.min(walletBalance ?? 0, total);
-  const cashOwed = Math.max(total - walletCoverage, 0);
+  const collectionAmount = billSent && mode === 'summary' ? savedBill.amount : total;
+  const walletCoverage = Math.min(walletBalance ?? 0, collectionAmount);
+  const cashOwed = Math.max(collectionAmount - walletCoverage, 0);
 
   // The bill as it actually stands right now — `total`/`usableLines` once
   // one has been sent in this session or an earlier one (`billSent`),
   // falling back to the order prop only for an order that has never been
   // billed at all. `collected` (set the moment `verifyAndCollect` succeeds)
   // is what flips this to paid without waiting on a parent reload.
-  const effectiveBillAmount = billSent ? total : order.billAmount;
-  const effectiveBillLines = billSent ? usableLines : order.billLines;
+  const effectiveBillAmount = savedBill.amount;
+  const effectiveBillLines = savedBill.lines;
   // `app.bill.status` (`order.billStatus`) and `app.order.payment_status`
   // (`order.paymentStatus`) are two independently-tracked "is this paid"
   // facts, and only one of them is guaranteed to exist yet: a standard
@@ -256,7 +284,9 @@ export function BillEditorModal({
     setSaving(true);
     setError(null);
     try {
-      await sendOrderInvoice(order.id, { amount: total, lines: usableLines });
+      const sentAt = await sendOrderInvoice(order.id, { amount: total, lines: usableLines });
+      setBilledAt(sentAt);
+      setSavedBill({ amount: total, lines: usableLines.map(line => ({ ...line })) });
       onSaved();
       setBillSent(true);
       setMode('summary');
@@ -267,22 +297,23 @@ export function BillEditorModal({
     }
   }
 
-  /** Moves the order to its final tracked stage — reachable only once the
-   *  bill is actually paid (the button is only ever shown then), so a
-   *  reviewer can't complete an order nobody's paid for yet. Closes the
-   *  modal on success: this is the last thing there is to do here. */
+  /** Complete fulfilment without altering the bill's actual payment status. */
   async function completeOrder() {
+    if (completingRequest.current) return;
+    completingRequest.current = true;
     setCompleting(true);
     setCompleteError(null);
     try {
-      await setOrderStatus(order.id, 'delivered');
+      await completeBilledOrder(order.id);
+      setCompleted(true);
       onSaved();
-      onClose();
+      setShowInvoice(true);
     } catch (err) {
       setCompleteError(
         err instanceof Error ? err.message : 'Could not complete this order.',
       );
     } finally {
+      completingRequest.current = false;
       setCompleting(false);
     }
   }
@@ -330,7 +361,7 @@ export function BillEditorModal({
             </ul>
           )}
           <div className="mt-3 flex items-center gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setMode('edit')}>
+            <Button variant="secondary" size="sm" disabled={completed || completing} onClick={() => setMode('edit')}>
               Edit bill
             </Button>
             {order.billImage && (
@@ -347,7 +378,7 @@ export function BillEditorModal({
         </div>
       ) : null}
 
-      {mode === 'summary' && effectiveBillStatus === 'paid' && (
+      {mode === 'summary' && billSent && effectiveBillAmount > 0 && (
         <div className="mt-3 rounded-lg border border-slate-200 p-4">
           {collected ? (
             <p className="text-sm font-medium text-emerald-600">
@@ -357,15 +388,17 @@ export function BillEditorModal({
               {collected.cashAmount > 0 && `${formatCurrency(collected.cashAmount)} in cash`}
               . This bill is paid.
             </p>
-          ) : (
+          ) : effectiveBillStatus === 'paid' ? (
             <p className="text-sm font-medium text-emerald-600">This bill is paid.</p>
+          ) : (
+            <p className="text-sm text-amber-700">Payment pending. Completing the order does not collect payment.</p>
           )}
           <div className="mt-3 flex items-center gap-2">
-            <Button size="sm" onClick={() => setShowInvoice(true)}>
-              View / print invoice
-            </Button>
-            {order.status === 'delivered' ? (
-              <span className="text-xs font-medium text-slate-500">Order completed</span>
+            {completed ? (
+              <>
+                <span className="text-xs font-medium text-emerald-700">Order completed</span>
+                <Button size="sm" onClick={() => setShowInvoice(true)}>Print / share invoice</Button>
+              </>
             ) : order.status === 'cancelled' ? (
               <span className="text-xs font-medium text-slate-500">Order cancelled</span>
             ) : (
@@ -445,12 +478,14 @@ export function BillEditorModal({
                 onChange={(e) => setOtpCode(e.target.value)}
                 placeholder="6-digit code"
                 inputMode="numeric"
+                maxLength={6}
+                autoComplete="one-time-code"
                 autoFocus
                 className={inputClass}
               />
               <Button
                 size="sm"
-                disabled={otpBusy || otpCode.trim().length === 0}
+                disabled={otpBusy || !/^\d{6}$/.test(otpCode.trim())}
                 onClick={() => void verifyAndCollect()}
               >
                 {otpBusy ? 'Verifying…' : 'Verify & collect'}
@@ -643,12 +678,14 @@ export function BillEditorModal({
         ...order,
         billAmount: effectiveBillAmount,
         billLines: effectiveBillLines,
-        billStatus: 'paid',
-        paidTotal: effectiveBillAmount,
+        billStatus: effectiveBillStatus,
+        billedAt,
+        status: completed ? 'delivered' : order.status,
       }}
       store={store}
       open={showInvoice}
       onClose={() => setShowInvoice(false)}
+      onCompleted={() => { setCompleted(true); onSaved(); }}
     />
     </>
   );
