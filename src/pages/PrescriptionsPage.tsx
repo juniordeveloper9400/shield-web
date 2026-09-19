@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { PrescriptionReviewModal } from '@/components/prescriptions/PrescriptionReviewModal';
-import { toneForStatus } from '@/lib/format';
+import { formatDateTime, toneForStatus } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { listPrescriptions } from '@/api/prescriptions';
 import type { Prescription, PrescriptionStatus } from '@/types';
@@ -106,6 +106,15 @@ export default function PrescriptionsPage() {
     },
     { key: 'patient', header: 'Patient', render: (row) => row.patientName },
     { key: 'doctor', header: 'Doctor', render: (row) => row.doctor || '—' },
+    {
+      key: 'uploaded',
+      header: 'Uploaded',
+      render: (row) => (
+        <span className="whitespace-nowrap text-xs text-slate-500">
+          {formatDateTime(row.createdAt)}
+        </span>
+      ),
+    },
     ...(branchBound
       ? []
       : [
