@@ -40,7 +40,7 @@ import {
   updatePrescriptionDetails,
   updatePrescriptionPatient,
 } from '@/api/prescriptions';
-import { getOrder, setOrderStatus } from '@/api/orders';
+import { getOrder, markOrderConvertedToBill, setOrderStatus } from '@/api/orders';
 import { createPatient, listPatients, updateMemberContact } from '@/api/users';
 import { listStores } from '@/api/stores';
 import { useAsync } from '@/lib/useAsync';
@@ -602,6 +602,17 @@ export function PrescriptionReviewModal({
     if (await saveDetailsAndIntake()) {
       onSaved();
       if (prescription?.orderId) {
+        // The Bills page lists only orders stamped as converted, so this
+        // has to land before handing off or the order wouldn't show there.
+        try {
+          await markOrderConvertedToBill(prescription.orderId);
+        } catch (err) {
+          setDetailsError(
+            err instanceof Error ? err.message : 'Could not convert this order to a bill.',
+          );
+          setStep('details');
+          return;
+        }
         navigate(`/bills?open=${prescription.orderId}`);
       } else {
         setStep('details');

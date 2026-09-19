@@ -312,8 +312,21 @@ export type FulfillmentType = 'home_delivery' | 'store_pickup';
 /** `app.order_payment_status` — whether the order/bill has actually been paid. */
 export type PaymentStatus = 'pending' | 'paid';
 
+/**
+ * `app.order_line_status` — the counter's own note on one order line, migration
+ * 0044. Set from the Orders review modal; never read or shown by the member's app.
+ */
+export type OrderLineStatus =
+  | 'available'
+  | 'out_of_stock'
+  | 'not_possible'
+  | 'customer_not_needed';
+
 /** One row of `app.order_line`. */
 export interface OrderLine {
+  id: string;
+  /** Counter-only stock status; only 'available' lines pre-fill the bill. */
+  status: OrderLineStatus;
   name: string;
   pack: string;
   unitPrice: number;
@@ -344,6 +357,8 @@ export interface BillLine {
 export interface Order {
   id: string;
   code: string;
+  /** `app.users.id` of the member — needed to save name/phone corrections. */
+  memberId: string;
   memberName: string;
   memberPhone: string;
   kind: OrderKind;
@@ -352,8 +367,16 @@ export interface Order {
   mrpTotal: number;
   paidTotal: number;
   deliveryFee: number;
+  /** `app.order.store_id` as set on the order itself; '' when only the
+   *  member's home branch (see [storeCode]) is known. */
+  storeId: string;
   storeCode: string;
   storeName: string;
+  /** When the counter submitted the review (Details step); '' until then. */
+  reviewedAt: string;
+  /** When the order was converted to a bill; '' until then. The Bills page
+   *  lists only orders where this is set. */
+  convertedToBillAt: string;
   paymentMethod: string;
   paymentMethodCode: string;
   /** `app.order.fulfillment_type` — home delivery vs store pickup (migration 0031). */

@@ -6,6 +6,7 @@ import type {
   Order,
   OrderKind,
   OrderLine,
+  OrderLineStatus,
   OrderReceipt,
   OrderStatus,
   PaymentStatus,
@@ -15,6 +16,8 @@ type Row = Record<string, unknown>;
 
 function toLine(r: Row): OrderLine {
   return {
+    id: String(r.id),
+    status: fromEnum<OrderLineStatus>(String(r.stock_status ?? 'AVAILABLE')),
     name: String(r.name),
     pack: String(r.pack ?? ''),
     unitPrice: num(r.unit_price),
@@ -37,9 +40,12 @@ function toBillLine(r: Row): BillLine {
  *  the two can never map a row differently. */
 const ORDER_SELECT = `
     SELECT o.id, o.code,
+           o.member_id,
            m.name  AS member_name,
            m.phone AS member_phone,
            o.kind, o.status, o.item_count, o.mrp_total, o.paid_total, o.delivery_fee,
+           o.store_id,
+           o.reviewed_at, o.converted_to_bill_at,
            COALESCE(s.code, ms.code) AS store_code,
            COALESCE(s.name, ms.name) AS store_name,
            COALESCE(pm.name, o.reference) AS payment_method,
@@ -88,7 +94,8 @@ async function mapOrderRows(rows: Row[]): Promise<Order[]> {
 
   const ids = rows.map((r) => String(r.id));
   const lineRows = (await query<Row>(
-    `SELECT order_id, name, pack, unit_price, mrp, qty
+    `SELECT id, order_id, name, pack, unit_price, mrp, qty,
+            stock_status::text AS stock_status
        FROM app.order_line
       WHERE order_id = ANY($1::bigint[])
       ORDER BY id`,
@@ -145,6 +152,7 @@ async function mapOrderRows(rows: Row[]): Promise<Order[]> {
     return {
       id: String(r.id),
       code: String(r.code),
+      memberId: r.member_id == null ? '' : String(r.member_id),
       memberName: String(r.member_name ?? '—'),
       memberPhone: String(r.member_phone ?? ''),
       kind: fromEnum<OrderKind>(String(r.kind)),
@@ -153,8 +161,11 @@ async function mapOrderRows(rows: Row[]): Promise<Order[]> {
       mrpTotal: num(r.mrp_total),
       paidTotal: num(r.paid_total),
       deliveryFee: num(r.delivery_fee),
+      storeId: r.store_id == null ? '' : String(r.store_id),
       storeCode: String(r.store_code ?? ''),
       storeName: String(r.store_name ?? '—'),
+      reviewedAt: iso(r.reviewed_at) ?? '',
+      convertedToBillAt: iso(r.converted_to_bill_at) ?? '',
       paymentMethod: String(r.payment_method ?? '—'),
       paymentMethodCode: String(r.payment_method_code ?? ''),
       fulfillmentType: fromEnum<FulfillmentType>(String(r.fulfillment_type ?? 'HOME_DELIVERY')),
@@ -178,6 +189,59 @@ export async function setOrderStatus(id: string, status: OrderStatus): Promise<v
     'UPDATE app."order" SET status = $2::app.order_status WHERE id = $1',
     [id, status.toUpperCase()],
   );
+}
+
+/**
+ * "Submit" on the Orders review modal's Details step: saves each line's stock
+ * status and the order's branch, and stamps `reviewed_at`. One statement — the
+ * line updates ride in a data-modifying CTE — so a failure can't leave the
+ * statuses saved but the order un-stamped (or the reverse).
+ */
+export async function saveOrderReview(
+  id: string,
+  input: { lines: { id: string; status: OrderLineStatus }[]; storeId: string | null },
+): Promise<void> {
+  const rows = await query<{ id: unknown }>(
+    `WITH lines AS (
+       UPDATE app.order_line l
+          SET stock_status = v.status::app.order_line_status
+         FROM unnest($1::bigint[], $2::text[]) AS v(id, status)
+        WHERE l.id = v.id AND l.order_id = $3::bigint
+       RETURNING l.id
+     )
+     UPDATE app."order"
+        SET store_id = $4::bigint,
+            reviewed_at = now(),
+            updated_at = now()
+      WHERE id = $3::bigint
+      RETURNING id`,
+    [
+      input.lines.map((l) => l.id),
+      input.lines.map((l) => l.status.toUpperCase()),
+      id,
+      input.storeId,
+    ],
+  );
+  if (!rows.length) throw new Error('This order no longer exists.');
+}
+
+/**
+ * "Convert to bill →": the moment an order first appears on the Bills page.
+ * Stamps `converted_to_bill_at` (keeping the first stamp if it was already
+ * converted) and `reviewed_at` if the order somehow got here without a Submit.
+ * A cancelled order can't be billed.
+ */
+export async function markOrderConvertedToBill(id: string): Promise<void> {
+  const rows = await query<{ id: unknown }>(
+    `UPDATE app."order"
+        SET converted_to_bill_at = COALESCE(converted_to_bill_at, now()),
+            reviewed_at = COALESCE(reviewed_at, now()),
+            updated_at = now()
+      WHERE id = $1 AND status <> 'CANCELLED'::app.order_status
+      RETURNING id`,
+    [id],
+  );
+  if (!rows.length) throw new Error('A cancelled order cannot be converted to a bill.');
 }
 
 /** Completion changes fulfilment only; it never collects money or marks a bill paid. */
@@ -270,7 +334,13 @@ export async function sendOrderInvoice(
   }
 
   await query(
-    'UPDATE app."order" SET mrp_total = $2, updated_at = now() WHERE id = $1',
+    // Also keeps the invariant that an order with a priced bill is always
+    // listed on the Bills page, whichever path first billed it.
+    `UPDATE app."order"
+        SET mrp_total = $2,
+            converted_to_bill_at = COALESCE(converted_to_bill_at, now()),
+            updated_at = now()
+      WHERE id = $1`,
     [id, opts.amount],
   );
   return String(upserted[0]?.sent_at ?? '');

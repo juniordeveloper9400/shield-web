@@ -18,16 +18,16 @@ import { InvoiceModal } from '@/components/orders/InvoiceModal';
 import type { Order, Store } from '@/types';
 
 const BILL_OPTIONS = [
-  { value: 'all', label: 'All orders' },
+  { value: 'all', label: 'All bills' },
   { value: 'sent', label: 'Bill sent' },
   { value: 'pending', label: 'Not sent yet' },
 ];
 
 /**
- * The store's invoice for every order, in one place — the same "Invoice
- * sent to the member" upload that lives inside Orders → Manage, pulled out
- * to its own directory (like Stores) so an admin can see what's been billed
- * across every branch without opening one order at a time.
+ * The store's invoice for every order that has been converted to a bill, in
+ * one place. An order gets here only through "Convert to bill →" on the Orders
+ * (or Prescriptions) review modal — pricing, sending the invoice and the
+ * OTP-gated payment collection all happen from this page.
  */
 export default function BillsPage() {
   const { user } = useAuth();
@@ -89,7 +89,16 @@ export default function BillsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openId, data]);
 
-  const scoped = useMemo(() => scopeToStore(rows, user), [rows, user]);
+  // An order only appears here once it's been reviewed on the Orders page and
+  // converted ("Convert to bill →"). A freshly-received order stays on Orders.
+  const scoped = useMemo(
+    () =>
+      scopeToStore(
+        rows.filter((o) => o.convertedToBillAt),
+        user,
+      ),
+    [rows, user],
+  );
   const branchBound = user?.role === 'pharmacy' && Boolean(user.storeCode);
 
   const storeOptions = useMemo(() => {
@@ -278,8 +287,8 @@ export default function BillsPage() {
         title="Bills"
         subtitle={
           branchBound
-            ? "Invoices sent back to members for your branch's orders."
-            : 'Invoices sent back to members, across every branch.'
+            ? "Orders converted to bills for your branch — price, send and collect payment here."
+            : 'Orders converted to bills, across every branch — price, send and collect payment here.'
         }
       />
 
@@ -301,7 +310,7 @@ export default function BillsPage() {
       )}
 
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Total orders" value={scoped.length} icon="orders" tone="blue" />
+        <StatCard label="Converted to bill" value={scoped.length} icon="orders" tone="blue" />
         <StatCard label="Bill sent" value={sentCount} icon="check" tone="green" />
         <StatCard
           label="Not sent yet"
@@ -334,7 +343,11 @@ export default function BillsPage() {
           rows={filtered}
           loading={loading}
           error={error}
-          empty="No orders match your filters."
+          empty={
+            scoped.length === 0
+              ? 'No orders have been converted to a bill yet. Review an order on the Orders page and choose "Convert to bill".'
+              : 'No bills match your filters.'
+          }
           onRowClick={setViewingInvoice}
         />
         {rowError && (

@@ -193,12 +193,17 @@ export function BillEditorModal({
   const [lines, setLines] = useState<BillLineDraft[]>(() =>
     order.billLines.length > 0
       ? order.billLines
-      : order.lines.map((l) => ({
-          name: l.name,
-          pack: l.pack,
-          unitPrice: l.unitPrice,
-          qty: l.qty,
-        })),
+      : // Only lines the counter marked "Stock available" start on the bill —
+        // out-of-stock, not-possible and customer-not-needed lines are left off
+        // (an admin can still add one back by hand with "+ Add line").
+        order.lines
+          .filter((l) => l.status === 'available')
+          .map((l) => ({
+            name: l.name,
+            pack: l.pack,
+            unitPrice: l.unitPrice,
+            qty: l.qty,
+          })),
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
