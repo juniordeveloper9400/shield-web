@@ -112,6 +112,7 @@ export function PrescriptionReviewModal({
   const [draft, setDraft] = useState<PrescriptionMedicineInput[]>([]);
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [intakeSent, setIntakeSent] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
   // Which of this prescription's photos is on screen — a script is often
   // more than one page (migration 0040), shown one at a time with a
@@ -381,6 +382,7 @@ export function PrescriptionReviewModal({
     setAddingPatient(false);
     setNewPatientError(null);
     setCompleteError(null);
+    setIntakeSent(false);
     if (!prescription) {
       setSelectedRouteCode({});
       setDropCount({});
@@ -576,6 +578,7 @@ export function PrescriptionReviewModal({
   async function sendIntake() {
     if (!validateDetails()) return;
     if (await saveDetailsAndIntake()) {
+      setIntakeSent(true);
       onSaved();
     }
   }
@@ -764,7 +767,7 @@ export function PrescriptionReviewModal({
                   {completing ? 'Completing…' : 'Complete order'}
                 </Button>
               )}
-              {canBill ? (
+              {canBill && intakeSent ? (
                 <Button
                   variant="primary"
                   disabled={sending}
