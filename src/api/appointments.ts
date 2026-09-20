@@ -15,7 +15,7 @@ export async function listAppointments(): Promise<Appointment[]> {
            m.name  AS member_name,
            m.phone AS member_phone,
            ap.kind,
-           COALESCE(c.name, d.name, ap.doctor_name, 'SHIELD Tele-Consult') AS provider_name,
+           COALESCE(c.name, d.name, ap.doctor_name, 'Sahakar 360 Tele-Consult') AS provider_name,
            s.name AS store_name,
            ap.scheduled_for, ap.status, ap.remarks, ap.created_at
     FROM app.appointment ap

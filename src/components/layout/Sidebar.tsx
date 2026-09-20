@@ -32,11 +32,11 @@ export function Sidebar({
         <div className="flex h-16 items-center gap-2.5 border-b border-slate-200 px-5">
           <img
             src="/shield_mark.png"
-            alt="SHIELD"
+            alt="Sahakar 360"
             className="h-9 w-9 rounded-lg object-contain"
           />
           <div>
-            <p className="text-sm font-semibold text-slate-900">SHIELD Admin</p>
+            <p className="text-sm font-semibold text-slate-900">Sahakar 360 Admin</p>
             <p className="text-xs text-slate-400">Operations console</p>
           </div>
         </div>

@@ -156,7 +156,7 @@ export async function approveAgent(
   }
   if (!member.registration_completed_at) {
     throw new Error(
-      "This member hasn't finished their SHIELD registration yet — approve once they have.",
+      "This member hasn't finished their Sahakar 360 registration yet — approve once they have.",
     );
   }
 

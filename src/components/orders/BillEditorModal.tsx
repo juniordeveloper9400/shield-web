@@ -10,6 +10,7 @@ import { completeBilledOrder, sendOrderInvoice } from '@/api/orders';
 import {
   collectBillWithWallet,
   getMonthlyRedeemableForOrder,
+  getRedeemedThisMonthForOrder,
   getWalletBalanceForOrder,
 } from '@/api/billPayments';
 import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
@@ -20,6 +21,7 @@ import {
   STOCK_STATUS_TONE,
 } from '@/lib/prescriptionMedicine';
 import { InvoiceModal } from './InvoiceModal';
+import { WalletBreakdown } from './WalletBreakdown';
 import type { Order, PaymentStatus, PrescriptionMedicine } from '@/types';
 
 const inputClass =
@@ -110,6 +112,14 @@ export function BillEditorModal({
   // moment it lands.
   const { data: monthlyRedeemable } = useAsync(
     () => getMonthlyRedeemableForOrder(order.id),
+    [order.id],
+  );
+
+  // How much of that allowance the member has already drawn this month — with
+  // it, the "Monthly balance" (what's left) the member sees on their own
+  // wallet card. Same informational status as the line above.
+  const { data: redeemedThisMonth } = useAsync(
+    () => getRedeemedThisMonthForOrder(order.id),
     [order.id],
   );
 
@@ -434,37 +444,16 @@ export function BillEditorModal({
             automatically (up to the bill amount), and any shortfall is collected in cash
             at the counter — never before the code is verified.
           </p>
-          <div className="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            <div className="flex items-center justify-between">
-              <span>Member's wallet balance</span>
-              <span className="font-medium text-slate-800">
-                {formatCurrency(walletBalance ?? 0)}
-              </span>
-            </div>
-            {(monthlyRedeemable ?? 0) > 0 && (
-              <div className="mt-1 flex items-center justify-between">
-                <span>Health Pass monthly redeemable</span>
-                <span className="font-medium text-slate-800">
-                  {formatCurrency(monthlyRedeemable ?? 0)}
-                </span>
-              </div>
-            )}
-            <div className="mt-1 flex items-center justify-between">
-              <span>Will draw from wallet</span>
-              <span className="font-medium text-slate-800">
-                {formatCurrency(walletCoverage)}
-              </span>
-            </div>
-            <div className="mt-1 flex items-center justify-between">
-              <span>{cashOwed > 0 ? 'Collect in cash, hand to hand' : 'Cash needed'}</span>
-              <span
-                className={
-                  cashOwed > 0 ? 'font-semibold text-amber-700' : 'font-medium text-slate-800'
-                }
-              >
-                {formatCurrency(cashOwed)}
-              </span>
-            </div>
+          <div className="mt-3">
+            <WalletBreakdown
+              walletBalance={walletBalance ?? 0}
+              monthlyRedeemable={monthlyRedeemable}
+              redeemedThisMonth={redeemedThisMonth}
+              walletShare={walletCoverage}
+              walletShareLabel="Will draw from wallet"
+              cashOwed={cashOwed}
+              format={formatCurrency}
+            />
           </div>
           <div id={recaptchaContainerId} />
           {!otpConfirmation ? (
@@ -625,37 +614,16 @@ export function BillEditorModal({
             <span>{formatCurrency(total)}</span>
           </div>
           {total > 0 && (
-            <div className="mt-2 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
-              <div className="flex items-center justify-between">
-                <span>Member's wallet balance</span>
-                <span className="font-medium text-slate-800">
-                  {formatCurrency(walletBalance ?? 0)}
-                </span>
-              </div>
-              {(monthlyRedeemable ?? 0) > 0 && (
-                <div className="mt-1 flex items-center justify-between">
-                  <span>Health Pass monthly redeemable</span>
-                  <span className="font-medium text-slate-800">
-                    {formatCurrency(monthlyRedeemable ?? 0)}
-                  </span>
-                </div>
-              )}
-              <div className="mt-1 flex items-center justify-between">
-                <span>From wallet</span>
-                <span className="font-medium text-slate-800">
-                  {formatCurrency(walletCoverage)}
-                </span>
-              </div>
-              <div className="mt-1 flex items-center justify-between">
-                <span>{cashOwed > 0 ? 'Collect in cash, hand to hand' : 'Cash needed'}</span>
-                <span
-                  className={
-                    cashOwed > 0 ? 'font-semibold text-amber-700' : 'font-medium text-slate-800'
-                  }
-                >
-                  {formatCurrency(cashOwed)}
-                </span>
-              </div>
+            <div className="mt-2">
+              <WalletBreakdown
+                walletBalance={walletBalance ?? 0}
+                monthlyRedeemable={monthlyRedeemable}
+                redeemedThisMonth={redeemedThisMonth}
+                walletShare={walletCoverage}
+                walletShareLabel="From wallet"
+                cashOwed={cashOwed}
+                format={formatCurrency}
+              />
             </div>
           )}
           <div className="mt-3 flex items-center justify-between">

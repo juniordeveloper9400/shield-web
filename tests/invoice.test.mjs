@@ -4,7 +4,7 @@ import { buildInvoice, invoiceWhatsAppUrl, canCompleteInvoice, formatInvoiceCurr
 
 const order = {
   id: '42', code: 'RX-42', memberName: 'Member', memberPhone: '+91 98765 43210',
-  storeName: 'SHIELD Pharmacy', billAmount: 395, billStatus: 'pending',
+  storeName: 'Sahakar 360 Pharmacy', billAmount: 395, billStatus: 'pending',
   paymentStatus: 'pending', status: 'processing', deliveryFee: 25, paidTotal: 0,
   placedAt: '2026-09-19T12:00:00Z', billedAt: '2026-09-19T12:30:00Z',
   billLines: [{ name: 'Medicine A', pack: 'Tablet', qty: 1, unitPrice: 100 },

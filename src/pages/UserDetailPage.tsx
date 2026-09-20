@@ -1212,7 +1212,7 @@ export default function UserDetailPage() {
                 This removes{' '}
                 <span className="font-medium text-slate-800">{selected.name}</span>{' '}
                 from the Users list and immediately blocks their sign-in on the
-                app — the next time they open SHIELD, or the next check while
+                app — the next time they open Sahakar 360, or the next check while
                 they're already inside, they're signed out with no way back in.
               </p>
               <p>

@@ -43,14 +43,14 @@ export default function LoginPage() {
       <div className="hidden w-1/2 flex-col justify-between bg-brand-700 p-12 text-white lg:flex">
         <div className="flex items-center gap-2.5">
           <span className="grid h-10 w-10 place-items-center rounded-lg bg-white/15">
-            <img src="/shield_mark.png" alt="SHIELD" className="h-6 w-6 object-contain" />
+            <img src="/shield_mark.png" alt="Sahakar 360" className="h-6 w-6 object-contain" />
           </span>
-          <span className="text-lg font-semibold">SHIELD Admin</span>
+          <span className="text-lg font-semibold">Sahakar 360 Admin</span>
         </div>
 
         <div>
           <h1 className="text-3xl font-semibold leading-tight">
-            One console for SHIELD orders, prescriptions, lab tests & appointments.
+            One console for Sahakar 360 orders, prescriptions, lab tests & appointments.
           </h1>
           <p className="mt-4 max-w-md text-brand-100">
             Sign in with your login ID. The pages you can open are decided by
@@ -59,7 +59,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-sm text-brand-200">
-          &copy; {new Date().getFullYear()} Shield Health Platform
+          &copy; {new Date().getFullYear()} Sahakar 360 Health Platform
         </p>
       </div>
 
@@ -69,10 +69,10 @@ export default function LoginPage() {
           <div className="mb-8 lg:hidden">
             <div className="flex items-center gap-2.5">
               <span className="grid h-10 w-10 place-items-center rounded-lg bg-white ring-1 ring-slate-200">
-                <img src="/shield_mark.png" alt="SHIELD" className="h-6 w-6 object-contain" />
+                <img src="/shield_mark.png" alt="Sahakar 360" className="h-6 w-6 object-contain" />
               </span>
               <span className="text-lg font-semibold text-slate-900">
-                SHIELD Admin
+                Sahakar 360 Admin
               </span>
             </div>
           </div>

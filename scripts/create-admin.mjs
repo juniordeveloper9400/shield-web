@@ -1,4 +1,4 @@
-// Bootstrap / manage a SHIELD Admin login from the command line.
+// Bootstrap / manage a Sahakar 360 Admin login from the command line.
 //
 // Creates the Firebase Email/Password account (via the Firebase Auth REST API)
 // and the matching `app.admin_user` row on Neon. Use it once to make the first

@@ -1,5 +1,6 @@
 import { query } from '@/lib/db';
 import { num } from '@/lib/mappers';
+import { redeemedThisMonth } from '@/lib/walletMonth';
 
 type Row = Record<string, unknown>;
 
@@ -174,4 +175,34 @@ export async function collectBillWithWallet(
     return { ok: false, reason: 'This bill has not been priced yet.' };
   }
   return { ok: false, reason: 'Could not collect this bill — try again.' };
+}
+
+/**
+ * How much of this month's Health Pass allowance the member of [orderId] has
+ * already drawn — the "Redeemed this month" line on their own wallet card.
+ * Read from the ledger (`app.wallet_entry`, oldest first) and worked out by the
+ * same rule the app uses; see `redeemedThisMonth` in `lib/walletMonth.ts`.
+ * `0` for a member with no wallet or nothing drawn yet.
+ *
+ * Together with [getMonthlyRedeemableForOrder] this gives the "Monthly
+ * balance" — what is left this month — shown when collecting a bill.
+ */
+export async function getRedeemedThisMonthForOrder(orderId: string): Promise<number> {
+  const rows = await query<Row>(
+    `SELECT we.kind::text AS kind, we.amount, we.occurred_on::text AS occurred_on
+       FROM app."order" o
+       JOIN app.wallet w         ON w.member_id = o.member_id
+       JOIN app.wallet_entry we  ON we.wallet_id = w.id
+      WHERE o.id = $1
+      ORDER BY we.created_at ASC, we.id ASC`,
+    [orderId],
+  );
+  return redeemedThisMonth(
+    rows.map((r) => ({
+      kind: String(r.kind),
+      amount: num(r.amount),
+      occurredOn: String(r.occurred_on),
+    })),
+    new Date(),
+  );
 }

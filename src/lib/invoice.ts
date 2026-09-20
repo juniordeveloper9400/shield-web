@@ -28,7 +28,7 @@ export function buildInvoice(order: Order, store?: Store) {
     date: order.billedAt || order.placedAt,
     customer: order.memberName,
     phone: order.memberPhone,
-    storeName: store?.name || order.storeName || 'SHIELD Pharmacy',
+    storeName: store?.name || order.storeName || 'Sahakar 360 Pharmacy',
     storeAddress: store ? [store.area, store.city, store.state, store.pincode].filter(Boolean).join(', ') : '',
     storePhone: store?.phone || '',
     fulfillment: order.fulfillmentType === 'store_pickup' ? 'Store pickup' : 'Home delivery',
@@ -37,7 +37,7 @@ export function buildInvoice(order: Order, store?: Store) {
     rows, subtotal, deliveryFee,
     adjustment: money(total - subtotal - deliveryFee),
     total,
-    fileName: `SHIELD-Invoice-${order.code.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`,
+    fileName: `Sahakar-360-Invoice-${order.code.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`,
   };
 }
 
@@ -47,7 +47,7 @@ export function invoiceWhatsAppUrl(invoice: Invoice): string {
   let phone = invoice.phone.replace(/[\s()+-]/g, '');
   if (/^[6-9]\d{9}$/.test(phone)) phone = `91${phone}`;
   if (!/^91[6-9]\d{9}$/.test(phone)) throw new Error('The customer phone number is invalid. Use Share PDF or download the invoice instead.');
-  const text = `Hello ${invoice.customer}, your SHIELD invoice ${invoice.code} is INR ${invoice.total.toFixed(2)}. Payment: ${invoice.paymentStatus === 'paid' ? 'Paid' : 'Pending'}.`;
+  const text = `Hello ${invoice.customer}, your Sahakar 360 invoice ${invoice.code} is INR ${invoice.total.toFixed(2)}. Payment: ${invoice.paymentStatus === 'paid' ? 'Paid' : 'Pending'}.`;
   return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
 }
 

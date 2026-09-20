@@ -8,7 +8,7 @@ import '../src/index.css';
 const order: Order = {
   id: '42', code: 'RX-TEST-42', memberName: 'Sample member', memberPhone: '9000000000',
   kind: 'prescription', status: 'processing', itemCount: 6, mrpTotal: 395, paidTotal: 0,
-  deliveryFee: 25, storeCode: 'TEST', storeName: 'SHIELD Pharmacy — Test branch',
+  deliveryFee: 25, storeCode: 'TEST', storeName: 'Sahakar 360 Pharmacy — Test branch',
   paymentMethod: 'Cash', paymentMethodCode: 'cash', fulfillmentType: 'home_delivery',
   paymentStatus: 'pending', deliveryBoyId: '', deliveryBoyName: '',
   placedAt: '2026-09-19T12:00:00Z', billedAt: '2026-09-19T12:30:00Z',

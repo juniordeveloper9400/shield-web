@@ -381,7 +381,7 @@ export default function StoresPage() {
     <>
       <PageHeader
         title="Stores"
-        subtitle="SHIELD branches, their coverage and their details."
+        subtitle="Sahakar 360 branches, their coverage and their details."
         actions={
           <Button variant="primary" onClick={openAdd}>
             <Icon name="plus" className="h-4 w-4" /> Add branch
@@ -656,7 +656,7 @@ export default function StoresPage() {
               value={draft.name}
               onChange={(e) => patchDraft({ name: e.target.value })}
               className={inputClass}
-              placeholder="SHIELD Pharmacy Melattur"
+              placeholder="Sahakar 360 Pharmacy Melattur"
             />
           </EditField>
           <div className="grid grid-cols-2 gap-3">
@@ -815,7 +815,7 @@ function BankFields({
             value={values.bankAccountName}
             onChange={(e) => onChange({ bankAccountName: e.target.value })}
             className={inputClass}
-            placeholder="SHIELD Pharmacy Melattur"
+            placeholder="Sahakar 360 Pharmacy Melattur"
           />
         </EditField>
         <div className="grid grid-cols-2 gap-3">

@@ -38,7 +38,7 @@ export async function createInvoicePdf(invoice: Invoice): Promise<File> {
     ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, 620, 877);
     pages.push(canvas);
     y = 36;
-    if (continued) { text(`SHIELD Invoice ${invoice.code} — continued`, left, y, 'left', 11, true); y += 24; }
+    if (continued) { text(`Sahakar 360 Invoice ${invoice.code} — continued`, left, y, 'left', 11, true); y += 24; }
   }
   function ensure(height: number) { if (y + height > bottom) newPage(true); }
   function wrap(value: string, width: number, size = 11): string[] {
@@ -70,7 +70,7 @@ export async function createInvoicePdf(invoice: Invoice): Promise<File> {
   }
 
   newPage();
-  paragraph('SHIELD PHARMACY', 19, true);
+  paragraph('SAHAKAR 360 PHARMACY', 19, true);
   paragraph(invoice.storeName, 12, true);
   if (invoice.storeAddress) paragraph(invoice.storeAddress, 10);
   if (invoice.storePhone) paragraph(`Phone: ${invoice.storePhone}`, 10);
@@ -106,10 +106,10 @@ export async function createInvoicePdf(invoice: Invoice): Promise<File> {
   if (invoice.adjustment) totalRow('Bill adjustment', invoice.adjustment);
   totalRow('TOTAL', invoice.total, true);
   y += 12;
-  paragraph('Thank you for choosing SHIELD Pharmacy.', 10);
+  paragraph('Thank you for choosing Sahakar 360 Pharmacy.', 10);
 
   const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
-  pdf.setProperties({ title: `Invoice ${invoice.code}`, author: 'SHIELD Pharmacy' });
+  pdf.setProperties({ title: `Invoice ${invoice.code}`, author: 'Sahakar 360 Pharmacy' });
   pages.forEach((page, index) => {
     const footer = page.getContext('2d')!;
     footer.font = '9px Arial, sans-serif'; footer.fillStyle = '#64748b'; footer.textAlign = 'right';

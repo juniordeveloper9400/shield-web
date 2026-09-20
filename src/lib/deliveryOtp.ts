@@ -6,7 +6,7 @@ import {
   type ConfirmationResult,
 } from 'firebase/auth';
 
-// SHIELD's Firebase project (`shield-zabnix`) — the same public web config
+// Sahakar 360's Firebase project (`shield-zabnix`) — the same public web config
 // `shield agent_invester/lib/firebase_options.dart` ships to every browser.
 // Not secret: Firebase's own docs treat this as safe to embed in a client
 // bundle (domain/App Check restrictions are the actual gate, not this key).

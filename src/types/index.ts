@@ -63,7 +63,7 @@ export interface AdminUser {
 /** The signed-in admin kept in context. Same shape as the table row. */
 export type AuthUser = AdminUser;
 
-/** A SHIELD branch — one row of `app.shield_store`. */
+/** A Sahakar 360 branch — one row of `app.shield_store`. */
 export interface Store {
   id: string;
   /** Stable branch code, e.g. `SHD-MEL`. */
@@ -95,7 +95,7 @@ export interface Store {
   openedAt: string;
 }
 
-/** Fields the admin fills to open a new SHIELD branch. */
+/** Fields the admin fills to open a new Sahakar 360 branch. */
 export interface NewStore {
   /** `SHD-…` — unique. Uppercased and trimmed on save. */
   code: string;
@@ -732,7 +732,7 @@ export interface Appointment {
   type: AppointmentType;
   /** Clinic, tele-consult or dietitian the booking is with. */
   providerName: string;
-  /** The SHIELD branch serving the member. */
+  /** The Sahakar 360 branch serving the member. */
   storeName: string;
   scheduledFor: string;
   status: AppointmentStatus;

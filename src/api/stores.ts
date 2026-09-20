@@ -35,7 +35,7 @@ function toStore(r: Row): Store {
   };
 }
 
-/** Every SHIELD branch, with its live member and order counts. */
+/** Every Sahakar 360 branch, with its live member and order counts. */
 export async function listStores(): Promise<Store[]> {
   const rows = (await sql`
     SELECT s.id, s.code, s.name, s.area, s.city, s.state, s.pincode,

@@ -58,7 +58,7 @@ export function Topbar({ onMenuClick }: { onMenuClick: () => void }) {
         </button>
         <div>
           <p className="text-sm font-semibold text-slate-900">
-            {currentModule?.label ?? 'Shield Admin'}
+            {currentModule?.label ?? 'Sahakar 360 Admin'}
           </p>
           {currentModule && (
             <p className="hidden text-xs text-slate-400 sm:block">

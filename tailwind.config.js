@@ -4,7 +4,7 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Anchored on the SHIELD logo mark: body blue #2C57A6 (600),
+        // Anchored on the Sahakar 360 logo mark: body blue #2C57A6 (600),
         // deep blue #224787 (700), navy #16305C (900) — see
         // lib/theme/app_colors.dart in the Flutter app.
         brand: {

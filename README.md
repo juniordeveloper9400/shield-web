@@ -1,6 +1,6 @@
-# SHIELD Admin
+# Sahakar 360 Admin
 
-Role-based operations console for the SHIELD app — **React + TypeScript + Vite +
+Role-based operations console for the Sahakar 360 app — **React + TypeScript + Vite +
 Tailwind CSS**, backed by the **same Neon Postgres `app` schema the Flutter app
 writes to** and **Firebase Email/Password** auth.
 
@@ -9,7 +9,7 @@ It manages:
 | Module | What it does | Table(s) |
 | --- | --- | --- |
 | **Dashboard** | Overview + a "needs attention" queue, filtered to the modules your login can open | (reads the below) |
-| **Stores** | The SHIELD branches — details, coverage, activate / deactivate | `app.shield_store` |
+| **Stores** | The Sahakar 360 branches — details, coverage, activate / deactivate | `app.shield_store` |
 | **Catalogue** | Storefront & pharmacy-shelf products — price, stock, activate / deactivate | `app.product` (+ `app.product_category`) |
 | **Orders** | Member orders — advance Processing → Out for delivery → Delivered, or cancel | `app."order"` (+ `app.order_line`) |
 | **Prescriptions** | Uploaded scripts — work each one Awaiting review → Read → In cart → Ordered | `app.prescription` (+ `app.prescription_medicine`) |
@@ -86,7 +86,7 @@ Other scripts: `npm run build`, `npm run preview`, `npm run typecheck`.
 
 ## Deploying
 
-This repo is standalone (split out of the SHIELD mono-repo so the console can be
+This repo is standalone (split out of the Sahakar 360 mono-repo so the console can be
 hosted on its own). It's a static Vite SPA — `npm run build` emits `dist/`.
 
 - **Build command:** `npm run build`  ·  **Output dir:** `dist`  ·  **Node:** 20+

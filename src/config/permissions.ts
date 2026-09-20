@@ -23,7 +23,7 @@ export const MODULES: NavItem[] = [
     label: 'Stores',
     path: '/stores',
     icon: 'stores',
-    description: 'SHIELD branches & coverage',
+    description: 'Sahakar 360 branches & coverage',
   },
   {
     key: 'products',

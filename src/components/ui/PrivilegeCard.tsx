@@ -91,7 +91,7 @@ export function PrivilegeCard({
               Holder
             </p>
             <p className="truncate text-[11px] font-semibold uppercase">
-              {holder ? holder.toUpperCase() : 'SHIELD MEMBER'}
+              {holder ? holder.toUpperCase() : 'SAHAKAR 360 MEMBER'}
             </p>
           </div>
           <div className="text-right">

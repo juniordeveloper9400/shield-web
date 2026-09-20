@@ -12,7 +12,7 @@ function InvoiceDocument({ invoice }: { invoice: Invoice }) {
     <article className="invoice-document bg-white text-slate-800">
       <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-4">
         <div>
-          <h2 className="text-xl font-bold">SHIELD Pharmacy</h2>
+          <h2 className="text-xl font-bold">Sahakar 360 Pharmacy</h2>
           <p className="text-sm font-semibold">{invoice.storeName}</p>
           <p className="max-w-sm text-xs text-slate-500">{invoice.storeAddress}</p>
           {invoice.storePhone && <p className="text-xs text-slate-500">Phone: {invoice.storePhone}</p>}
@@ -49,7 +49,7 @@ function InvoiceDocument({ invoice }: { invoice: Invoice }) {
         {!!invoice.adjustment && <div className="flex justify-between"><span>Bill adjustment</span><span>{formatCurrency(invoice.adjustment)}</span></div>}
         <div className="flex justify-between border-t pt-2 text-lg font-bold"><span>Total</span><span>{formatCurrency(invoice.total)}</span></div>
       </div>
-      <p className="mt-6 border-t pt-3 text-center text-xs text-slate-500">Thank you for choosing SHIELD Pharmacy.</p>
+      <p className="mt-6 border-t pt-3 text-center text-xs text-slate-500">Thank you for choosing Sahakar 360 Pharmacy.</p>
     </article>
   );
 }
@@ -100,7 +100,7 @@ export function InvoiceModal({ order, store, open, onClose, onCompleted }: {
       setNotice('Invoice PDF downloaded. Attach it in WhatsApp, email, or another app.');
       return;
     }
-    try { await navigator.share({ files: [file], title: `SHIELD invoice ${invoice.code}` }); }
+    try { await navigator.share({ files: [file], title: `Sahakar 360 invoice ${invoice.code}` }); }
     catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
       setError('Sharing was unavailable. Download the PDF and attach it in your preferred app.');
