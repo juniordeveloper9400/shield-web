@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -7,15 +7,22 @@ import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Icon } from '@/components/ui/Icon';
+import { useAuth } from '@/context/AuthContext';
+import { ApiError } from '@/lib/api';
 import { fileToResizedDataUrl } from '@/lib/images';
+import { readVideoInfo } from '@/lib/videoPoster';
+import { formatMegabytes, reviewVideoProblem, reviewVideoSource } from '@/lib/reviewVideo';
 import { useAsync } from '@/lib/useAsync';
 import {
   createCustomerReviewVideo,
   deleteCustomerReviewVideo,
+  deleteStoredReviewVideo,
   listCustomerReviewVideos,
   moveCustomerReviewVideo,
+  requestReviewVideoUpload,
   setCustomerReviewVideoActive,
   updateCustomerReviewVideo,
+  uploadReviewVideoFile,
 } from '@/api/customerReviewVideos';
 import type { CustomerReviewVideo, NewCustomerReviewVideo } from '@/types';
 
@@ -28,66 +35,63 @@ const EMPTY: NewCustomerReviewVideo = {
   sort: 0,
 };
 
-/** The video id out of a YouTube URL — `watch?v=`, `youtu.be/`, `/embed/`,
- *  `/shorts/` and `/live/` links, with or without extra query params — or
- *  null when `url` is not a YouTube link. Mirrors
- *  `lib/module/home/customer_reviews.dart`'s `_youtubeVideoId`, which is
- *  what actually plays the clip in the app; keep the two in step. */
-function youtubeVideoId(url: string): string | null {
-  let parsed: URL;
-  try {
-    parsed = new URL(url.trim());
-  } catch {
-    return null;
-  }
-  const host = parsed.hostname.toLowerCase();
-
-  if (host === 'youtu.be' || host.endsWith('.youtu.be')) {
-    const first = parsed.pathname.split('/').filter(Boolean)[0];
-    return first || null;
-  }
-  if (!host.includes('youtube.com')) {
-    return null;
-  }
-
-  const fromQuery = parsed.searchParams.get('v');
-  if (fromQuery) {
-    return fromQuery;
-  }
-  const segments = parsed.pathname.split('/').filter(Boolean);
-  for (const marker of ['embed', 'shorts', 'live']) {
-    const index = segments.indexOf(marker);
-    if (index !== -1 && index + 1 < segments.length) {
-      return segments[index + 1];
-    }
-  }
-  return null;
-}
-
-/** YouTube's own poster for `id` — used as the clip's thumbnail whenever the
- *  admin hasn't uploaded one, same as the app does at display time. */
-function youtubeThumbnailUrl(id: string): string {
-  return `https://img.youtube.com/vi/${id}/hqdefault.jpg`;
+/** A video picked in the form but not uploaded yet — that happens on save. */
+interface PickedVideo {
+  file: File;
+  /** Object URL for the in-form preview; revoked when replaced or the form closes. */
+  previewUrl: string;
+  /** A frame grabbed from the file, or null when the browser couldn't decode one. */
+  poster: string | null;
+  duration: number;
 }
 
 export default function CustomerVideosPage() {
+  const { accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(listCustomerReviewVideos, []);
   const rows = useMemo(() => data ?? [], [data]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<NewCustomerReviewVideo>(EMPTY);
+  const [picked, setPicked] = useState<PickedVideo | null>(null);
+  const [reading, setReading] = useState(false);
+  // True once the admin chose a thumbnail image themselves — that beats the
+  // frame grabbed from a newly picked video.
+  const [thumbnailChosen, setThumbnailChosen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const draftYoutubeId = useMemo(() => youtubeVideoId(draft.videoUrl), [draft.videoUrl]);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const editingVideo = editingId ? rows.find((r) => r.id === editingId) ?? null : null;
+  const savedSource = draft.videoUrl ? reviewVideoSource(draft.videoUrl) : null;
+  // What the in-form player shows: the file just picked, else the clip as saved.
+  const previewSrc = picked?.previewUrl ?? (savedSource === 'video' ? draft.videoUrl : null);
+  const previewPoster = draft.thumbnail || picked?.poster || undefined;
+
+  // Object URLs hold the whole file in memory until revoked.
+  useEffect(() => {
+    return () => {
+      if (picked) URL.revokeObjectURL(picked.previewUrl);
+    };
+  }, [picked]);
+
+  function resetForm() {
+    setPicked(null);
+    setReading(false);
+    setThumbnailChosen(false);
+    setProgress(null);
+    setFormError(null);
+  }
 
   function openAdd() {
+    resetForm();
     setDraft({ ...EMPTY, sort: rows.length });
-    setFormError(null);
     setAdding(true);
   }
 
   function openEdit(video: CustomerReviewVideo) {
+    resetForm();
     setDraft({
       name: video.name,
       subtitle: video.subtitle,
@@ -96,14 +100,40 @@ export default function CustomerVideosPage() {
       isActive: video.isActive,
       sort: video.sort,
     });
-    setFormError(null);
     setEditingId(video.id);
   }
 
   function closeForm() {
+    // Closing mid-upload stops the transfer rather than leaving it running unseen.
+    abortRef.current?.abort();
     setAdding(false);
     setEditingId(null);
+    resetForm();
+  }
+
+  async function handleVideoPick(file: File) {
     setFormError(null);
+    const problem = reviewVideoProblem(file);
+    if (problem) {
+      setFormError(problem);
+      return;
+    }
+    setReading(true);
+    const info = await readVideoInfo(file);
+    setReading(false);
+    setPicked({
+      file,
+      previewUrl: URL.createObjectURL(file),
+      poster: info.poster,
+      duration: info.duration,
+    });
+    // A new video makes the old poster stale — unless the admin picked one just now.
+    if (!thumbnailChosen) setDraft((d) => ({ ...d, thumbnail: '' }));
+    if (!draft.name.trim()) {
+      // A starting point for the caption, not a final answer — the admin can retype it.
+      const guess = file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+      setDraft((d) => (d.name.trim() ? d : { ...d, name: guess }));
+    }
   }
 
   async function handleThumbnailPick(file: File) {
@@ -111,6 +141,7 @@ export default function CustomerVideosPage() {
     try {
       const url = await fileToResizedDataUrl(file, 640, 0.75);
       setDraft((d) => ({ ...d, thumbnail: url }));
+      setThumbnailChosen(true);
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not load the image.');
     }
@@ -121,37 +152,68 @@ export default function CustomerVideosPage() {
       setFormError('Give the clip a name.');
       return;
     }
-    if (!draft.videoUrl.trim()) {
-      setFormError('Add a YouTube video URL.');
+    if (!picked && savedSource !== 'video') {
+      setFormError('Upload a video file for this clip.');
       return;
     }
-    if (!youtubeVideoId(draft.videoUrl)) {
-      setFormError(
-        'That doesn’t look like a YouTube link — paste a youtube.com/watch?v=… or youtu.be/… URL.',
-      );
+    if (picked && !accessToken) {
+      setFormError('Your session has expired — sign in again to upload.');
       return;
     }
+
     setSaving(true);
     setFormError(null);
+    setProgress(null);
+    const abort = new AbortController();
+    abortRef.current = abort;
+    let uploadedUrl: string | null = null;
     try {
+      let videoUrl = draft.videoUrl;
+      if (picked) {
+        setProgress(0);
+        const ticket = await requestReviewVideoUpload(picked.file, accessToken!);
+        await uploadReviewVideoFile(ticket, picked.file, setProgress, abort.signal);
+        uploadedUrl = ticket.publicUrl;
+        videoUrl = ticket.publicUrl;
+      }
+      const input: NewCustomerReviewVideo = {
+        ...draft,
+        videoUrl,
+        // An admin-chosen image wins; otherwise a new video brings its own frame.
+        thumbnail: thumbnailChosen ? draft.thumbnail : picked ? (picked.poster ?? '') : draft.thumbnail,
+      };
       if (editingId) {
-        await updateCustomerReviewVideo(editingId, draft);
+        await updateCustomerReviewVideo(editingId, input);
       } else {
-        await createCustomerReviewVideo(draft);
+        await createCustomerReviewVideo(input);
+      }
+      // The row now points at the new file; the one it replaced is unreferenced.
+      if (editingVideo && picked && editingVideo.videoUrl !== videoUrl) {
+        void deleteStoredReviewVideo(editingVideo.videoUrl, accessToken).catch(() => undefined);
       }
       closeForm();
       reload();
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Could not save the clip.');
+      // The file made it to storage but the row didn't save: don't leave it orphaned.
+      if (uploadedUrl) {
+        void deleteStoredReviewVideo(uploadedUrl, accessToken).catch(() => undefined);
+      }
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return;
+      }
+      setFormError(describeSaveError(err));
     } finally {
+      abortRef.current = null;
       setSaving(false);
+      setProgress(null);
     }
   }
 
-  async function remove(id: string) {
+  async function remove(video: CustomerReviewVideo) {
     setSaving(true);
     try {
-      await deleteCustomerReviewVideo(id);
+      await deleteCustomerReviewVideo(video.id);
+      void deleteStoredReviewVideo(video.videoUrl, accessToken).catch(() => undefined);
       closeForm();
       reload();
     } finally {
@@ -200,17 +262,24 @@ export default function CustomerVideosPage() {
     },
     {
       key: 'source',
-      header: 'Source',
-      render: (row) =>
-        youtubeVideoId(row.videoUrl) ? (
-          <Badge tone="red">YouTube</Badge>
-        ) : (
-          // Only possible for a row saved before YouTube-only was enforced —
-          // it has nowhere to play in the app now (see customer_reviews.dart).
-          <span className="text-xs text-rose-500" title={row.videoUrl}>
-            Not a YouTube link — won&apos;t play
+      header: 'Video',
+      render: (row) => {
+        const source = reviewVideoSource(row.videoUrl);
+        if (source === 'video') return <Badge tone="green">Uploaded</Badge>;
+        return (
+          // A row from before uploads existed: the app has nothing to play for it.
+          <span
+            className="text-xs text-amber-600"
+            title={row.videoUrl}
+          >
+            {source === 'youtube'
+              ? 'YouTube link — not shown in the app'
+              : source === 'bundled'
+                ? 'File missing — not shown in the app'
+                : 'Not a video — not shown in the app'}
           </span>
-        ),
+        );
+      },
     },
     {
       key: 'status',
@@ -263,6 +332,7 @@ export default function CustomerVideosPage() {
   ];
 
   const formOpen = adding || editingId !== null;
+  const needsUpload = savedSource !== null && savedSource !== 'video';
 
   return (
     <>
@@ -292,59 +362,94 @@ export default function CustomerVideosPage() {
         title={editingId ? 'Edit clip' : 'Add clip'}
         footer={
           <>
-            {editingId && (
+            {editingVideo && (
               <Button
                 variant="danger"
                 disabled={saving}
-                onClick={() => remove(editingId)}
+                onClick={() => remove(editingVideo)}
               >
                 Delete
               </Button>
             )}
             <div className="flex-1" />
-            <Button variant="secondary" disabled={saving} onClick={closeForm}>
-              Cancel
+            <Button variant="secondary" onClick={closeForm}>
+              {saving && progress !== null ? 'Cancel upload' : 'Cancel'}
             </Button>
-            <Button variant="primary" disabled={saving} onClick={save}>
-              {editingId ? 'Save changes' : 'Add clip'}
+            <Button variant="primary" disabled={saving || reading} onClick={save}>
+              {saving
+                ? progress !== null
+                  ? `Uploading ${Math.round(progress * 100)}%…`
+                  : 'Saving…'
+                : editingId
+                  ? 'Save changes'
+                  : 'Add clip'}
             </Button>
           </>
         }
       >
         <div className="space-y-4">
-          <EditField label="YouTube video URL">
+          <EditField label="Video">
+            {previewSrc ? (
+              <video
+                key={previewSrc}
+                src={previewSrc}
+                poster={previewPoster}
+                controls
+                playsInline
+                preload="metadata"
+                className="mb-2 max-h-64 w-full rounded-lg bg-black object-contain"
+              />
+            ) : (
+              <div className="mb-2 grid h-28 place-items-center rounded-lg border border-dashed border-slate-300 text-sm text-slate-400">
+                {reading ? 'Reading the video…' : 'No video yet'}
+              </div>
+            )}
             <input
-              value={draft.videoUrl}
-              onChange={(e) =>
-                setDraft((d) => ({ ...d, videoUrl: e.target.value }))
-              }
-              className={inputClass}
-              placeholder="https://youtube.com/watch?v=… or https://youtu.be/…"
+              type="file"
+              accept="video/mp4,video/webm,video/quicktime,.mp4,.m4v,.webm,.mov"
+              disabled={saving}
+              className="text-xs text-slate-500 file:mr-2 file:rounded-md file:border-0 file:bg-brand-50 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-brand-700"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleVideoPick(file);
+                e.target.value = '';
+              }}
             />
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-400">
-              {draftYoutubeId ? (
-                <>
-                  <Badge tone="red">YouTube</Badge>
-                  Plays through YouTube&apos;s own embedded player, in the app
-                  and on the web build.
-                </>
-              ) : (
-                'A youtube.com/watch?v=… or youtu.be/… link — this is the only kind of clip the reel plays.'
-              )}
-            </p>
+            {picked ? (
+              <p className="mt-1 text-xs text-slate-500">
+                {picked.file.name} · {formatMegabytes(picked.file.size)}
+                {picked.duration > 0 && ` · ${formatDuration(picked.duration)}`} — uploads when
+                you save.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-400">
+                A short MP4, WebM or MOV clip — 50 MB by default (the server says if a file is
+                over its limit). It’s stored in Supabase and plays inside the app; nothing is sent
+                to YouTube.
+              </p>
+            )}
+            {needsUpload && !picked && (
+              <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                This clip is{' '}
+                {savedSource === 'youtube' ? 'a YouTube link' : 'a file bundled with an old app version'},
+                which the app can’t play any more. Upload the video to bring it back to the reel.
+              </p>
+            )}
+            {saving && progress !== null && (
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full bg-brand-600 transition-[width]"
+                  style={{ width: `${Math.round(progress * 100)}%` }}
+                />
+              </div>
+            )}
           </EditField>
 
           <EditField label="Thumbnail (optional)">
             <div className="flex items-center gap-3">
-              {draft.thumbnail ? (
+              {draft.thumbnail || picked?.poster ? (
                 <img
-                  src={draft.thumbnail}
-                  alt=""
-                  className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
-                />
-              ) : draftYoutubeId ? (
-                <img
-                  src={youtubeThumbnailUrl(draftYoutubeId)}
+                  src={draft.thumbnail || picked?.poster || ''}
                   alt=""
                   className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
                 />
@@ -357,6 +462,7 @@ export default function CustomerVideosPage() {
                 <input
                   type="file"
                   accept="image/*"
+                  disabled={saving}
                   className="text-xs text-slate-500 file:mr-2 file:rounded-md file:border-0 file:bg-brand-50 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-brand-700"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
@@ -364,14 +470,18 @@ export default function CustomerVideosPage() {
                   }}
                 />
                 <p className="text-xs text-slate-400">
-                  Shown on the card before it plays. Left blank, the app uses
-                  YouTube&apos;s own thumbnail for this video.
+                  {picked && !picked.poster
+                    ? 'This browser couldn’t grab a frame from the video — pick an image for the card.'
+                    : 'Shown on the card before it plays. Left as is, a frame from the video is used.'}
                 </p>
                 {draft.thumbnail && (
                   <button
                     type="button"
                     className="self-start text-xs font-medium text-rose-600"
-                    onClick={() => setDraft((d) => ({ ...d, thumbnail: '' }))}
+                    onClick={() => {
+                      setDraft((d) => ({ ...d, thumbnail: '' }));
+                      setThumbnailChosen(true);
+                    }}
                   >
                     Remove thumbnail
                   </button>
@@ -420,6 +530,29 @@ export default function CustomerVideosPage() {
       </Modal>
     </>
   );
+}
+
+function formatDuration(seconds: number): string {
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+/** A message an admin can act on, for whatever went wrong requesting the
+ *  upload, sending the file, or saving the row. */
+function describeSaveError(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.code === 'STORAGE_NOT_CONFIGURED') {
+      return 'Video storage isn’t set up on the server yet — see the Supabase setup steps in docs/admin-console.md.';
+    }
+    if (err.status === 401) return 'Your session has expired — sign in again to upload.';
+    if (err.status === 403) return 'Your account isn’t allowed to manage customer videos.';
+    return err.message;
+  }
+  if (err instanceof TypeError) {
+    // fetch() rejects with a TypeError when the API itself can't be reached.
+    return 'Couldn’t reach the server to start the upload. Check your connection and try again.';
+  }
+  return err instanceof Error ? err.message : 'Could not save the clip.';
 }
 
 const inputClass =

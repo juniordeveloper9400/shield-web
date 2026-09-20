@@ -1,0 +1,783 @@
+import { useMemo, useState } from 'react';
+import { Card } from '@/components/ui/Card';
+import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
+import { DataTable, type Column } from '@/components/ui/DataTable';
+import { FilterSelect, SearchInput } from '@/components/ui/Filters';
+import { useAuth } from '@/context/AuthContext';
+import { formatCurrency, formatDateTime } from '@/lib/format';
+import { useAsync } from '@/lib/useAsync';
+import {
+  blankLabTest,
+  CAPS,
+  DEPARTMENTS,
+  DIVISIONS,
+  netAmount,
+  PERFORM_AT,
+  pickInput,
+  SAMPLES,
+  TECHNOLOGIES,
+  TEST_MODES,
+  TEST_TYPE_LABELS,
+  validateLabTest,
+  VOLUMES,
+} from '@/lib/labTests';
+import {
+  deleteLabTest,
+  getLabTest,
+  listLabTests,
+  saveLabTest,
+} from '@/api/labTests';
+import type {
+  LabGroupItem,
+  LabReportUnit,
+  LabSpecialRate,
+  LabTestInput,
+  LabTestSummary,
+  LabTestType,
+} from '@/types';
+import {
+  LisCheck,
+  LisNumber,
+  LisSelect,
+  LisText,
+  LisTextarea,
+} from './fields';
+import { GroupTestTab } from './GroupTestTab';
+import { SpecialRateTab } from './SpecialRateTab';
+
+type TabKey =
+  | 'details'
+  | 'refs'
+  | 'spec1'
+  | 'spec2'
+  | 'spec3'
+  | 'special'
+  | 'group'
+  | 'result';
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'details', label: 'Test Details' },
+  { key: 'refs', label: 'Ref1 & Ref2' },
+  { key: 'spec1', label: 'Specification 1' },
+  { key: 'spec2', label: 'Specification 2' },
+  { key: 'spec3', label: 'Specification 3' },
+  { key: 'special', label: 'Special Rate & Ref Lab' },
+  { key: 'group', label: 'Set Grouptest' },
+  { key: 'result', label: 'Result Template' },
+];
+
+type SearchBy = 'name' | 'short' | 'lis';
+
+const SEARCH_BY: { value: SearchBy; label: string }[] = [
+  { value: 'name', label: 'Test Name' },
+  { value: 'short', label: 'Short Name' },
+  { value: 'lis', label: 'Lis Code' },
+];
+
+const TYPE_OPTIONS = (Object.keys(TEST_TYPE_LABELS) as LabTestType[]).map((value) => ({
+  value,
+  label: TEST_TYPE_LABELS[value],
+}));
+
+const LIST_TYPE_FILTER = [
+  { value: 'all', label: 'All types' },
+  ...TYPE_OPTIONS,
+];
+
+interface Notice {
+  tone: 'ok' | 'error';
+  text: string;
+}
+
+interface Confirm {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  danger?: boolean;
+  onConfirm: () => Promise<void> | void;
+}
+
+/** Sorted, de-duplicated suggestion list: the built-ins plus whatever staff
+ *  have already typed on saved tests. */
+function suggestions(base: string[], extra: string[]): string[] {
+  return Array.from(new Set([...base, ...extra.filter(Boolean)])).sort();
+}
+
+/**
+ * The laboratory's test master, laid out like its LIS "Test" screen: search a
+ * test by name, edit it across the Test Details / Ref / Specification / Special
+ * Rate / Set Grouptest / Result Template tabs, then Delete, New or Save. A test
+ * can be a single Test, a Group Test or a Package (the last two are built on
+ * the Set Grouptest tab from other saved tests).
+ */
+export function LabTestMaster() {
+  const { user } = useAuth();
+  const { data, loading, error, reload } = useAsync(listLabTests, []);
+  const list = useMemo(() => data ?? [], [data]);
+
+  const [loadedId, setLoadedId] = useState<string | null>(null);
+  const [meta, setMeta] = useState<{ lisCode: number; updatedAt: string } | null>(null);
+  const [form, setForm] = useState<LabTestInput>(blankLabTest);
+  const [items, setItems] = useState<LabGroupItem[]>([]);
+  const [rates, setRates] = useState<LabSpecialRate[]>([]);
+  const [tab, setTab] = useState<TabKey>('details');
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<Notice | null>(null);
+  const [confirm, setConfirm] = useState<Confirm | null>(null);
+
+  const [searchBy, setSearchBy] = useState<SearchBy>('name');
+  const [searchText, setSearchText] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+
+  const [listSearch, setListSearch] = useState('');
+  const [listType, setListType] = useState('all');
+
+  const userName = user?.name ?? '';
+
+  // ---- edits ------------------------------------------------------------
+
+  function patch(change: Partial<LabTestInput>) {
+    setForm((current) => {
+      const next = { ...current, ...change };
+      if ('rate' in change || 'discountPercent' in change) {
+        next.amount = netAmount(next.rate, next.discountPercent);
+      }
+      return next;
+    });
+    setDirty(true);
+    setNotice(null);
+  }
+
+  function changeItems(next: LabGroupItem[]) {
+    setItems(next);
+    setDirty(true);
+    setNotice(null);
+  }
+
+  function changeRates(next: LabSpecialRate[]) {
+    setRates(next);
+    setDirty(true);
+    setNotice(null);
+  }
+
+  // ---- loading / resetting ---------------------------------------------
+
+  function reset() {
+    setLoadedId(null);
+    setMeta(null);
+    setForm(blankLabTest());
+    setItems([]);
+    setRates([]);
+    setTab('details');
+    setDirty(false);
+    setSearchText('');
+  }
+
+  /** Loads [id] into the form. Returns false when it no longer exists. */
+  async function load(id: string): Promise<boolean> {
+    const test = await getLabTest(id);
+    if (!test) return false;
+    setLoadedId(test.id);
+    setMeta({ lisCode: test.lisCode, updatedAt: test.updatedAt });
+    setForm(pickInput(test));
+    setItems(test.groupItems);
+    setRates(test.specialRates);
+    setDirty(false);
+    return true;
+  }
+
+  /** Runs [action], first asking before it throws away unsaved edits. */
+  function guarded(action: () => void) {
+    if (!dirty) {
+      action();
+      return;
+    }
+    setConfirm({
+      title: 'Discard unsaved changes?',
+      message: 'This test has changes that have not been saved. Continue and lose them?',
+      confirmLabel: 'Discard changes',
+      danger: true,
+      onConfirm: action,
+    });
+  }
+
+  async function openTest(id: string) {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const found = await load(id);
+      if (found) {
+        setSearchText('');
+        setSearchOpen(false);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        setNotice({ tone: 'error', text: 'That test no longer exists.' });
+        reload();
+      }
+    } catch (err) {
+      setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Could not open the test.' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ---- save / delete ----------------------------------------------------
+
+  async function save() {
+    const problem = validateLabTest(form, items, rates);
+    if (problem) {
+      setNotice({ tone: 'error', text: problem });
+      return;
+    }
+    setBusy(true);
+    setNotice(null);
+    try {
+      const saved = await saveLabTest(loadedId, form, items, rates, userName);
+      await load(saved.id);
+      reload();
+      setNotice({
+        tone: 'ok',
+        text: `Saved "${form.name.trim()}" — Lis Code ${saved.lisCode}.`,
+      });
+    } catch (err) {
+      setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Could not save the test.' });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function askDelete() {
+    if (!loadedId) return;
+    const id = loadedId;
+    const name = form.name;
+    setConfirm({
+      title: 'Delete this test?',
+      message: `"${name}" will be removed from the test master. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        await deleteLabTest(id, name);
+        reset();
+        reload();
+        setNotice({ tone: 'ok', text: `Deleted "${name}".` });
+      },
+    });
+  }
+
+  async function runConfirm() {
+    if (!confirm) return;
+    const current = confirm;
+    setBusy(true);
+    try {
+      await current.onConfirm();
+    } catch (err) {
+      setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'That did not work.' });
+    } finally {
+      setBusy(false);
+      setConfirm(null);
+    }
+  }
+
+  // ---- derived ----------------------------------------------------------
+
+  const matches = useMemo(() => {
+    const q = searchText.trim().toLowerCase();
+    if (!q) return [];
+    return list
+      .filter((t) =>
+        searchBy === 'name'
+          ? t.name.toLowerCase().includes(q)
+          : searchBy === 'short'
+            ? t.shortName.toLowerCase().includes(q)
+            : String(t.lisCode).startsWith(q),
+      )
+      .slice(0, 8);
+  }, [list, searchBy, searchText]);
+
+  const pickable = useMemo(
+    () => list.filter((t) => t.testType === 'TEST' && t.isActive && t.id !== loadedId),
+    [list, loadedId],
+  );
+
+  const departments = useMemo(
+    () => suggestions(DEPARTMENTS, list.map((t) => t.department)),
+    [list],
+  );
+  const samples = useMemo(() => suggestions(SAMPLES, list.map((t) => t.sample)), [list]);
+
+  const filteredList = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    return list.filter((t) => {
+      const matchesType = listType === 'all' || t.testType === listType;
+      const matchesQuery =
+        !q ||
+        t.name.toLowerCase().includes(q) ||
+        t.shortName.toLowerCase().includes(q) ||
+        String(t.lisCode).includes(q) ||
+        t.department.toLowerCase().includes(q);
+      return matchesType && matchesQuery;
+    });
+  }, [list, listSearch, listType]);
+
+  const title = form.name.trim()
+    ? `${form.name.trim()}${form.shortName.trim() ? ` ( ${form.shortName.trim()} )` : ''}`
+    : 'New test';
+
+  const listColumns: Column<LabTestSummary>[] = [
+    { key: 'lis', header: 'Lis Code', render: (row) => row.lisCode },
+    {
+      key: 'name',
+      header: 'Test',
+      render: (row) => (
+        <div>
+          <p className="font-medium text-slate-800">{row.name}</p>
+          {row.shortName && <p className="text-xs text-slate-400">{row.shortName}</p>}
+        </div>
+      ),
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (row) => (
+        <Badge tone={row.testType === 'TEST' ? 'blue' : 'violet'}>
+          {TEST_TYPE_LABELS[row.testType]}
+          {row.testType !== 'TEST' ? ` · ${row.itemCount}` : ''}
+        </Badge>
+      ),
+    },
+    { key: 'dept', header: 'Department', render: (row) => row.department || '—' },
+    { key: 'sample', header: 'Sample', render: (row) => row.sample || '—' },
+    {
+      key: 'amount',
+      header: 'Amount',
+      render: (row) => formatCurrency(row.amount),
+      className: 'text-right',
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (row) => (
+        <Badge tone={row.isActive ? 'green' : 'gray'}>{row.isActive ? 'Active' : 'Inactive'}</Badge>
+      ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      render: (row) => (
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={busy}
+          onClick={() => guarded(() => void openTest(row.id))}
+        >
+          Open
+        </Button>
+      ),
+      className: 'text-right',
+    },
+  ];
+
+  // ---- render -----------------------------------------------------------
+
+  return (
+    <>
+      <Card>
+        <div className="space-y-5 p-4 sm:p-5">
+          {/* Search By / Search Test by Name */}
+          <div className="grid gap-3 sm:grid-cols-[220px_1fr]">
+            <LisSelect
+              label="Search By"
+              value={searchBy}
+              onChange={(v) => setSearchBy(v as SearchBy)}
+              options={SEARCH_BY}
+            />
+            <div className="relative">
+              <input
+                value={searchText}
+                onChange={(e) => {
+                  setSearchText(e.target.value);
+                  setSearchOpen(true);
+                }}
+                onFocus={() => setSearchOpen(true)}
+                onBlur={() => setSearchOpen(false)}
+                placeholder={`Search Test by ${SEARCH_BY.find((s) => s.value === searchBy)?.label}`}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-sm outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+              />
+              {searchOpen && searchText.trim() && (
+                <ul className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                  {matches.length === 0 ? (
+                    <li className="px-3 py-2 text-sm text-slate-400">No test matches.</li>
+                  ) : (
+                    matches.map((t) => (
+                      <li key={t.id}>
+                        <button
+                          type="button"
+                          // mousedown, not click: the input's blur would close
+                          // the list first and swallow the click.
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            guarded(() => void openTest(t.id));
+                          }}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                        >
+                          <span className="font-medium text-slate-800">{t.name}</span>
+                          <span className="text-xs text-slate-400">
+                            {t.shortName ? `${t.shortName} · ` : ''}
+                            {t.lisCode} · {TEST_TYPE_LABELS[t.testType]}
+                          </span>
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          <h2 className="text-lg font-semibold uppercase tracking-wide text-slate-800">
+            {title}
+          </h2>
+
+          {/* Tabs */}
+          <div className="-mx-1 flex flex-wrap gap-2 rounded-lg bg-slate-50 p-2" role="tablist">
+            {TABS.map((t) => {
+              const active = t.key === tab;
+              return (
+                <button
+                  key={t.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setTab(t.key)}
+                  className={`rounded-md px-3.5 py-2 text-sm font-semibold transition ${
+                    active
+                      ? 'bg-brand-600 text-white shadow-sm'
+                      : 'text-brand-700 hover:bg-brand-50'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Test Details */}
+          {tab === 'details' && (
+            <div className="grid gap-x-6 gap-y-5 lg:grid-cols-[1fr_230px]">
+              <div className="space-y-5">
+                <div className="grid gap-4 sm:grid-cols-12">
+                  <LisText
+                    label="Test Name"
+                    value={form.name}
+                    onChange={(v) => patch({ name: v })}
+                    className="sm:col-span-6"
+                  />
+                  <LisText
+                    label="Short Name"
+                    value={form.shortName}
+                    onChange={(v) => patch({ shortName: v })}
+                    className="sm:col-span-3"
+                  />
+                  <LisText
+                    label="Calc Code"
+                    value={form.calcCode}
+                    onChange={(v) => patch({ calcCode: v })}
+                    className="sm:col-span-3"
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <LisSelect
+                    label="Test Type"
+                    value={form.testType}
+                    onChange={(v) => patch({ testType: v as LabTestType })}
+                    options={TYPE_OPTIONS}
+                  />
+                  <LisText
+                    label="Division"
+                    value={form.division}
+                    onChange={(v) => patch({ division: v })}
+                    suggestions={DIVISIONS}
+                  />
+                  <LisText
+                    label="Department"
+                    value={form.department}
+                    onChange={(v) => patch({ department: v })}
+                    suggestions={departments}
+                  />
+                  <LisText
+                    label="Method"
+                    value={form.method}
+                    onChange={(v) => patch({ method: v })}
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <LisNumber label="Rate" value={form.rate} onChange={(v) => patch({ rate: v })} />
+                  <LisNumber
+                    label="Disc%"
+                    value={form.discountPercent}
+                    onChange={(v) => patch({ discountPercent: v })}
+                  />
+                  <LisNumber label="Amount" value={form.amount} onChange={() => {}} readOnly />
+                  <LisText
+                    label="Unit"
+                    value={form.unit}
+                    onChange={(v) => patch({ unit: v })}
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <LisText
+                    label="Sample"
+                    value={form.sample}
+                    onChange={(v) => patch({ sample: v })}
+                    suggestions={samples}
+                  />
+                  <LisText
+                    label="Volume"
+                    value={form.volume}
+                    onChange={(v) => patch({ volume: v })}
+                    suggestions={VOLUMES}
+                  />
+                  <LisText
+                    label="Cut of time"
+                    value={form.cutOfTime}
+                    onChange={(v) => patch({ cutOfTime: v })}
+                    suggestions={CAPS}
+                  />
+                  <LisText
+                    label="Technology"
+                    value={form.technology}
+                    onChange={(v) => patch({ technology: v })}
+                    suggestions={TECHNOLOGIES}
+                  />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <LisText
+                    label="Test Mode"
+                    value={form.testMode}
+                    onChange={(v) => patch({ testMode: v })}
+                    suggestions={TEST_MODES}
+                  />
+                  <LisNumber
+                    label="Report On"
+                    integer
+                    value={form.reportOnValue}
+                    onChange={(v) => patch({ reportOnValue: v })}
+                  />
+                  <LisSelect
+                    label="Report unit"
+                    value={form.reportOnUnit}
+                    onChange={(v) => patch({ reportOnUnit: v as LabReportUnit })}
+                    options={[
+                      { value: 'Minutes', label: 'Minutes' },
+                      { value: 'Hours', label: 'Hours' },
+                      { value: 'Days', label: 'Days' },
+                    ]}
+                  />
+                  <LisText
+                    label="Perform At"
+                    value={form.performAt}
+                    onChange={(v) => patch({ performAt: v })}
+                    suggestions={PERFORM_AT}
+                  />
+                </div>
+
+                <LisTextarea
+                  label="Internal Note"
+                  value={form.internalNote}
+                  onChange={(v) => patch({ internalNote: v })}
+                  rows={4}
+                />
+              </div>
+
+              {/* Right-hand column: Lis Code and the switches */}
+              <div className="space-y-3 lg:pl-2">
+                <p className="text-sm font-semibold text-slate-700">
+                  Lis Code:{' '}
+                  <span className="text-slate-900">
+                    {meta ? meta.lisCode : <span className="font-normal text-slate-400">assigned on save</span>}
+                  </span>
+                </p>
+                <LisCheck label="NABL Accredited" checked={form.nablAccredited} onChange={(c) => patch({ nablAccredited: c })} />
+                <LisCheck label="Send SMS" checked={form.sendSms} onChange={(c) => patch({ sendSms: c })} />
+                <LisCheck label="Sample Type(Barcode)" checked={form.sampleTypeBarcode} onChange={(c) => patch({ sampleTypeBarcode: c })} />
+                <LisCheck label="Free Test" checked={form.freeTest} onChange={(c) => patch({ freeTest: c })} />
+                <LisCheck label="Avoid Incentive" checked={form.avoidIncentive} onChange={(c) => patch({ avoidIncentive: c })} />
+                <LisCheck label="Alphanumeric Critical" checked={form.alphanumericCritical} onChange={(c) => patch({ alphanumericCritical: c })} />
+                <LisCheck label="Common Technology" checked={form.commonTechnology} onChange={(c) => patch({ commonTechnology: c })} />
+                <LisCheck label="Avoid Result Entry" checked={form.avoidResultEntry} onChange={(c) => patch({ avoidResultEntry: c })} />
+                <LisCheck label="Hide Head" checked={form.hideHead} onChange={(c) => patch({ hideHead: c })} />
+                <LisCheck label="Edit TestRate" checked={form.editTestRate} onChange={(c) => patch({ editTestRate: c })} />
+                <div className="border-t border-slate-200 pt-3">
+                  <LisCheck label="Active" checked={form.isActive} onChange={(c) => patch({ isActive: c })} />
+                  <p className="mt-1 text-xs text-slate-400">
+                    Inactive tests stay on record but cannot be added to a group.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {tab === 'refs' && (
+            <div className="grid gap-5 md:grid-cols-2">
+              <LisTextarea
+                label="Ref 1"
+                value={form.ref1}
+                onChange={(v) => patch({ ref1: v })}
+                rows={10}
+                placeholder="Reference range, e.g. Adult male: 0.7 – 1.3 mg/dL"
+              />
+              <LisTextarea
+                label="Ref 2"
+                value={form.ref2}
+                onChange={(v) => patch({ ref2: v })}
+                rows={10}
+                placeholder="A second reference range, e.g. Adult female: 0.6 – 1.1 mg/dL"
+              />
+            </div>
+          )}
+
+          {tab === 'spec1' && (
+            <LisTextarea
+              label="Specifications"
+              value={form.specification1}
+              onChange={(v) => patch({ specification1: v })}
+              rows={12}
+            />
+          )}
+          {tab === 'spec2' && (
+            <LisTextarea
+              label="Specifications 2"
+              value={form.specification2}
+              onChange={(v) => patch({ specification2: v })}
+              rows={12}
+            />
+          )}
+          {tab === 'spec3' && (
+            <LisTextarea
+              label="Specifications 3"
+              value={form.specification3}
+              onChange={(v) => patch({ specification3: v })}
+              rows={12}
+            />
+          )}
+
+          {tab === 'special' && (
+            <SpecialRateTab rates={rates} onChange={changeRates} standardAmount={form.amount} />
+          )}
+
+          {tab === 'group' && (
+            <GroupTestTab
+              testType={form.testType}
+              items={items}
+              onChange={changeItems}
+              pickable={pickable}
+              totalAmount={form.amount}
+            />
+          )}
+
+          {tab === 'result' && (
+            <LisTextarea
+              label="Result Template"
+              value={form.resultTemplate}
+              onChange={(v) => patch({ resultTemplate: v })}
+              rows={14}
+              placeholder="The text a result is pre-filled with when it is entered for this test."
+            />
+          )}
+
+          {notice && (
+            <p
+              role="status"
+              className={`rounded-lg px-3 py-2 text-sm ${
+                notice.tone === 'ok'
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : 'bg-rose-50 text-rose-700'
+              }`}
+            >
+              {notice.text}
+            </p>
+          )}
+
+          {/* Footer: UserInfo and Delete / New / Save */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+              <span>
+                <strong className="font-semibold text-slate-700">UserInfo:</strong>{' '}
+                {userName || '—'} {formatDateTime(meta?.updatedAt ?? new Date().toISOString())}
+              </span>
+              {dirty && <Badge tone="amber">Unsaved changes</Badge>}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="danger" disabled={busy || !loadedId} onClick={askDelete}>
+                Delete
+              </Button>
+              <Button variant="secondary" disabled={busy} onClick={() => guarded(reset)}>
+                New
+              </Button>
+              <Button variant="primary" disabled={busy} onClick={() => void save()}>
+                Save
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Saved tests */}
+      <Card className="mt-6">
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800">Saved tests</h3>
+            <p className="text-xs text-slate-400">
+              {list.length} on record — Open one to edit it in the form above.
+            </p>
+          </div>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <SearchInput
+              value={listSearch}
+              onChange={setListSearch}
+              placeholder="Search name, code, department…"
+            />
+            <FilterSelect value={listType} onChange={setListType} options={LIST_TYPE_FILTER} />
+          </div>
+        </div>
+        <DataTable
+          columns={listColumns}
+          rows={filteredList}
+          loading={loading}
+          error={error}
+          empty="No tests match — fill in the form above and press Save to add the first."
+        />
+      </Card>
+
+      <Modal
+        open={confirm !== null}
+        onClose={() => (busy ? undefined : setConfirm(null))}
+        title={confirm?.title ?? ''}
+        footer={
+          <>
+            <div className="flex-1" />
+            <Button variant="secondary" disabled={busy} onClick={() => setConfirm(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant={confirm?.danger ? 'danger' : 'primary'}
+              disabled={busy}
+              onClick={() => void runConfirm()}
+            >
+              {confirm?.confirmLabel}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-slate-600">{confirm?.message}</p>
+      </Modal>
+    </>
+  );
+}

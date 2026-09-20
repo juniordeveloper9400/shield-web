@@ -146,12 +146,14 @@ export interface ProductSubcategory {
 export interface SubcategoryAdmin {
   id: string;
   label: string;
-  /** One of the closed icon vocabulary in `src/lib/categoryIcons.ts` — the
-   *  only artwork a sub-category card shows; there is no image upload for
-   *  sub-categories in the console. */
+  /** One of the closed icon vocabulary in `src/lib/categoryIcons.ts` — what
+   *  the sub-category card shows until an [image] is uploaded, and again if
+   *  that image ever fails to load. */
   iconName: string;
-  /** Legacy column, no longer editable from the console. Always falls back
-   *  to the icon. */
+  /** The tile artwork on the sub-category card in the home "Shop by
+   *  categories" panel and the Categories tab — a resized WebP/PNG data URI
+   *  (transparency kept, the card is tinted), or '' to show [iconName]. May
+   *  also be a bundled asset path on rows seeded before uploads existed. */
   image: string;
   offer: string;
   sort: number;
@@ -169,16 +171,17 @@ export interface CategoryGroupAdmin {
   title: string;
   /** Pre-wrapped chip caption on the home strip, e.g. "Personal\nCare". */
   tabLabel: string;
-  /** The chip on the home strip and the Categories tab render this icon —
-   *  fixed, from the closed vocabulary in `src/lib/categoryIcons.ts`; there
-   *  is no chip-image upload in the console. */
+  /** From the closed vocabulary in `src/lib/categoryIcons.ts` — what the
+   *  home strip chip shows until a chip [image] is uploaded, and again if
+   *  that image ever fails to load. */
   iconName: string;
-  /** Legacy column, no longer editable from the console. Always falls back
-   *  to the icon. */
+  /** The artwork on this group's chip on the home "Shop by categories" strip
+   *  — a resized WebP/PNG data URI (transparency kept, the chip is tinted),
+   *  or '' to show [iconName]. Separate from [bannerImage]. */
   image: string;
-  /** The promotional banner shown at the top of this group's listing — the
-   *  only image an admin can upload for a category — a resized JPEG data
-   *  URI, or '' for none. */
+  /** The promotional banner shown at the top of this group's listing — a
+   *  resized JPEG data URI, or '' for none. Separate from the chip [image]
+   *  and the sub-category tile images. */
   bannerImage: string;
   /** One of the named pastel tints in `src/lib/categoryIcons.ts`. */
   panelTint: string;
@@ -754,6 +757,102 @@ export interface LabPackage {
   sample: string;
   isActive: boolean;
   addedAt: string;
+}
+
+/** `app.lab_test.test_type` — a single test, a group test, or a package. */
+export type LabTestType = 'TEST' | 'GROUP' | 'PACKAGE';
+
+export type LabReportUnit = 'Minutes' | 'Hours' | 'Days';
+
+/** One test inside a group test / package (`app.lab_test_group_item`) — the
+ *  "Set Grouptest" tab's row. `name`, `department` and `sample` are read from
+ *  the member test for display only; they are never written back. */
+export interface LabGroupItem {
+  testId: string;
+  name: string;
+  department: string;
+  sample: string;
+  /** The price inside this group; starts at the test's own amount. */
+  amount: number;
+  setOrder: number;
+  isSubhead: boolean;
+}
+
+/** A referring lab's own rate for a test (`app.lab_test_special_rate`). */
+export interface LabSpecialRate {
+  refLab: string;
+  rate: number;
+}
+
+/** The editable fields of a lab test — everything on the LIS-style form
+ *  except the tests inside it and its special rates, which travel beside it. */
+export interface LabTestInput {
+  testType: LabTestType;
+  name: string;
+  shortName: string;
+  calcCode: string;
+  division: string;
+  department: string;
+  method: string;
+  unit: string;
+  rate: number;
+  discountPercent: number;
+  /** Rate less the discount — what the patient pays. */
+  amount: number;
+  sample: string;
+  volume: string;
+  /** The form's "Cut of time" field, e.g. RED CAP. */
+  cutOfTime: string;
+  technology: string;
+  testMode: string;
+  reportOnValue: number;
+  reportOnUnit: LabReportUnit;
+  performAt: string;
+  internalNote: string;
+  nablAccredited: boolean;
+  sendSms: boolean;
+  sampleTypeBarcode: boolean;
+  freeTest: boolean;
+  avoidIncentive: boolean;
+  alphanumericCritical: boolean;
+  commonTechnology: boolean;
+  avoidResultEntry: boolean;
+  hideHead: boolean;
+  editTestRate: boolean;
+  ref1: string;
+  ref2: string;
+  specification1: string;
+  specification2: string;
+  specification3: string;
+  resultTemplate: string;
+  isActive: boolean;
+}
+
+/** A saved lab test — `app.lab_test` with its group members and special rates. */
+export interface LabTest extends LabTestInput {
+  id: string;
+  lisCode: number;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+  groupItems: LabGroupItem[];
+  specialRates: LabSpecialRate[];
+}
+
+/** One row of the saved-tests list: enough to find a test and load it. */
+export interface LabTestSummary {
+  id: string;
+  lisCode: number;
+  testType: LabTestType;
+  name: string;
+  shortName: string;
+  department: string;
+  sample: string;
+  amount: number;
+  isActive: boolean;
+  /** How many tests a group / package holds; 0 for a single test. */
+  itemCount: number;
 }
 
 /** `app.approval_status`, as the activations screen uses it. */

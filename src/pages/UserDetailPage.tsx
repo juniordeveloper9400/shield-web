@@ -261,7 +261,7 @@ export default function UserDetailPage() {
           <span>
             {d?.rewardPoints ?? 0}
             <span className="ml-2 text-xs font-normal text-slate-400">
-              min {MIN_REDEEM_POINTS} to redeem to wallet
+              100 points = ₹1 · min {MIN_REDEEM_POINTS} to redeem to wallet
             </span>
           </span>
         ),

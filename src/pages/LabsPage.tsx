@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { Tabs } from '@/components/ui/Tabs';
+import { LabTestMaster } from '@/components/labtests/LabTestMaster';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
@@ -25,7 +27,42 @@ const STATUS_OPTIONS = [
   { value: 'inactive', label: 'Inactive' },
 ];
 
+type LabsTab = 'master' | 'packages';
+
+/**
+ * Lab Tests: the laboratory's own test master (tests, group tests and
+ * packages, edited on an LIS-style form) and, beside it, the packages members
+ * can book from the app. Two tabs because they are two different catalogues —
+ * the master is what the lab runs, the packages are what a member is offered.
+ */
 export default function LabsPage() {
+  const [tab, setTab] = useState<LabsTab>('master');
+
+  return (
+    <>
+      <PageHeader
+        title="Lab Tests"
+        subtitle="The laboratory's test master, and the diagnostic packages members can book from the app."
+      />
+
+      <div className="mb-5">
+        <Tabs
+          items={[
+            { key: 'master', label: 'Test Master' },
+            { key: 'packages', label: 'Member packages' },
+          ]}
+          active={tab}
+          onChange={(key) => setTab(key as LabsTab)}
+        />
+      </div>
+
+      {tab === 'master' ? <LabTestMaster /> : <MemberPackages />}
+    </>
+  );
+}
+
+/** The member-facing packages (`app.lab_package`): price, MRP and visibility. */
+function MemberPackages() {
   const { data, loading, error, reload } = useAsync(listLabPackages, []);
   const rows = useMemo(() => data ?? [], [data]);
 
@@ -158,11 +195,6 @@ export default function LabsPage() {
 
   return (
     <>
-      <PageHeader
-        title="Lab Tests"
-        subtitle="The diagnostic packages members can book from the app."
-      />
-
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Packages" value={counts.total} icon="labs" tone="violet" />
         <StatCard label="Active" value={counts.active} icon="check" tone="green" />

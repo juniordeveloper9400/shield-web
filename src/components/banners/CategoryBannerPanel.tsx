@@ -35,6 +35,20 @@ const EMPTY: NewCategoryGroup = {
   isActive: true,
 };
 
+/** Longest side, in px, of an uploaded chip image / sub-category tile image.
+ *  Big enough to stay sharp at 3x on the app's card, small enough that the
+ *  whole catalogue (every category + tile, one row each) stays a light read. */
+const CHIP_IMAGE_MAX = 240;
+const TILE_IMAGE_MAX = 480;
+const ART_QUALITY = 0.85;
+
+/** Whether [value] is something an `<img>` here can show. A row seeded before
+ *  uploads existed can hold a bundled asset path (`assets/categories/…`) that
+ *  only the app can resolve. */
+function isShowableImage(value: string): boolean {
+  return value.startsWith('data:') || /^https?:\/\//i.test(value);
+}
+
 /** A sub-category row being edited — a real one (`id` set) or a new one added
  *  in this session (`id` blank), keyed by [key] so React can track it even
  *  before it has a database id. */
@@ -150,6 +164,29 @@ export function CategoryBannerPanel() {
     try {
       const url = await fileToResizedDataUrl(file, 1080, 0.75);
       patchDraft({ bannerImage: url });
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not load the image.');
+    }
+  }
+
+  // The chip and tile artwork sits on a tinted card, so it is encoded with its
+  // transparency kept (see fileToResizedDataUrl) and at the size the app draws
+  // it — the chip is ~54dp tall, a tile fills most of a ~150dp card.
+  async function handleChipPick(file: File) {
+    setFormError(null);
+    try {
+      const url = await fileToResizedDataUrl(file, CHIP_IMAGE_MAX, ART_QUALITY, true);
+      patchDraft({ image: url });
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : 'Could not load the image.');
+    }
+  }
+
+  async function handleTilePick(key: string, file: File) {
+    setFormError(null);
+    try {
+      const url = await fileToResizedDataUrl(file, TILE_IMAGE_MAX, ART_QUALITY, true);
+      patchSub(key, { image: url });
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not load the image.');
     }
@@ -314,9 +351,10 @@ export function CategoryBannerPanel() {
     <>
       <div className="mb-4 flex items-start justify-between gap-3">
         <p className="max-w-2xl text-sm text-slate-500">
-          The promotional banner, icon and sub-categories for each product
-          category — shown in the Categories tab and the home "Shop by
-          categories" strip.
+          The chip image, promotional banner and sub-category tiles (each with
+          its own image) for each product category — shown in the Categories
+          tab and the home "Shop by categories" strip, in both the member app
+          and the agent / investor app.
         </p>
         <Button variant="primary" onClick={openAdd}>
           <Icon name="plus" className="h-4 w-4" /> Add category
@@ -384,7 +422,7 @@ export function CategoryBannerPanel() {
           </EditField>
 
           <div className="grid grid-cols-2 gap-3">
-            <EditField label="Icon — shown on the home strip chip and the Categories tab">
+            <EditField label="Icon — shown on the chip until a chip image is uploaded">
               <select
                 value={draft.iconName}
                 onChange={(e) => patchDraft({ iconName: e.target.value })}
@@ -416,6 +454,18 @@ export function CategoryBannerPanel() {
               </div>
             </EditField>
           </div>
+
+          <EditField label="Chip image — artwork on this category's chip in the home 'Shop by categories' strip (optional, replaces the icon)">
+            <ImagePicker
+              value={draft.image}
+              onPick={handleChipPick}
+              onClear={() => patchDraft({ image: '' })}
+              aspect="aspect-square"
+              widthClass="w-28"
+              fit="contain"
+              background={tintHex(draft.panelTint)}
+            />
+          </EditField>
 
           <EditField label="Promotional banner — shown at the top of this category's listing">
             <ImagePicker
@@ -453,6 +503,10 @@ export function CategoryBannerPanel() {
                 <Icon name="plus" className="h-3.5 w-3.5" /> Add
               </Button>
             </div>
+            <p className="mb-2 text-xs text-slate-400">
+              Each tile's image is its own — upload one beside the label, or
+              leave it empty to show the icon. Transparent PNGs work best.
+            </p>
             {subDrafts.length === 0 ? (
               <p className="text-xs text-slate-400">
                 No sub-categories yet — add at least one so this group has
@@ -465,6 +519,17 @@ export function CategoryBannerPanel() {
                     key={row.key}
                     className="flex items-start gap-2 rounded-lg border border-slate-200 p-2.5"
                   >
+                    <div className="w-20 shrink-0">
+                      <ImagePicker
+                        value={row.image}
+                        onPick={(file) => handleTilePick(row.key, file)}
+                        onClear={() => patchSub(row.key, { image: '' })}
+                        aspect="aspect-square"
+                        fit="contain"
+                        background={tintHex(draft.panelTint)}
+                        compact
+                      />
+                    </div>
                     <div className="grid flex-1 grid-cols-2 gap-2">
                       <input
                         value={row.label}
@@ -516,31 +581,59 @@ export function CategoryBannerPanel() {
   );
 }
 
+/** The category's panel tint as a CSS colour, so a cut-out previews on the same
+ *  wash the app draws it on. */
+function tintHex(tint: string): string | undefined {
+  return CATEGORY_TINT_OPTIONS.find((t) => t.value === tint)?.hex;
+}
+
 function ImagePicker({
   value,
   onPick,
   onClear,
   aspect,
+  widthClass = 'w-full',
+  fit = 'cover',
+  background,
+  compact = false,
 }: {
   value: string;
   onPick: (file: File) => void;
   onClear: () => void;
   aspect: string;
+  widthClass?: string;
+  /** `contain` for cut-out artwork that must not be cropped. */
+  fit?: 'cover' | 'contain';
+  /** Fill behind the image — the category's tint, for artwork. */
+  background?: string;
+  /** Tighter caption, for the small per-tile pickers. */
+  compact?: boolean;
 }) {
   return (
-    <div>
+    <div className={widthClass}>
       <div
         className={`relative w-full ${aspect} overflow-hidden rounded-lg border border-dashed border-slate-300 bg-slate-50`}
+        style={background ? { backgroundColor: background } : undefined}
       >
-        {value ? (
-          <img src={value} alt="" className="h-full w-full object-cover" />
+        {value && isShowableImage(value) ? (
+          <img
+            src={value}
+            alt=""
+            className={`h-full w-full ${fit === 'contain' ? 'object-contain' : 'object-cover'}`}
+          />
+        ) : value ? (
+          <div className="grid h-full w-full place-items-center px-1 text-center text-[10px] leading-tight text-slate-400">
+            Bundled artwork
+          </div>
         ) : (
           <div className="grid h-full w-full place-items-center text-slate-300">
             <Icon name="banners" className="h-6 w-6" />
           </div>
         )}
       </div>
-      <div className="mt-1 flex items-center gap-2">
+      <div
+        className={`mt-1 flex items-center ${compact ? 'flex-wrap gap-x-2 gap-y-0' : 'gap-2'}`}
+      >
         <label className="cursor-pointer text-xs font-medium text-brand-700">
           {value ? 'Replace' : 'Upload'}
           <input
