@@ -377,6 +377,9 @@ export interface Order {
   /** When the order was converted to a bill; '' until then. The Bills page
    *  lists only orders where this is set. */
   convertedToBillAt: string;
+  /** When staff first used Call / WhatsApp for this order's member; '' until
+   *  then. The member's app shows it as the "Store contact" stage. */
+  storeContactedAt: string;
   paymentMethod: string;
   paymentMethodCode: string;
   /** `app.order.fulfillment_type` — home delivery vs store pickup (migration 0031). */

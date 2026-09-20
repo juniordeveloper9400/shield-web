@@ -40,7 +40,12 @@ import {
   updatePrescriptionDetails,
   updatePrescriptionPatient,
 } from '@/api/prescriptions';
-import { getOrder, markOrderConvertedToBill, setOrderStatus } from '@/api/orders';
+import {
+  getOrder,
+  markOrderConvertedToBill,
+  markOrderStoreContacted,
+  setOrderStatus,
+} from '@/api/orders';
 import { createPatient, listPatients, updateMemberContact } from '@/api/users';
 import { listStores } from '@/api/stores';
 import { useAsync } from '@/lib/useAsync';
@@ -161,6 +166,10 @@ export function PrescriptionReviewModal({
   // never an automatic side effect of collecting payment.
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
+  // Stamped by the Call / WhatsApp buttons on the Details step — the linked
+  // order's "Store contact" stage in the member's app. Local so it shows the
+  // moment it lands; `linkedOrder` (below) supplies it on a later reopen.
+  const [contactMarkedAt, setContactMarkedAt] = useState('');
 
   // Every patient this member has saved (self, family, …), for the Patient
   // picker — reloaded whenever a different prescription (so a different
@@ -382,6 +391,7 @@ export function PrescriptionReviewModal({
     setAddingPatient(false);
     setNewPatientError(null);
     setCompleteError(null);
+    setContactMarkedAt('');
     setIntakeSent(false);
     if (!prescription) {
       setSelectedRouteCode({});
@@ -619,6 +629,28 @@ export function PrescriptionReviewModal({
       }
     } else {
       setStep('details');
+    }
+  }
+
+  const contactedAt = contactMarkedAt || linkedOrder?.storeContactedAt || '';
+
+  /** Call / WhatsApp was tapped: stamp the linked order as contacted so the
+   *  member's Track order moves to "Store contact". Fire-and-forget from the
+   *  link's own onClick — the call or chat opens regardless. */
+  async function noteContact() {
+    if (!prescription?.orderId || contactedAt) return;
+    try {
+      const at = await markOrderStoreContacted(prescription.orderId);
+      if (at) {
+        setContactMarkedAt(at);
+        onSaved();
+      }
+    } catch (err) {
+      setDetailsError(
+        err instanceof Error
+          ? `Couldn't record the contact: ${err.message}`
+          : "Couldn't record the contact.",
+      );
     }
   }
 
@@ -1210,46 +1242,57 @@ export function PrescriptionReviewModal({
                       {
                         label: 'Phone',
                         value: (
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              value={memberPhone}
-                              onChange={(e) => setMemberPhone(e.target.value)}
-                              placeholder="10-digit phone"
-                              inputMode="tel"
-                              className={`${inputClass} flex-1`}
-                            />
-                            {/* Straight from the number on screen — including
-                                a correction just typed above, not yet saved —
-                                so a reviewer can call to confirm it before
-                                committing to it. */}
-                            <a
-                              href={
-                                memberPhone
-                                  ? `tel:${memberPhone.replace(/\D/g, '')}`
-                                  : undefined
-                              }
-                              title="Call this number"
-                              className={`shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700 ${
-                                memberPhone ? '' : 'pointer-events-none opacity-40'
-                              }`}
-                            >
-                              <Icon name="phone" className="h-3.5 w-3.5" />
-                            </a>
-                            <a
-                              href={
-                                memberPhone
-                                  ? `https://wa.me/91${memberPhone.replace(/\D/g, '')}`
-                                  : undefined
-                              }
-                              target="_blank"
-                              rel="noreferrer"
-                              title="Message on WhatsApp"
-                              className={`shrink-0 rounded-md border border-slate-300 p-[7px] text-emerald-600 hover:bg-emerald-50 ${
-                                memberPhone ? '' : 'pointer-events-none opacity-40'
-                              }`}
-                            >
-                              <Icon name="whatsapp" className="h-3.5 w-3.5" />
-                            </a>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                value={memberPhone}
+                                onChange={(e) => setMemberPhone(e.target.value)}
+                                placeholder="10-digit phone"
+                                inputMode="tel"
+                                className={`${inputClass} flex-1`}
+                              />
+                              {/* Straight from the number on screen — including
+                                  a correction just typed above, not yet saved —
+                                  so a reviewer can call to confirm it before
+                                  committing to it. */}
+                              <a
+                                href={
+                                  memberPhone
+                                    ? `tel:${memberPhone.replace(/\D/g, '')}`
+                                    : undefined
+                                }
+                                onClick={() => void noteContact()}
+                                title="Call this number"
+                                className={`shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700 ${
+                                  memberPhone ? '' : 'pointer-events-none opacity-40'
+                                }`}
+                              >
+                                <Icon name="phone" className="h-3.5 w-3.5" />
+                              </a>
+                              <a
+                                href={
+                                  memberPhone
+                                    ? `https://wa.me/91${memberPhone.replace(/\D/g, '')}`
+                                    : undefined
+                                }
+                                onClick={() => void noteContact()}
+                                target="_blank"
+                                rel="noreferrer"
+                                title="Message on WhatsApp"
+                                className={`shrink-0 rounded-md border border-slate-300 p-[7px] text-emerald-600 hover:bg-emerald-50 ${
+                                  memberPhone ? '' : 'pointer-events-none opacity-40'
+                                }`}
+                              >
+                                <Icon name="whatsapp" className="h-3.5 w-3.5" />
+                              </a>
+                            </div>
+                            {prescription.orderId && (
+                              <p className="mt-1 text-xs font-normal text-slate-400">
+                                {contactedAt
+                                  ? `Store contact recorded · ${formatDateTime(contactedAt)}`
+                                  : 'Call or WhatsApp marks this order "Store contact" in the member\'s app.'}
+                              </p>
+                            )}
                           </div>
                         ),
                       },

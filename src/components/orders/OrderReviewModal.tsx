@@ -13,7 +13,12 @@ import {
   ORDER_LINE_STATUS_TONE,
 } from '@/lib/orderLineStatus';
 import { useAsync } from '@/lib/useAsync';
-import { markOrderConvertedToBill, saveOrderReview, setOrderStatus } from '@/api/orders';
+import {
+  markOrderConvertedToBill,
+  markOrderStoreContacted,
+  saveOrderReview,
+  setOrderStatus,
+} from '@/api/orders';
 import { assignDeliveryBoy, listDeliveryBoys, type DeliveryBoy } from '@/api/deliveries';
 import { listStores } from '@/api/stores';
 import { updateMemberContact } from '@/api/users';
@@ -60,6 +65,9 @@ export function OrderReviewModal({
   const [submitted, setSubmitted] = useState(Boolean(order.reviewedAt));
   const [busy, setBusy] = useState<'submit' | 'convert' | 'cancel' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // When staff first used Call / WhatsApp here — the member's app shows the
+  // order as "Store contact" from that moment (see noteContact below).
+  const [contactedAt, setContactedAt] = useState(order.storeContactedAt);
   const [viewImage, setViewImage] = useState<{ src: string; title: string } | null>(null);
 
   const { data: storeRows } = useAsync(listStores, []);
@@ -198,6 +206,27 @@ export function OrderReviewModal({
       setStep('details');
     } finally {
       setBusy(null);
+    }
+  }
+
+  /** Call / WhatsApp was tapped: stamp the order as contacted so the member's
+   *  Track order moves to "Store contact". Fire-and-forget from the link's
+   *  own onClick — the call or chat still opens whether or not this write
+   *  lands — and a failure is shown rather than swallowed. */
+  async function noteContact() {
+    if (closed || contactedAt) return;
+    try {
+      const at = await markOrderStoreContacted(order.id);
+      if (at) {
+        setContactedAt(at);
+        onSaved();
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? `Couldn't record the contact: ${err.message}`
+          : "Couldn't record the contact.",
+      );
     }
   }
 
@@ -474,38 +503,49 @@ export function OrderReviewModal({
                 {
                   label: 'Phone',
                   value: (
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        value={memberPhone}
-                        disabled={closed}
-                        onChange={(e) => setMemberPhone(e.target.value)}
-                        placeholder="10-digit phone"
-                        inputMode="tel"
-                        className={`${inputClass} flex-1`}
-                      />
-                      {/* Straight from the number on screen — including a
-                          correction just typed above, not yet saved — so the
-                          counter can call to confirm it before committing. */}
-                      <a
-                        href={telHref(memberPhone)}
-                        title="Call this number"
-                        className={`shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700 ${
-                          telHref(memberPhone) ? '' : 'pointer-events-none opacity-40'
-                        }`}
-                      >
-                        <Icon name="phone" className="h-3.5 w-3.5" />
-                      </a>
-                      <a
-                        href={whatsappHref(memberPhone)}
-                        target="_blank"
-                        rel="noreferrer"
-                        title="Message on WhatsApp"
-                        className={`shrink-0 rounded-md border border-slate-300 p-[7px] text-emerald-600 hover:bg-emerald-50 ${
-                          whatsappHref(memberPhone) ? '' : 'pointer-events-none opacity-40'
-                        }`}
-                      >
-                        <Icon name="whatsapp" className="h-3.5 w-3.5" />
-                      </a>
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          value={memberPhone}
+                          disabled={closed}
+                          onChange={(e) => setMemberPhone(e.target.value)}
+                          placeholder="10-digit phone"
+                          inputMode="tel"
+                          className={`${inputClass} flex-1`}
+                        />
+                        {/* Straight from the number on screen — including a
+                            correction just typed above, not yet saved — so the
+                            counter can call to confirm it before committing. */}
+                        <a
+                          href={telHref(memberPhone)}
+                          onClick={() => void noteContact()}
+                          title="Call this number"
+                          className={`shrink-0 rounded-md border border-slate-300 p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700 ${
+                            telHref(memberPhone) ? '' : 'pointer-events-none opacity-40'
+                          }`}
+                        >
+                          <Icon name="phone" className="h-3.5 w-3.5" />
+                        </a>
+                        <a
+                          href={whatsappHref(memberPhone)}
+                          onClick={() => void noteContact()}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Message on WhatsApp"
+                          className={`shrink-0 rounded-md border border-slate-300 p-[7px] text-emerald-600 hover:bg-emerald-50 ${
+                            whatsappHref(memberPhone) ? '' : 'pointer-events-none opacity-40'
+                          }`}
+                        >
+                          <Icon name="whatsapp" className="h-3.5 w-3.5" />
+                        </a>
+                      </div>
+                      <p className="mt-1 text-xs font-normal text-slate-400">
+                        {contactedAt
+                          ? `Store contact recorded · ${formatDateTime(contactedAt)}`
+                          : closed
+                            ? 'Not contacted before this order closed.'
+                            : 'Call or WhatsApp marks this order "Store contact" in the member\'s app.'}
+                      </p>
                     </div>
                   ),
                 },

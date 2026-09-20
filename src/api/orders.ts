@@ -45,7 +45,7 @@ const ORDER_SELECT = `
            m.phone AS member_phone,
            o.kind, o.status, o.item_count, o.mrp_total, o.paid_total, o.delivery_fee,
            o.store_id,
-           o.reviewed_at, o.converted_to_bill_at,
+           o.reviewed_at, o.converted_to_bill_at, o.store_contacted_at,
            COALESCE(s.code, ms.code) AS store_code,
            COALESCE(s.name, ms.name) AS store_name,
            COALESCE(pm.name, o.reference) AS payment_method,
@@ -166,6 +166,7 @@ async function mapOrderRows(rows: Row[]): Promise<Order[]> {
       storeName: String(r.store_name ?? '—'),
       reviewedAt: iso(r.reviewed_at) ?? '',
       convertedToBillAt: iso(r.converted_to_bill_at) ?? '',
+      storeContactedAt: iso(r.store_contacted_at) ?? '',
       paymentMethod: String(r.payment_method ?? '—'),
       paymentMethodCode: String(r.payment_method_code ?? ''),
       fulfillmentType: fromEnum<FulfillmentType>(String(r.fulfillment_type ?? 'HOME_DELIVERY')),
@@ -242,6 +243,24 @@ export async function markOrderConvertedToBill(id: string): Promise<void> {
     [id],
   );
   if (!rows.length) throw new Error('A cancelled order cannot be converted to a bill.');
+}
+
+/**
+ * Staff used Call / WhatsApp for this order's member — the member's Track
+ * order screen moves to "Store contact". The first click wins: a later
+ * re-contact never moves the date the member sees. Returns the stamp, or ''
+ * when the order is cancelled (nothing to contact them about).
+ */
+export async function markOrderStoreContacted(id: string): Promise<string> {
+  const rows = await query<{ store_contacted_at: unknown }>(
+    `UPDATE app."order"
+        SET store_contacted_at = COALESCE(store_contacted_at, now()),
+            updated_at = CASE WHEN store_contacted_at IS NULL THEN now() ELSE updated_at END
+      WHERE id = $1 AND status <> 'CANCELLED'::app.order_status
+      RETURNING store_contacted_at`,
+    [id],
+  );
+  return iso(rows[0]?.store_contacted_at) ?? '';
 }
 
 /** Completion changes fulfilment only; it never collects money or marks a bill paid. */
