@@ -3,6 +3,8 @@ import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Tabs } from '@/components/ui/Tabs';
 import { LabTestMaster } from '@/components/labtests/LabTestMaster';
+import { LabCategoriesPanel } from '@/components/labtests/LabCategoriesPanel';
+import { LabPackageBuilderModal } from '@/components/labtests/LabPackageBuilderModal';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
@@ -27,13 +29,14 @@ const STATUS_OPTIONS = [
   { value: 'inactive', label: 'Inactive' },
 ];
 
-type LabsTab = 'master' | 'packages';
+type LabsTab = 'master' | 'packages' | 'categories';
 
 /**
  * Lab Tests: the laboratory's own test master (tests, group tests and
- * packages, edited on an LIS-style form) and, beside it, the packages members
- * can book from the app. Two tabs because they are two different catalogues —
- * the master is what the lab runs, the packages are what a member is offered.
+ * packages, edited on an LIS-style form), the "Explore by health concern"
+ * categories both apps' Lab sections show with icons, and the packages
+ * members can actually book — built from the test master's own tests on the
+ * Member packages tab's "+ New package".
  */
 export default function LabsPage() {
   const [tab, setTab] = useState<LabsTab>('master');
@@ -42,7 +45,7 @@ export default function LabsPage() {
     <>
       <PageHeader
         title="Lab Tests"
-        subtitle="The laboratory's test master, and the diagnostic packages members can book from the app."
+        subtitle="The laboratory's test master, health-concern categories, and the diagnostic packages members can book from the app."
       />
 
       <div className="mb-5">
@@ -50,13 +53,20 @@ export default function LabsPage() {
           items={[
             { key: 'master', label: 'Test Master' },
             { key: 'packages', label: 'Member packages' },
+            { key: 'categories', label: 'Categories' },
           ]}
           active={tab}
           onChange={(key) => setTab(key as LabsTab)}
         />
       </div>
 
-      {tab === 'master' ? <LabTestMaster /> : <MemberPackages />}
+      {tab === 'master' ? (
+        <LabTestMaster />
+      ) : tab === 'packages' ? (
+        <MemberPackages />
+      ) : (
+        <LabCategoriesPanel />
+      )}
     </>
   );
 }
@@ -72,6 +82,10 @@ function MemberPackages() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ price: '', mrp: '' });
+  // The package builder: 'new' for "+ New package", a package to change its
+  // tests/pricing/category, or null when it's closed. Separate from
+  // [selectedId]'s own detail modal — the two never open at once.
+  const [building, setBuilding] = useState<LabPackage | 'new' | null>(null);
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -209,7 +223,12 @@ function MemberPackages() {
             onChange={setSearch}
             placeholder="Search package name or slug…"
           />
-          <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
+          <div className="flex flex-wrap items-center gap-2">
+            <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
+            <Button variant="primary" size="sm" onClick={() => setBuilding('new')}>
+              <Icon name="plus" className="h-4 w-4" /> New package
+            </Button>
+          </div>
         </div>
         <DataTable
           columns={columns}
@@ -240,6 +259,9 @@ function MemberPackages() {
                 <>
                   <Button variant="secondary" onClick={() => setEditing(true)}>
                     <Icon name="plus" className="h-4 w-4" /> Edit price
+                  </Button>
+                  <Button variant="secondary" onClick={() => setBuilding(selected)}>
+                    Edit tests &amp; details
                   </Button>
                   {selected.isActive ? (
                     <Button
@@ -314,6 +336,13 @@ function MemberPackages() {
           </div>
         )}
       </Modal>
+
+      <LabPackageBuilderModal
+        open={building !== null}
+        editing={building === 'new' ? null : building}
+        onClose={() => setBuilding(null)}
+        onSaved={reload}
+      />
     </>
   );
 }

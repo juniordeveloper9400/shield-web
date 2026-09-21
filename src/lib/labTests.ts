@@ -80,6 +80,7 @@ export function blankLabTest(): LabTestInput {
   return {
     testType: 'TEST',
     name: '',
+    categoryId: '',
     shortName: '',
     calcCode: '',
     division: 'LAB',

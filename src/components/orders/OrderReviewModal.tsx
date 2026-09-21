@@ -33,7 +33,13 @@ const inputClass =
  * stock / Not possible / Customer not needed), then the member's details.
  * "Submit" on the Details step saves both, and turns into "Convert to bill →",
  * which is the only way an order reaches the Bills page — pricing and the
- * OTP-gated payment collection all happen there, never here.
+ * OTP-gated payment collection all happen there, never here. That is also why
+ * this modal never shows what was paid or its status: it belongs to the bill,
+ * not to this review.
+ *
+ * "Next: Details →" only appears once "Process ✓" has grouped the items by
+ * stock status — the counter works through the items first, in one pass,
+ * before moving on to the member's details.
  */
 export function OrderReviewModal({
   order,
@@ -274,12 +280,26 @@ export function OrderReviewModal({
         title={order.code}
         footer={
           step === 'items' ? (
-            <>
-              {cancelButton}
-              <Button variant="primary" onClick={() => setStep('details')}>
-                Next: Details →
-              </Button>
-            </>
+            <div className="flex w-full items-center justify-between gap-3">
+              <span className="text-xs text-slate-400">
+                {!processed && order.lines.length > 0
+                  ? 'Process the items above to continue.'
+                  : ''}
+              </span>
+              <div className="flex gap-2">
+                {cancelButton}
+                {/* Gated on Process: the counter settles every item's stock
+                    status in one pass before moving on to the member's
+                    details, rather than the two steps being independent. An
+                    order with nothing to process (no lines) has nothing to
+                    gate on. */}
+                {(processed || order.lines.length === 0) && (
+                  <Button variant="primary" onClick={() => setStep('details')}>
+                    Next: Details →
+                  </Button>
+                )}
+              </div>
+            </div>
           ) : (
             <>
               <Button
@@ -580,18 +600,10 @@ export function OrderReviewModal({
                   ),
                 },
                 { label: 'Kind', value: titleCase(order.kind) },
-                { label: 'Payment', value: order.paymentMethod },
-                {
-                  label: 'Payment status',
-                  value: (
-                    <Badge tone={order.paymentStatus === 'paid' ? 'green' : 'amber'}>
-                      {titleCase(order.paymentStatus)}
-                    </Badge>
-                  ),
-                },
-                { label: 'MRP total', value: formatCurrency(order.mrpTotal) },
-                { label: 'Delivery fee', value: formatCurrency(order.deliveryFee) },
-                { label: 'Paid', value: formatCurrency(order.paidTotal) },
+                // Payment method, its status and every figure (MRP total,
+                // delivery fee, paid) live on the Bill this order converts to,
+                // not here — showing them on both screens is how the two
+                // drift out of sync.
                 { label: 'Placed', value: formatDateTime(order.placedAt) },
                 {
                   label: 'Items',
@@ -639,6 +651,14 @@ export function OrderReviewModal({
                   ))}
                 </select>
                 {assignError && <p className="mt-2 text-xs text-rose-600">{assignError}</p>}
+                <p className="mt-2 text-xs text-slate-400">
+                  Only for handing this order to someone who will collect the cash in
+                  person — that hand-off stays a one-tap "Mark cash collected" on
+                  Deliveries, no OTP. If you'll be collecting it yourself, leave this
+                  unassigned and use "Convert to bill →" below instead — it verifies
+                  an OTP before drawing the wallet and taking cash, same as a
+                  prescription.
+                </p>
               </div>
             )}
 
@@ -653,7 +673,9 @@ export function OrderReviewModal({
                   ? `Bill: ${formatCurrency(order.billAmount)} (${order.billStatus === 'paid' ? 'Paid' : 'Pending'}) — managed on the Bills page.`
                   : 'Converted to a bill — price it and collect payment on the Bills page.'
                 : submitted
-                  ? 'Submitted. Use "Convert to bill" to move this order to the Bills page.'
+                  ? order.paymentStatus === 'pending'
+                    ? 'Submitted. "Convert to bill →" moves this to the Bills page, where payment is collected with OTP verification — the same as a prescription.'
+                    : 'Submitted. Use "Convert to bill →" to move this order to the Bills page.'
                   : 'Submit saves the item statuses and these details. It doesn\'t bill the order yet.'}
             </p>
           </div>

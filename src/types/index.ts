@@ -767,11 +767,34 @@ export interface Appointment {
   createdAt: string;
 }
 
+/** "Explore by health concern" — one row of `app.lab_category` (migration
+ *  0055), managed on the Lab Tests → Categories tab. */
+export interface LabCategory {
+  id: string;
+  name: string;
+  /** An uploaded data URI, or '' to show a plain placeholder tile. */
+  image: string;
+  sort: number;
+  isActive: boolean;
+  /** Active `lab_package` rows filed under this category — computed on read,
+   *  never stored, so it can never drift from what Member packages shows. */
+  testCount: number;
+}
+
+export interface NewLabCategory {
+  name: string;
+  image: string;
+  sort: number;
+  isActive: boolean;
+}
+
 /** A diagnostic package — one row of `app.lab_package`. */
 export interface LabPackage {
   id: string;
   slug: string;
   name: string;
+  /** '' when the package carries no category. */
+  categoryId: string;
   testCount: number;
   profileCount: number;
   price: number;
@@ -782,8 +805,28 @@ export interface LabPackage {
   booked: string;
   forWhom: string;
   sample: string;
+  preparation: string;
+  about: string;
   isActive: boolean;
   addedAt: string;
+}
+
+/** What the package builder (Member packages → "+ New package") writes: a
+ *  name, an optional category, pricing, and the real `app.lab_test` rows
+ *  (TEST kind only) it's built from — `app.lab_package_test_item`, migration
+ *  0055. The console derives `app.lab_profile` from [testIds] itself so the
+ *  existing package-card rendering in both apps needs no changes to show it. */
+export interface LabPackageInput {
+  name: string;
+  categoryId: string;
+  price: number;
+  mrp: number;
+  forWhom: string;
+  sample: string;
+  preparation: string;
+  reportIn: string;
+  about: string;
+  testIds: string[];
 }
 
 /** Where a lab test came from: made on the Test Master tab, or imported from
@@ -821,6 +864,8 @@ export interface LabSpecialRate {
 export interface LabTestInput {
   testType: LabTestType;
   name: string;
+  /** '' for none — the Test Master form's "Category" dropdown (migration 0055). */
+  categoryId: string;
   shortName: string;
   calcCode: string;
   division: string;
@@ -896,6 +941,18 @@ export interface LabTestSummary {
   isActive: boolean;
   /** How many tests a group / package holds; 0 for a single test. */
   itemCount: number;
+}
+
+/** One row the package builder's test picker offers — a single TEST (never a
+ *  GROUP or PACKAGE, so a package can't nest another package inside itself),
+ *  active and however it was sourced. */
+export interface LabTestPickerRow {
+  id: string;
+  lisCode: number;
+  name: string;
+  department: string;
+  sample: string;
+  amount: number;
 }
 
 /** `app.approval_status`, as the activations screen uses it. */

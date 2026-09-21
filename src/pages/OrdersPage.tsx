@@ -22,12 +22,6 @@ const STATUS_OPTIONS = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
-const KIND_OPTIONS = [
-  { value: 'all', label: 'All kinds' },
-  { value: 'standard', label: 'Standard' },
-  { value: 'prescription', label: 'Prescription' },
-];
-
 const FULFILLMENT_OPTIONS = [
   { value: 'all', label: 'All delivery types' },
   { value: 'home_delivery', label: 'Home Delivery' },
@@ -41,12 +35,19 @@ export default function OrdersPage() {
 
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
-  const [kind, setKind] = useState('all');
   const [fulfillment, setFulfillment] = useState('all');
   const [store, setStore] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const scoped = useMemo(() => scopeToStore(rows, user), [rows, user]);
+  // Standard orders only — a prescription becomes its own `app."order"` row
+  // too (kind PRESCRIPTION) the moment it's ordered, which used to make it
+  // show up here as well as on the Prescriptions page. It's reviewed and
+  // billed entirely from there (`PrescriptionReviewModal`), so it has no
+  // reason to also appear here.
+  const scoped = useMemo(
+    () => scopeToStore(rows.filter((o) => o.kind === 'standard'), user),
+    [rows, user],
+  );
   const branchBound = user?.role === 'pharmacy' && Boolean(user.storeCode);
 
   const storeOptions = useMemo(() => {
@@ -69,13 +70,12 @@ export default function OrdersPage() {
         row.memberName.toLowerCase().includes(q) ||
         row.memberPhone.includes(q);
       const matchesStatus = status === 'all' || row.status === status;
-      const matchesKind = kind === 'all' || row.kind === kind;
       const matchesFulfillment =
         fulfillment === 'all' || row.fulfillmentType === fulfillment;
       const matchesStore = store === 'all' || row.storeCode === store;
-      return matchesQuery && matchesStatus && matchesKind && matchesFulfillment && matchesStore;
+      return matchesQuery && matchesStatus && matchesFulfillment && matchesStore;
     });
-  }, [scoped, search, status, kind, fulfillment, store]);
+  }, [scoped, search, status, fulfillment, store]);
 
   const counts = {
     processing: scoped.filter((r) => r.status === 'processing').length,
@@ -91,9 +91,9 @@ export default function OrdersPage() {
       render: (row) => (
         <div>
           <p className="font-medium text-slate-800">{row.code}</p>
-          <p className="text-xs text-slate-400">
-            {titleCase(row.kind)} · {formatDateTime(row.placedAt)}
-          </p>
+          {/* Every row here is a standard order now (prescriptions have their
+              own page) — the kind has nothing left to say. */}
+          <p className="text-xs text-slate-400">{formatDateTime(row.placedAt)}</p>
         </div>
       ),
     },
@@ -194,7 +194,6 @@ export default function OrdersPage() {
             {!branchBound && (
               <FilterSelect value={store} onChange={setStore} options={storeOptions} />
             )}
-            <FilterSelect value={kind} onChange={setKind} options={KIND_OPTIONS} />
             <FilterSelect value={fulfillment} onChange={setFulfillment} options={FULFILLMENT_OPTIONS} />
             <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
           </div>

@@ -9,6 +9,7 @@ import type { LabGroupItem, LabSpecialRate, LabTestInput } from '@/types';
 export const LAB_TEST_FIELDS: ReadonlyArray<readonly [column: string, key: keyof LabTestInput]> = [
   ['test_type', 'testType'],
   ['name', 'name'],
+  ['category_id', 'categoryId'],
   ['short_name', 'shortName'],
   ['calc_code', 'calcCode'],
   ['division', 'division'],
@@ -76,7 +77,12 @@ export function buildSaveStatement(
   };
 
   const clean = { ...input, name: input.name.trim() } as LabTestInput;
-  const values = LAB_TEST_FIELDS.map(([, key]) => clean[key]);
+  // category_id is the one nullable column this list writes — '' (no
+  // category chosen) has to become a real SQL null, not the text "" a bigint
+  // column would reject.
+  const values = LAB_TEST_FIELDS.map(([, key]) =>
+    key === 'categoryId' ? clean.categoryId || null : clean[key],
+  );
 
   let head: string;
   if (id) {

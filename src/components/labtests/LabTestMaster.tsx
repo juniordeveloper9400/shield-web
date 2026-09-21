@@ -33,6 +33,7 @@ import {
   listLabTests,
   saveLabTest,
 } from '@/api/labTests';
+import { listLabCategories } from '@/api/labCategories';
 import type {
   LabTestSource,
   LabGroupItem,
@@ -134,6 +135,14 @@ export function LabTestMaster() {
   const { user } = useAuth();
   const { data, loading, error, reload } = useAsync(listLabTests, []);
   const list = useMemo(() => data ?? [], [data]);
+  const { data: categoryRows } = useAsync(listLabCategories, []);
+  const categoryOptions = useMemo(
+    () => [
+      { value: '', label: 'No category' },
+      ...(categoryRows ?? []).map((c) => ({ value: c.id, label: c.name })),
+    ],
+    [categoryRows],
+  );
 
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [meta, setMeta] = useState<{
@@ -603,6 +612,12 @@ export function LabTestMaster() {
                     value={form.method}
                     onChange={(v) => patch({ method: v })}
                     suggestions={methods}
+                  />
+                  <LisSelect
+                    label="Category"
+                    value={form.categoryId}
+                    onChange={(v) => patch({ categoryId: v })}
+                    options={categoryOptions}
                   />
                 </div>
 
