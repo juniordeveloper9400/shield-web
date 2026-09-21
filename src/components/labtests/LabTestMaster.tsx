@@ -10,11 +10,13 @@ import { formatCurrency, formatDateTime } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import {
   blankLabTest,
-  CAPS,
+  CUT_OFF_TIMES,
   DEPARTMENTS,
   DIVISIONS,
   netAmount,
   PERFORM_AT,
+  REPORTING_TIMES,
+  SCHEDULED_DAYS,
   pickInput,
   SAMPLES,
   TECHNOLOGIES,
@@ -86,6 +88,9 @@ const LIST_TYPE_FILTER = [
   ...TYPE_OPTIONS,
 ];
 
+/** How many saved tests the list shows before "Show more". */
+const LIST_PAGE = 50;
+
 interface Notice {
   tone: 'ok' | 'error';
   text: string;
@@ -134,6 +139,7 @@ export function LabTestMaster() {
 
   const [listSearch, setListSearch] = useState('');
   const [listType, setListType] = useState('all');
+  const [shown, setShown] = useState(LIST_PAGE);
 
   const userName = user?.name ?? '';
 
@@ -307,6 +313,13 @@ export function LabTestMaster() {
     [list],
   );
   const samples = useMemo(() => suggestions(SAMPLES, list.map((t) => t.sample)), [list]);
+  // Methods and reporting times come from the tests already on record (the
+  // rate list has dozens of methods), so a new test offers what its neighbours use.
+  const methods = useMemo(() => suggestions([], list.map((t) => t.method)), [list]);
+  const reportingTimes = useMemo(
+    () => suggestions(REPORTING_TIMES, list.map((t) => t.reportingTime)),
+    [list],
+  );
 
   const filteredList = useMemo(() => {
     const q = listSearch.trim().toLowerCase();
@@ -317,10 +330,16 @@ export function LabTestMaster() {
         t.name.toLowerCase().includes(q) ||
         t.shortName.toLowerCase().includes(q) ||
         String(t.lisCode).includes(q) ||
-        t.department.toLowerCase().includes(q);
+        t.department.toLowerCase().includes(q) ||
+        t.method.toLowerCase().includes(q) ||
+        t.sample.toLowerCase().includes(q);
       return matchesType && matchesQuery;
     });
   }, [list, listSearch, listType]);
+
+  // The saved list can hold hundreds of tests (the rate list alone is 500+),
+  // so it shows a page at a time.
+  const visibleList = useMemo(() => filteredList.slice(0, shown), [filteredList, shown]);
 
   const title = form.name.trim()
     ? `${form.name.trim()}${form.shortName.trim() ? ` ( ${form.shortName.trim()} )` : ''}`
@@ -349,11 +368,19 @@ export function LabTestMaster() {
       ),
     },
     { key: 'dept', header: 'Department', render: (row) => row.department || '—' },
+    { key: 'method', header: 'Method', render: (row) => row.method || '—' },
     { key: 'sample', header: 'Sample', render: (row) => row.sample || '—' },
+    { key: 'reporting', header: 'Reporting', render: (row) => row.reportingTime || '—' },
     {
       key: 'amount',
-      header: 'Amount',
+      header: 'Patient rate',
       render: (row) => formatCurrency(row.amount),
+      className: 'text-right',
+    },
+    {
+      key: 'labRate',
+      header: 'Lab rate',
+      render: (row) => (row.labRate > 0 ? formatCurrency(row.labRate) : '—'),
       className: 'text-right',
     },
     {
@@ -512,6 +539,7 @@ export function LabTestMaster() {
                     label="Method"
                     value={form.method}
                     onChange={(v) => patch({ method: v })}
+                    suggestions={methods}
                   />
                 </div>
 
@@ -523,10 +551,10 @@ export function LabTestMaster() {
                     onChange={(v) => patch({ discountPercent: v })}
                   />
                   <LisNumber label="Amount" value={form.amount} onChange={() => {}} readOnly />
-                  <LisText
-                    label="Unit"
-                    value={form.unit}
-                    onChange={(v) => patch({ unit: v })}
+                  <LisNumber
+                    label="Lab Rate"
+                    value={form.labRate}
+                    onChange={(v) => patch({ labRate: v })}
                   />
                 </div>
 
@@ -544,10 +572,9 @@ export function LabTestMaster() {
                     suggestions={VOLUMES}
                   />
                   <LisText
-                    label="Cut of time"
-                    value={form.cutOfTime}
-                    onChange={(v) => patch({ cutOfTime: v })}
-                    suggestions={CAPS}
+                    label="Unit"
+                    value={form.unit}
+                    onChange={(v) => patch({ unit: v })}
                   />
                   <LisText
                     label="Technology"
@@ -559,11 +586,32 @@ export function LabTestMaster() {
 
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <LisText
+                    label="Scheduled Days"
+                    value={form.scheduledDays}
+                    onChange={(v) => patch({ scheduledDays: v })}
+                    suggestions={SCHEDULED_DAYS}
+                  />
+                  <LisText
+                    label="Cut of time"
+                    value={form.cutOfTime}
+                    onChange={(v) => patch({ cutOfTime: v })}
+                    suggestions={CUT_OFF_TIMES}
+                  />
+                  <LisText
+                    label="Reporting Time"
+                    value={form.reportingTime}
+                    onChange={(v) => patch({ reportingTime: v })}
+                    suggestions={reportingTimes}
+                  />
+                  <LisText
                     label="Test Mode"
                     value={form.testMode}
                     onChange={(v) => patch({ testMode: v })}
                     suggestions={TEST_MODES}
                   />
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <LisNumber
                     label="Report On"
                     integer
@@ -741,19 +789,40 @@ export function LabTestMaster() {
           <div className="flex flex-col gap-3 sm:flex-row">
             <SearchInput
               value={listSearch}
-              onChange={setListSearch}
-              placeholder="Search name, code, department…"
+              onChange={(value) => {
+                setListSearch(value);
+                setShown(LIST_PAGE);
+              }}
+              placeholder="Search name, code, method, sample…"
             />
-            <FilterSelect value={listType} onChange={setListType} options={LIST_TYPE_FILTER} />
+            <FilterSelect
+              value={listType}
+              onChange={(value) => {
+                setListType(value);
+                setShown(LIST_PAGE);
+              }}
+              options={LIST_TYPE_FILTER}
+            />
           </div>
         </div>
         <DataTable
           columns={listColumns}
-          rows={filteredList}
+          rows={visibleList}
           loading={loading}
           error={error}
           empty="No tests match — fill in the form above and press Save to add the first."
         />
+        {filteredList.length > visibleList.length && (
+          <div className="border-t border-slate-200 p-3 text-center">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setShown((count) => count + LIST_PAGE)}
+            >
+              Show more ({filteredList.length - visibleList.length} more)
+            </Button>
+          </div>
+        )}
       </Card>
 
       <Modal

@@ -29,7 +29,7 @@ function toInput(r: Row): LabTestInput {
 export async function listLabTests(): Promise<LabTestSummary[]> {
   const rows = await query<Row>(
     `SELECT t.id, t.lis_code, t.test_type, t.name, t.short_name, t.department,
-            t.sample, t.amount, t.is_active,
+            t.method, t.sample, t.reporting_time, t.amount, t.lab_rate, t.is_active,
             (SELECT count(*) FROM app.lab_test_group_item i
               WHERE i.group_id = t.id) AS item_count
        FROM app.lab_test t
@@ -42,8 +42,11 @@ export async function listLabTests(): Promise<LabTestSummary[]> {
     name: String(r.name),
     shortName: String(r.short_name ?? ''),
     department: String(r.department ?? ''),
+    method: String(r.method ?? ''),
     sample: String(r.sample ?? ''),
+    reportingTime: String(r.reporting_time ?? ''),
     amount: num(r.amount),
+    labRate: num(r.lab_rate),
     isActive: Boolean(r.is_active),
     itemCount: num(r.item_count),
   }));

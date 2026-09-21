@@ -64,9 +64,12 @@ export function blankLabTest(): LabTestInput {
     rate: 0,
     discountPercent: 0,
     amount: 0,
+    labRate: 0,
     sample: '',
     volume: '',
+    scheduledDays: '',
     cutOfTime: '',
+    reportingTime: '',
     technology: '',
     testMode: '',
     reportOnValue: 0,
@@ -123,6 +126,9 @@ export function validateLabTest(
   }
   if (!(input.discountPercent >= 0 && input.discountPercent <= 100)) {
     return 'Disc% must be between 0 and 100.';
+  }
+  if (!(input.labRate >= 0)) {
+    return 'The lab rate cannot be negative.';
   }
   if (!(input.reportOnValue >= 0)) {
     return 'Report On cannot be negative.';
@@ -191,16 +197,33 @@ export const SAMPLES = [
   'CSF',
   'BODY FLUID',
 ];
-export const VOLUMES = ['1ml', '2ml', '3ml', '5ml', '10ml'];
-export const CAPS = [
-  'RED CAP',
-  'YELLOW CAP',
-  'LAVENDER CAP',
-  'GREEN CAP',
-  'GREY CAP',
-  'BLUE CAP',
-  'PLAIN CONTAINER',
-  'STERILE CONTAINER',
+export const VOLUMES = ['1 ml', '2 ml', '3 ml', '5 ml', '10 ml', '50 ml'];
+/** The time of day samples must reach the lab by. */
+export const CUT_OFF_TIMES = ['10 am', '11 am', '12 pm', '1 pm', '2 pm', '3 pm', '4 pm'];
+/** When a test is run. Anything typed is accepted, e.g. 'Tue, Thu, Sat'. */
+export const SCHEDULED_DAYS = [
+  'Daily',
+  'Mon, Wed, Fri',
+  'Tue, Thu, Sat',
+  'Mon, Thu',
+  'Tue, Fri',
+  'Wed, Sat',
+  'Mon',
+  'Tue',
+  'Wed',
+  'Thu',
+  'Fri',
+  'Sat',
+];
+/** When a report is ready. */
+export const REPORTING_TIMES = [
+  'Same Day',
+  'Next Day',
+  '2nd Day',
+  '3rd Day',
+  '4th Day',
+  '5th Day',
+  '1 week',
 ];
 export const TECHNOLOGIES = [
   'Spectrophotometry',

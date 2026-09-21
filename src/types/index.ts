@@ -799,10 +799,16 @@ export interface LabTestInput {
   discountPercent: number;
   /** Rate less the discount — what the patient pays. */
   amount: number;
+  /** What the lab charges for the test; 0 when no lab rate is quoted. */
+  labRate: number;
   sample: string;
   volume: string;
-  /** The form's "Cut of time" field, e.g. RED CAP. */
+  /** When the test is run: 'Daily', or a weekday set like 'Tue, Thu, Sat'. */
+  scheduledDays: string;
+  /** The form's "Cut of time" field: the time samples must arrive by, e.g. '1 pm'. */
   cutOfTime: string;
+  /** When the report is ready, as free text: 'Same Day', '3rd Day', '1 week'. */
+  reportingTime: string;
   technology: string;
   testMode: string;
   reportOnValue: number;
@@ -848,8 +854,11 @@ export interface LabTestSummary {
   name: string;
   shortName: string;
   department: string;
+  method: string;
   sample: string;
+  reportingTime: string;
   amount: number;
+  labRate: number;
   isActive: boolean;
   /** How many tests a group / package holds; 0 for a single test. */
   itemCount: number;

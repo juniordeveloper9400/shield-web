@@ -89,3 +89,19 @@ test('special rates need a lab name, one row per lab, and a non-negative rate', 
   assert.match(validateLabTest(t, [], [{ refLab: 'SRL', rate: -1 }]), /cannot be negative/);
   assert.equal(validateLabTest(t, [], [{ refLab: 'SRL', rate: 90 }]), null);
 });
+
+test('the lab rate cannot be negative, and defaults to none quoted', () => {
+  assert.equal(blankLabTest().labRate, 0);
+  assert.match(
+    validateLabTest({ ...blankLabTest(), name: 'X', labRate: -5 }, [], []),
+    /lab rate cannot be negative/,
+  );
+  assert.equal(validateLabTest({ ...blankLabTest(), name: 'X', labRate: 550 }, [], []), null);
+});
+
+test('the rate-list fields default to blank so an old form still saves', () => {
+  const blank = blankLabTest();
+  assert.equal(blank.scheduledDays, '');
+  assert.equal(blank.reportingTime, '');
+  assert.equal(blank.cutOfTime, '');
+});
