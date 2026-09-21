@@ -3,6 +3,7 @@ import { iso, isoRequired, num } from '@/lib/mappers';
 import { blankLabTest } from '@/lib/labTests';
 import { buildSaveStatement, LAB_TEST_FIELDS } from './labTestSql';
 import type {
+  LabTestSource,
   LabGroupItem,
   LabSpecialRate,
   LabTest,
@@ -29,7 +30,7 @@ function toInput(r: Row): LabTestInput {
 export async function listLabTests(): Promise<LabTestSummary[]> {
   const rows = await query<Row>(
     `SELECT t.id, t.lis_code, t.test_type, t.name, t.short_name, t.department,
-            t.method, t.sample, t.reporting_time, t.amount, t.lab_rate, t.is_active,
+            t.method, t.sample, t.reporting_time, t.amount, t.lab_rate, t.source, t.is_active,
             (SELECT count(*) FROM app.lab_test_group_item i
               WHERE i.group_id = t.id) AS item_count
        FROM app.lab_test t
@@ -47,6 +48,7 @@ export async function listLabTests(): Promise<LabTestSummary[]> {
     reportingTime: String(r.reporting_time ?? ''),
     amount: num(r.amount),
     labRate: num(r.lab_rate),
+    source: String(r.source ?? 'ADMIN') as LabTestSource,
     isActive: Boolean(r.is_active),
     itemCount: num(r.item_count),
   }));
@@ -91,6 +93,7 @@ export async function getLabTest(id: string): Promise<LabTest | null> {
     ...toInput(r),
     id: String(r.id),
     lisCode: num(r.lis_code),
+    source: String(r.source ?? 'ADMIN') as LabTestSource,
     createdBy: String(r.created_by ?? ''),
     updatedBy: String(r.updated_by ?? ''),
     createdAt: isoRequired(r.created_at),

@@ -759,6 +759,11 @@ export interface LabPackage {
   addedAt: string;
 }
 
+/** Where a lab test came from: made on the Test Master tab, or imported from
+ *  the reference-lab rate list (offered when building a group, not listed under
+ *  "Saved tests" by default). */
+export type LabTestSource = 'ADMIN' | 'RATE_LIST';
+
 /** `app.lab_test.test_type` — a single test, a group test, or a package. */
 export type LabTestType = 'TEST' | 'GROUP' | 'PACKAGE';
 
@@ -838,6 +843,7 @@ export interface LabTestInput {
 export interface LabTest extends LabTestInput {
   id: string;
   lisCode: number;
+  source: LabTestSource;
   createdBy: string;
   updatedBy: string;
   createdAt: string;
@@ -859,6 +865,7 @@ export interface LabTestSummary {
   reportingTime: string;
   amount: number;
   labRate: number;
+  source: LabTestSource;
   isActive: boolean;
   /** How many tests a group / package holds; 0 for a single test. */
   itemCount: number;

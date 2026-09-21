@@ -32,6 +32,7 @@ import {
   saveLabTest,
 } from '@/api/labTests';
 import type {
+  LabTestSource,
   LabGroupItem,
   LabReportUnit,
   LabSpecialRate,
@@ -83,6 +84,16 @@ const TYPE_OPTIONS = (Object.keys(TEST_TYPE_LABELS) as LabTestType[]).map((value
   label: TEST_TYPE_LABELS[value],
 }));
 
+/** Which tests the Saved tests list shows. It opens on the tests made here; the
+ *  imported rate list is a separate view, and always available to a group. */
+type ListSource = LabTestSource | 'all';
+
+const SOURCE_FILTER: { value: ListSource; label: string }[] = [
+  { value: 'ADMIN', label: 'Created here' },
+  { value: 'RATE_LIST', label: 'Rate list' },
+  { value: 'all', label: 'Both' },
+];
+
 const LIST_TYPE_FILTER = [
   { value: 'all', label: 'All types' },
   ...TYPE_OPTIONS,
@@ -123,7 +134,11 @@ export function LabTestMaster() {
   const list = useMemo(() => data ?? [], [data]);
 
   const [loadedId, setLoadedId] = useState<string | null>(null);
-  const [meta, setMeta] = useState<{ lisCode: number; updatedAt: string } | null>(null);
+  const [meta, setMeta] = useState<{
+    lisCode: number;
+    updatedAt: string;
+    source: LabTestSource;
+  } | null>(null);
   const [form, setForm] = useState<LabTestInput>(blankLabTest);
   const [items, setItems] = useState<LabGroupItem[]>([]);
   const [rates, setRates] = useState<LabSpecialRate[]>([]);
@@ -139,6 +154,7 @@ export function LabTestMaster() {
 
   const [listSearch, setListSearch] = useState('');
   const [listType, setListType] = useState('all');
+  const [listSource, setListSource] = useState<ListSource>('ADMIN');
   const [shown, setShown] = useState(LIST_PAGE);
 
   const userName = user?.name ?? '';
@@ -187,7 +203,7 @@ export function LabTestMaster() {
     const test = await getLabTest(id);
     if (!test) return false;
     setLoadedId(test.id);
-    setMeta({ lisCode: test.lisCode, updatedAt: test.updatedAt });
+    setMeta({ lisCode: test.lisCode, updatedAt: test.updatedAt, source: test.source });
     setForm(pickInput(test));
     setItems(test.groupItems);
     setRates(test.specialRates);
@@ -289,10 +305,14 @@ export function LabTestMaster() {
 
   // ---- derived ----------------------------------------------------------
 
+  // The tests made here, and the imported rate list kept for building groups.
+  const ownTests = useMemo(() => list.filter((t) => t.source === 'ADMIN'), [list]);
+  const rateListCount = list.length - ownTests.length;
+
   const matches = useMemo(() => {
     const q = searchText.trim().toLowerCase();
     if (!q) return [];
-    return list
+    return ownTests
       .filter((t) =>
         searchBy === 'name'
           ? t.name.toLowerCase().includes(q)
@@ -301,7 +321,7 @@ export function LabTestMaster() {
             : String(t.lisCode).startsWith(q),
       )
       .slice(0, 8);
-  }, [list, searchBy, searchText]);
+  }, [ownTests, searchBy, searchText]);
 
   const pickable = useMemo(
     () => list.filter((t) => t.testType === 'TEST' && t.isActive && t.id !== loadedId),
@@ -325,6 +345,7 @@ export function LabTestMaster() {
     const q = listSearch.trim().toLowerCase();
     return list.filter((t) => {
       const matchesType = listType === 'all' || t.testType === listType;
+      const matchesSource = listSource === 'all' || t.source === listSource;
       const matchesQuery =
         !q ||
         t.name.toLowerCase().includes(q) ||
@@ -333,9 +354,9 @@ export function LabTestMaster() {
         t.department.toLowerCase().includes(q) ||
         t.method.toLowerCase().includes(q) ||
         t.sample.toLowerCase().includes(q);
-      return matchesType && matchesQuery;
+      return matchesType && matchesSource && matchesQuery;
     });
-  }, [list, listSearch, listType]);
+  }, [list, listSearch, listType, listSource]);
 
   // The saved list can hold hundreds of tests (the rate list alone is 500+),
   // so it shows a page at a time.
@@ -354,6 +375,9 @@ export function LabTestMaster() {
         <div>
           <p className="font-medium text-slate-800">{row.name}</p>
           {row.shortName && <p className="text-xs text-slate-400">{row.shortName}</p>}
+          {row.source === 'RATE_LIST' && listSource === 'all' && (
+            <p className="text-xs text-slate-400">Rate list</p>
+          )}
         </div>
       ),
     },
@@ -411,6 +435,23 @@ export function LabTestMaster() {
 
   return (
     <>
+      {/* A failed load is shown up here, not only in the list far below the
+          form — a missing table otherwise looks like "there are no tests". */}
+      {error && (
+        <div
+          role="alert"
+          className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+        >
+          <p className="font-semibold">The lab tests could not be loaded.</p>
+          <p className="mt-0.5">{error}</p>
+          <p className="mt-1 text-xs text-rose-600">
+            If it says a table or column does not exist, the lab test migrations have not been
+            applied to this database yet: <code>0046_lab_test_master.sql</code>, then{' '}
+            <code>0048_lab_test_rate_list_columns.sql</code>, then{' '}
+            <code>0049_seed_lab_test_rate_list.sql</code> (in <code>backend/db/migrations</code>).
+          </p>
+        </div>
+      )}
       <Card>
         <div className="space-y-5 p-4 sm:p-5">
           {/* Search By / Search Test by Name */}
@@ -466,6 +507,11 @@ export function LabTestMaster() {
 
           <h2 className="text-lg font-semibold uppercase tracking-wide text-slate-800">
             {title}
+            {meta?.source === 'RATE_LIST' && (
+              <span className="ml-3 align-middle">
+                <Badge tone="gray">Rate list test</Badge>
+              </span>
+            )}
           </h2>
 
           {/* Tabs */}
@@ -783,7 +829,9 @@ export function LabTestMaster() {
           <div>
             <h3 className="text-sm font-semibold text-slate-800">Saved tests</h3>
             <p className="text-xs text-slate-400">
-              {list.length} on record — Open one to edit it in the form above.
+              {ownTests.length} created here
+              {rateListCount > 0 ? ` · ${rateListCount} in the rate list` : ''} — Open one to edit it
+              in the form above.
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -794,6 +842,14 @@ export function LabTestMaster() {
                 setShown(LIST_PAGE);
               }}
               placeholder="Search name, code, method, sample…"
+            />
+            <FilterSelect
+              value={listSource}
+              onChange={(value) => {
+                setListSource(value as ListSource);
+                setShown(LIST_PAGE);
+              }}
+              options={SOURCE_FILTER}
             />
             <FilterSelect
               value={listType}
@@ -810,7 +866,13 @@ export function LabTestMaster() {
           rows={visibleList}
           loading={loading}
           error={error}
-          empty="No tests match — fill in the form above and press Save to add the first."
+          empty={
+            listSource === 'ADMIN' && ownTests.length === 0 && !listSearch.trim()
+              ? rateListCount > 0
+                ? `Nothing created here yet — fill in the form above and press Save. The ${rateListCount} rate-list tests are still there to pick from when you build a Group Test or Package (Set Grouptest tab); switch the filter to Rate list to browse them.`
+                : 'Nothing created here yet — fill in the form above and press Save.'
+              : 'No tests match.'
+          }
         />
         {filteredList.length > visibleList.length && (
           <div className="border-t border-slate-200 p-3 text-center">
