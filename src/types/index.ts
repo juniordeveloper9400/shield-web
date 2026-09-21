@@ -813,9 +813,13 @@ export interface LabPackage {
 
 /** What the package builder (Member packages → "+ New package") writes: a
  *  name, an optional category, pricing, and the real `app.lab_test` rows
- *  (TEST kind only) it's built from — `app.lab_package_test_item`, migration
- *  0055. The console derives `app.lab_profile` from [testIds] itself so the
- *  existing package-card rendering in both apps needs no changes to show it. */
+ *  it's built from — `app.lab_package_test_item`, migration 0055. Each of
+ *  [testIds] is a single test or a group test (never a package); a group
+ *  becomes one named profile on the package, e.g. picking "Liver Function
+ *  Test" puts it on the package as one line covering everything inside that
+ *  group, not each of its own tests loose. The console derives
+ *  `app.lab_profile` from [testIds] itself so the existing package-card
+ *  rendering in both apps needs no changes to show it. */
 export interface LabPackageInput {
   name: string;
   categoryId: string;
@@ -943,16 +947,23 @@ export interface LabTestSummary {
   itemCount: number;
 }
 
-/** One row the package builder's test picker offers — a single TEST (never a
- *  GROUP or PACKAGE, so a package can't nest another package inside itself),
- *  active and however it was sourced. */
+/** One row the package builder's test picker offers — a single test or a
+ *  group test built earlier on the Test Master's own "Set Grouptest" tab
+ *  (never a PACKAGE, so a package can't nest another package inside itself).
+ *  Choosing a group ("Liver Function Test", say) puts the whole panel on the
+ *  package as one profile, named after the group itself, the same way a real
+ *  lab packages a named panel rather than listing every marker loose. */
 export interface LabTestPickerRow {
   id: string;
   lisCode: number;
+  testType: LabTestType;
   name: string;
   department: string;
   sample: string;
   amount: number;
+  /** How many individual tests a GROUP holds (0 for a plain TEST — it is
+   *  already the one test). What the profile's "· N parameters" is read from. */
+  itemCount: number;
 }
 
 /** `app.approval_status`, as the activations screen uses it. */

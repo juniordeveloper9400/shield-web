@@ -58,23 +58,30 @@ export async function updateLabPackage(
   );
 }
 
-/** Every active, single (TEST-kind) test the package builder can offer —
- *  never a group test or an existing package, so a package can't nest
- *  another package inside itself. */
+/** Every active test or group test the package builder can offer — never an
+ *  existing package, so a package can't nest another package inside itself.
+ *  A group carries [LabTestPickerRow.itemCount], the real count of tests
+ *  inside it (from the Test Master's own "Set Grouptest" tab) — what lets a
+ *  package built from a few named groups ("Liver Function Test",
+ *  "Kidney Function Test", …) still say how many individual tests that
+ *  actually adds up to. */
 export async function listLabTestsForPicker(): Promise<LabTestPickerRow[]> {
   const rows = await query<Row>(
-    `SELECT id, lis_code, name, department, sample, amount
-       FROM app.lab_test
-      WHERE test_type = 'TEST' AND is_active = true
-      ORDER BY name`,
+    `SELECT t.id, t.lis_code, t.test_type, t.name, t.department, t.sample, t.amount,
+            (SELECT count(*) FROM app.lab_test_group_item i WHERE i.group_id = t.id) AS item_count
+       FROM app.lab_test t
+      WHERE t.test_type IN ('TEST', 'GROUP') AND t.is_active = true
+      ORDER BY t.test_type, t.name`,
   );
   return rows.map((r) => ({
     id: String(r.id),
     lisCode: num(r.lis_code),
+    testType: String(r.test_type) as LabTestPickerRow['testType'],
     name: String(r.name),
     department: String(r.department ?? ''),
     sample: String(r.sample ?? ''),
     amount: num(r.amount),
+    itemCount: num(r.item_count),
   }));
 }
 
@@ -113,34 +120,62 @@ async function uniqueSlug(name: string): Promise<string> {
  * app's own package card already renders — so a builder-made package needs
  * no changes on either Flutter app's side to show up correctly. Replaces
  * whatever the package held before, deleting rows for tests no longer chosen.
+ *
+ * A chosen GROUP becomes one profile named after the group itself, with
+ * [LabProfile.parameters] set to how many tests are actually inside it — "CBC
+ * · 24 parameters", not 24 separate profiles — the same "a package holds a
+ * few named panels, each covering several markers" shape a real lab packages
+ * around. A chosen plain TEST is one profile of its own, 1 parameter.
+ *
+ * Returns the real total test count across everything chosen (a group's own
+ * count, or 1 for a plain test) — `app.lab_package.test_count`'s value,
+ * distinct from `profile_count` (`testIds.length`, one per line shown).
  */
-async function writePackageTests(packageId: string, testIds: string[]): Promise<void> {
+async function writePackageTests(
+  packageId: string,
+  testIds: string[],
+): Promise<{ testCount: number }> {
   await query('DELETE FROM app.lab_package_test_item WHERE package_id = $1', [packageId]);
   await query('DELETE FROM app.lab_profile WHERE lab_package_id = $1', [packageId]);
-  if (testIds.length === 0) return;
+  if (testIds.length === 0) return { testCount: 0 };
 
   const tests = await query<Row>(
-    `SELECT id, name FROM app.lab_test WHERE id = ANY($1::bigint[])`,
+    `SELECT t.id, t.name, t.test_type,
+            (SELECT count(*) FROM app.lab_test_group_item i WHERE i.group_id = t.id) AS item_count
+       FROM app.lab_test t
+      WHERE t.id = ANY($1::bigint[])`,
     [testIds],
   );
-  const nameById = new Map(tests.map((t) => [String(t.id), String(t.name)]));
+  const byId = new Map(
+    tests.map((t) => [
+      String(t.id),
+      { name: String(t.name), parameters: t.test_type === 'GROUP' ? Math.max(num(t.item_count), 1) : 1 },
+    ]),
+  );
 
+  let testCount = 0;
   for (const [index, testId] of testIds.entries()) {
+    const info = byId.get(testId) ?? { name: 'Test', parameters: 1 };
+    testCount += info.parameters;
     await query(
       `INSERT INTO app.lab_package_test_item (package_id, test_id, sort) VALUES ($1, $2, $3)`,
       [packageId, testId, index],
     );
     await query(
       `INSERT INTO app.lab_profile (lab_package_id, name, parameters, sort)
-       VALUES ($1, $2, 1, $3)`,
-      [packageId, nameById.get(testId) ?? 'Test', index],
+       VALUES ($1, $2, $3, $4)`,
+      [packageId, info.name, info.parameters, index],
     );
   }
+  return { testCount };
 }
 
 /** Creates a new member-bookable package from the builder: pricing, an
- *  optional category, and the real tests it's made of. Returns the new
- *  package's id. */
+ *  optional category, and the real tests (or groups) it's made of. Returns
+ *  the new package's id. `test_count` is written once the real total is
+ *  known, after {@link writePackageTests} — a group can be worth more than
+ *  one test, so it can't be guessed from `testIds.length` alone (that is
+ *  `profile_count`: one row shown per chosen test or group). */
 export async function createLabPackage(input: LabPackageInput): Promise<string> {
   const slug = await uniqueSlug(input.name);
   const saved = Math.max(input.mrp - input.price, 0);
@@ -149,7 +184,7 @@ export async function createLabPackage(input: LabPackageInput): Promise<string> 
        slug, name, category_id, test_count, profile_count,
        price, mrp, saved, for_whom, sample, preparation, report_in, about
      )
-     VALUES ($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+     VALUES ($1,$2,$3,0,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      RETURNING id`,
     [
       slug,
@@ -167,7 +202,8 @@ export async function createLabPackage(input: LabPackageInput): Promise<string> 
     ],
   );
   const id = String(rows[0].id);
-  await writePackageTests(id, input.testIds);
+  const { testCount } = await writePackageTests(id, input.testIds);
+  await query('UPDATE app.lab_package SET test_count = $2 WHERE id = $1', [id, testCount]);
   return id;
 }
 
@@ -209,10 +245,10 @@ export async function updateLabPackageBuild(
     ],
   );
   if (testsChanged) {
+    const { testCount } = await writePackageTests(id, input.testIds);
     await query(
-      `UPDATE app.lab_package SET test_count = $2, profile_count = $2 WHERE id = $1`,
-      [id, input.testIds.length],
+      `UPDATE app.lab_package SET test_count = $2, profile_count = $3 WHERE id = $1`,
+      [id, testCount, input.testIds.length],
     );
-    await writePackageTests(id, input.testIds);
   }
 }

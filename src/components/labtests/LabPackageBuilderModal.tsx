@@ -86,20 +86,31 @@ export function LabPackageBuilderModal({
     setInitialTestIds([]);
   }, [open, editing]);
 
+  // 'all' | 'TEST' | 'GROUP' — narrows both the picker and, for the summary
+  // count above it, nothing (the package itself may mix both).
+  const [typeFilter, setTypeFilter] = useState<'all' | 'TEST' | 'GROUP'>('all');
+
   const chosen = useMemo(
     () => form.testIds.map((id) => tests.find((t) => t.id === id)).filter((t) => t != null),
     [form.testIds, tests],
   );
   const chosenTotal = useMemo(() => chosen.reduce((sum, t) => sum + t.amount, 0), [chosen]);
+  // What "chosen.length" items actually add up to in real, individual tests —
+  // a group counts as however many tests are inside it, not one.
+  const chosenTestCount = useMemo(
+    () => chosen.reduce((sum, t) => sum + (t.testType === 'GROUP' ? Math.max(t.itemCount, 1) : 1), 0),
+    [chosen],
+  );
 
   const filteredTests = useMemo(() => {
     const q = search.trim().toLowerCase();
     return tests.filter(
       (t) =>
         !form.testIds.includes(t.id) &&
+        (typeFilter === 'all' || t.testType === typeFilter) &&
         (!q || t.name.toLowerCase().includes(q) || t.department.toLowerCase().includes(q)),
     );
-  }, [tests, form.testIds, search]);
+  }, [tests, form.testIds, search, typeFilter]);
 
   function toggleTest(id: string) {
     setForm((f) => ({ ...f, testIds: [...f.testIds, id] }));
@@ -257,26 +268,41 @@ export function LabPackageBuilderModal({
         </label>
 
         <div>
-          <p className="mb-1.5 text-sm font-medium text-slate-700">
-            Tests in this package ({chosen.length})
+          <p className="mb-0.5 text-sm font-medium text-slate-700">
+            Groups &amp; tests in this package ({chosen.length})
           </p>
+          {chosen.length > 0 && (
+            <p className="mb-1.5 text-xs text-slate-400">
+              {chosenTestCount} individual test{chosenTestCount === 1 ? '' : 's'} in total
+              {chosen.some((t) => t.testType === 'GROUP') && ' across the groups and tests below'}.
+            </p>
+          )}
           {chosen.length === 0 ? (
             <p className="text-xs text-slate-400">
-              Choose from the test master below to build the package.
+              Choose from the test master below — a group ("Liver Function Test", say) goes on
+              as one line covering everything inside it; a plain test goes on by itself.
             </p>
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {chosen.map((t) => (
                 <span
                   key={t.id}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-700"
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${
+                    t.testType === 'GROUP'
+                      ? 'border-violet-200 bg-violet-50 text-violet-700'
+                      : 'border-brand-200 bg-brand-50 text-brand-700'
+                  }`}
                 >
+                  {t.testType === 'GROUP' && <Icon name="labs" className="h-3 w-3" />}
                   {t.name}
+                  {t.testType === 'GROUP' && (
+                    <span className="text-[10px] opacity-70">· {t.itemCount} tests</span>
+                  )}
                   <button
                     type="button"
                     onClick={() => removeTest(t.id)}
                     aria-label={`Remove ${t.name}`}
-                    className="text-brand-500 hover:text-brand-700"
+                    className={t.testType === 'GROUP' ? 'text-violet-500 hover:text-violet-700' : 'text-brand-500 hover:text-brand-700'}
                   >
                     <Icon name="close" className="h-3 w-3" />
                   </button>
@@ -287,18 +313,36 @@ export function LabPackageBuilderModal({
         </div>
 
         <div>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search tests to add by name or department…"
-            className={inputClass}
-          />
-          <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-slate-200">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or department…"
+              className={`${inputClass} flex-1`}
+            />
+            <div className="flex rounded-lg border border-slate-300 p-0.5 text-xs">
+              {(['all', 'GROUP', 'TEST'] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setTypeFilter(value)}
+                  className={`rounded-md px-2.5 py-1 font-medium ${
+                    typeFilter === value
+                      ? 'bg-brand-600 text-white'
+                      : 'text-slate-500 hover:bg-slate-100'
+                  }`}
+                >
+                  {value === 'all' ? 'All' : value === 'GROUP' ? 'Groups' : 'Tests'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="max-h-56 overflow-y-auto rounded-lg border border-slate-200">
             {filteredTests.length === 0 ? (
               <p className="p-3 text-center text-xs text-slate-400">
                 {tests.length === 0
                   ? 'No tests in the Test Master yet — add some on the Test Master tab first.'
-                  : 'No matching tests.'}
+                  : 'Nothing matches.'}
               </p>
             ) : (
               filteredTests.slice(0, 30).map((t) => (
@@ -309,6 +353,11 @@ export function LabPackageBuilderModal({
                   className="flex w-full items-center justify-between border-b border-slate-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-slate-50"
                 >
                   <span>
+                    {t.testType === 'GROUP' && (
+                      <span className="mr-1.5 rounded bg-violet-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700">
+                        Group · {t.itemCount}
+                      </span>
+                    )}
                     <span className="text-slate-800">{t.name}</span>
                     {t.department && <span className="text-xs text-slate-400"> · {t.department}</span>}
                   </span>
