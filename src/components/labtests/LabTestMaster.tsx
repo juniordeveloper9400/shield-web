@@ -836,7 +836,17 @@ export function LabTestMaster() {
             <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
               <span>
                 <strong className="font-semibold text-slate-700">UserInfo:</strong>{' '}
-                {userName || '—'} {formatDateTime(meta?.updatedAt ?? new Date().toISOString())}
+                {meta ? (
+                  <>
+                    {userName || '—'} {formatDateTime(meta.updatedAt)}
+                  </>
+                ) : (
+                  // A blank/new test has no save to report yet — showing "now" here
+                  // used to look exactly like a save confirmation and nothing else
+                  // on screen said otherwise, which is exactly backwards: this test
+                  // has not been saved.
+                  <span className="italic text-slate-400">Not saved yet</span>
+                )}
               </span>
               {dirty && <Badge tone="amber">Unsaved changes</Badge>}
             </div>
