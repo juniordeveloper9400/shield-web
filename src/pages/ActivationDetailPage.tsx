@@ -67,6 +67,12 @@ export default function ActivationDetailPage() {
   const [receivedAmount, setReceivedAmount] = useState('');
   const [verifySaving, setVerifySaving] = useState(false);
   const [verifySavedAt, setVerifySavedAt] = useState<number | null>(null);
+  // Whether "Save verification" has actually been clicked for exactly what's
+  // on screen right now — false again the moment any of the four fields
+  // change, so a stale verification can never wave through edited figures
+  // (or approve one). This is what gates the mismatch highlighting and the
+  // Approve button, not just having filled the fields in.
+  const [verified, setVerified] = useState(false);
 
   useEffect(() => {
     if (!selected) return;
@@ -77,7 +83,19 @@ export default function ActivationDetailPage() {
       selected.receivedAmount > 0 ? String(selected.receivedAmount) : '',
     );
     setVerifySavedAt(null);
+    setVerified(false);
   }, [selected]);
+
+  function editField<T>(setter: (value: T) => void) {
+    return (value: T) => {
+      setter(value);
+      setVerified(false);
+    };
+  }
+  const changeVerifiedReference = editField(setVerifiedReference);
+  const changeReceivedOn = editField(setReceivedOn);
+  const changeReceiptVerified = editField(setReceiptVerified);
+  const changeReceivedAmount = editField(setReceivedAmount);
 
   const receivedAmountNumber = Number(receivedAmount);
   const checklistComplete =
@@ -92,6 +110,10 @@ export default function ActivationDetailPage() {
     receivedAmount.trim() !== '' &&
     Number.isFinite(receivedAmountNumber) &&
     receivedAmountNumber !== selected.amount;
+  // The mismatch only actually shows once the reviewer has run "Save
+  // verification" on these exact figures — typing a wrong number in
+  // mid-entry shouldn't flash red before they've even finished.
+  const showAmountMismatch = verified && amountMismatch;
 
   const editable =
     canReview && (selected?.status === 'pending' || selected?.status === 'on_hold');
@@ -119,6 +141,7 @@ export default function ActivationDetailPage() {
         return false;
       }
       setVerifySavedAt(Date.now());
+      setVerified(true);
       return true;
     } catch (err) {
       setActionError(
@@ -137,6 +160,10 @@ export default function ActivationDetailPage() {
     }
     if (!checklistComplete) {
       setActionError('Complete the verification checklist before approving.');
+      return;
+    }
+    if (!verified) {
+      setActionError('Click "Save verification" first — approving needs it saved, not just filled in.');
       return;
     }
     setSaving(true);
@@ -328,10 +355,19 @@ export default function ActivationDetailPage() {
                         step="0.01"
                         value={receivedAmount}
                         disabled={!editable}
-                        onChange={(e) => setReceivedAmount(e.target.value)}
+                        onChange={(e) => changeReceivedAmount(e.target.value)}
                         placeholder="Received amount"
-                        className={inputClass}
+                        className={
+                          showAmountMismatch
+                            ? `${inputClass} border-rose-400 bg-rose-50 text-rose-700 focus:border-rose-500 focus:ring-rose-200`
+                            : inputClass
+                        }
                       />
+                      {showAmountMismatch && (
+                        <span className="text-xs font-medium text-rose-600">
+                          Does not match {formatCurrency(selected.amount)}
+                        </span>
+                      )}
                     </div>
                   ),
                 },
@@ -351,7 +387,7 @@ export default function ActivationDetailPage() {
                         type="text"
                         value={verifiedReference}
                         disabled={!editable}
-                        onChange={(e) => setVerifiedReference(e.target.value)}
+                        onChange={(e) => changeVerifiedReference(e.target.value)}
                         placeholder="Verified UTR / transaction id"
                         className={inputClass}
                       />
@@ -368,7 +404,7 @@ export default function ActivationDetailPage() {
                         type="date"
                         value={receivedOn}
                         disabled={!editable}
-                        onChange={(e) => setReceivedOn(e.target.value)}
+                        onChange={(e) => changeReceivedOn(e.target.value)}
                         className={inputClass}
                       />
                       <span className="text-xs text-slate-400">Received date</span>
@@ -400,8 +436,8 @@ export default function ActivationDetailPage() {
               ]}
             />
 
-            {amountMismatch && (
-              <p className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 ring-1 ring-inset ring-amber-200">
+            {showAmountMismatch && (
+              <p className="mt-3 flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700 ring-1 ring-inset ring-rose-200">
                 <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>
                   Received amount ({formatCurrency(receivedAmountNumber)}) does not
@@ -433,7 +469,7 @@ export default function ActivationDetailPage() {
                     type="checkbox"
                     checked={receiptVerified}
                     disabled={!editable}
-                    onChange={(e) => setReceiptVerified(e.target.checked)}
+                    onChange={(e) => changeReceiptVerified(e.target.checked)}
                     className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                   />
                   I have checked this receipt image and it matches the transfer.
@@ -449,7 +485,7 @@ export default function ActivationDetailPage() {
                     type="checkbox"
                     checked={receiptVerified}
                     disabled={!editable}
-                    onChange={(e) => setReceiptVerified(e.target.checked)}
+                    onChange={(e) => changeReceiptVerified(e.target.checked)}
                     className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                   />
                   No image on file, but I have verified this transfer another way.
@@ -467,14 +503,22 @@ export default function ActivationDetailPage() {
                 >
                   {verifySaving ? 'Saving…' : 'Save verification'}
                 </Button>
-                {verifySavedAt && (
-                  <span className="text-xs text-emerald-600">Saved.</span>
+                {verifySavedAt && verified && (
+                  <span className="text-xs text-emerald-600">
+                    Saved — Approve is unlocked.
+                  </span>
                 )}
-                {!checklistComplete && (
+                {!checklistComplete ? (
                   <span className="text-xs text-slate-400">
                     Fill in the UTR, received date, received amount and the
                     receipt tick above before Approve unlocks.
                   </span>
+                ) : (
+                  !verified && (
+                    <span className="text-xs text-slate-400">
+                      Click "Save verification" to unlock Approve.
+                    </span>
+                  )
                 )}
               </div>
             )}
@@ -543,11 +587,13 @@ export default function ActivationDetailPage() {
                       )}
                       <Button
                         variant="success"
-                        disabled={saving || !checklistComplete}
+                        disabled={saving || !checklistComplete || !verified}
                         title={
-                          checklistComplete
-                            ? undefined
-                            : 'Complete the verification checklist above first.'
+                          !checklistComplete
+                            ? 'Complete the verification checklist above first.'
+                            : !verified
+                              ? 'Click "Save verification" above first.'
+                              : undefined
                         }
                         onClick={approve}
                       >

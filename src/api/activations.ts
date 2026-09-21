@@ -110,14 +110,24 @@ export async function listActivationsForMember(
  * the wallet card being reviewed. Lets a reviewer see what the plan will
  * land on top of. Deliberately just these two figures: the review screen
  * shows what is there, never the member's transaction history.
+ *
+ * Points come from `app.users.reward_points`, not `app.wallet.reward_points`
+ * — the latter is a denormalized mirror that only ever moves on redemption
+ * (`RewardsService.redeem`, backend/api); nothing that actually credits
+ * points (registration, referral levels, order points) ever updates it, so
+ * it reads as stale/near-zero for almost every member. `app.users
+ * .reward_points` is the one kept in step with the real ledger
+ * (`app.reward_point_transaction`) — the same figure `UserDetailPage`
+ * already shows (`src/api/users.ts`).
  */
 export async function getWalletActivity(
   walletCardId: string,
 ): Promise<WalletActivity> {
   const walletRows = (await sql`
-    SELECT w.balance, w.reward_points
+    SELECT w.balance, u.reward_points
     FROM app.wallet_card wc
     JOIN app.wallet w ON w.id = wc.wallet_id
+    JOIN app.users u  ON u.id = w.member_id
     WHERE wc.id = ${walletCardId}
   `) as Row[];
 
