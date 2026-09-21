@@ -5,6 +5,7 @@ import {
   groupTotal,
   netAmount,
   nextSetOrder,
+  searchLabTests,
   validateLabTest,
 } from '../src/lib/labTests.ts';
 
@@ -104,4 +105,61 @@ test('the rate-list fields default to blank so an old form still saves', () => {
   assert.equal(blank.scheduledDays, '');
   assert.equal(blank.reportingTime, '');
   assert.equal(blank.cutOfTime, '');
+});
+
+// The search box is handed every test on record -- the tests made in the
+// console and the imported rate list -- and, with nothing typed, offers all.
+const master = [
+  { name: 'Adrenaline (Epinephrine)', shortName: '', lisCode: 1001 },
+  { name: 'Complete Blood Count', shortName: 'CBC', lisCode: 1002 },
+  { name: 'Kidney Function Test', shortName: 'KFT', lisCode: 1010 },
+  { name: 'Liver Function Test', shortName: 'LFT', lisCode: 2003 },
+];
+const names = (tests) => tests.map((t) => t.name);
+
+test('the search offers every test, in the order given, until something is typed', () => {
+  assert.deepEqual(names(searchLabTests(master, 'name', '')), names(master));
+  assert.deepEqual(names(searchLabTests(master, 'name', '   ')), names(master));
+  assert.deepEqual(names(searchLabTests(master, 'short', '')), names(master));
+  assert.deepEqual(names(searchLabTests(master, 'lis', '')), names(master));
+});
+
+test('searching by name finds the text anywhere in it, in any case', () => {
+  assert.deepEqual(names(searchLabTests(master, 'name', 'function')), [
+    'Kidney Function Test',
+    'Liver Function Test',
+  ]);
+  assert.deepEqual(names(searchLabTests(master, 'name', '  BLOOD ')), ['Complete Blood Count']);
+  assert.deepEqual(searchLabTests(master, 'name', 'zzz'), []);
+});
+
+test('searching by short name only looks at short names', () => {
+  assert.deepEqual(names(searchLabTests(master, 'short', 'cbc')), ['Complete Blood Count']);
+  assert.deepEqual(searchLabTests(master, 'short', 'blood'), []);
+});
+
+test('searching by Lis Code matches the start of the code', () => {
+  assert.deepEqual(names(searchLabTests(master, 'lis', '100')), [
+    'Adrenaline (Epinephrine)',
+    'Complete Blood Count',
+  ]);
+  assert.deepEqual(names(searchLabTests(master, 'lis', '10')), [
+    'Adrenaline (Epinephrine)',
+    'Complete Blood Count',
+    'Kidney Function Test',
+  ]);
+  assert.deepEqual(names(searchLabTests(master, 'lis', '1010')), ['Kidney Function Test']);
+  assert.deepEqual(searchLabTests(master, 'lis', '003'), []); // the start, not the middle
+});
+
+test('a big master is searched whole, not capped to a handful', () => {
+  const big = Array.from({ length: 525 }, (_, i) => ({
+    name: `Test ${i + 1}`,
+    shortName: '',
+    lisCode: 1001 + i,
+  }));
+  assert.equal(searchLabTests(big, 'name', '').length, 525);
+  assert.equal(searchLabTests(big, 'name', 'test').length, 525);
+  // "Test 5", "Test 50".."Test 59" and "Test 500".."Test 525": 1 + 10 + 26.
+  assert.equal(searchLabTests(big, 'name', 'Test 5').length, 37);
 });

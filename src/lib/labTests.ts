@@ -44,6 +44,31 @@ export function isGroupType(type: LabTestType): boolean {
   return type === 'GROUP' || type === 'PACKAGE';
 }
 
+/** What the Test Master's search box looks a test up by. */
+export type LabTestSearchBy = 'name' | 'short' | 'lis';
+
+/**
+ * The tests the search box offers for [text], in the order given.
+ *
+ * Nothing typed offers every test, so the box can be used to browse the whole
+ * master; typing narrows it — by name or short name anywhere in it, or by the
+ * start of a Lis Code. It is handed every test on record, the imported rate
+ * list included, never only the ones made in the console.
+ */
+export function searchLabTests<
+  T extends { name: string; shortName: string; lisCode: number },
+>(tests: T[], by: LabTestSearchBy, text: string): T[] {
+  const q = text.trim().toLowerCase();
+  if (!q) return tests;
+  return tests.filter((t) =>
+    by === 'name'
+      ? t.name.toLowerCase().includes(q)
+      : by === 'short'
+        ? t.shortName.toLowerCase().includes(q)
+        : String(t.lisCode).startsWith(q),
+  );
+}
+
 export const TEST_TYPE_LABELS: Record<LabTestType, string> = {
   TEST: 'Test',
   GROUP: 'Group Test',

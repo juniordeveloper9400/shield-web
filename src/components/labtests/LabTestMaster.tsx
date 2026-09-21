@@ -18,10 +18,12 @@ import {
   REPORTING_TIMES,
   SCHEDULED_DAYS,
   pickInput,
+  searchLabTests,
   SAMPLES,
   TECHNOLOGIES,
   TEST_MODES,
   TEST_TYPE_LABELS,
+  type LabTestSearchBy,
   validateLabTest,
   VOLUMES,
 } from '@/lib/labTests';
@@ -71,7 +73,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'result', label: 'Result Template' },
 ];
 
-type SearchBy = 'name' | 'short' | 'lis';
+type SearchBy = LabTestSearchBy;
 
 const SEARCH_BY: { value: SearchBy; label: string }[] = [
   { value: 'name', label: 'Test Name' },
@@ -309,19 +311,13 @@ export function LabTestMaster() {
   const ownTests = useMemo(() => list.filter((t) => t.source === 'ADMIN'), [list]);
   const rateListCount = list.length - ownTests.length;
 
-  const matches = useMemo(() => {
-    const q = searchText.trim().toLowerCase();
-    if (!q) return [];
-    return ownTests
-      .filter((t) =>
-        searchBy === 'name'
-          ? t.name.toLowerCase().includes(q)
-          : searchBy === 'short'
-            ? t.shortName.toLowerCase().includes(q)
-            : String(t.lisCode).startsWith(q),
-      )
-      .slice(0, 8);
-  }, [ownTests, searchBy, searchText]);
+  // What the search box offers: every test on record — the ones made here and
+  // the imported rate list alike — by name, so nothing has to be typed first to
+  // see what there is. Typing narrows it. `list` is already ordered by name.
+  const matches = useMemo(
+    () => searchLabTests(list, searchBy, searchText),
+    [list, searchBy, searchText],
+  );
 
   const pickable = useMemo(
     () => list.filter((t) => t.testType === 'TEST' && t.isActive && t.id !== loadedId),
@@ -470,35 +466,56 @@ export function LabTestMaster() {
                   setSearchOpen(true);
                 }}
                 onFocus={() => setSearchOpen(true)}
+                // Also on click: after picking a test the input is still
+                // focused, so a second click would otherwise show nothing.
+                onClick={() => setSearchOpen(true)}
                 onBlur={() => setSearchOpen(false)}
                 placeholder={`Search Test by ${SEARCH_BY.find((s) => s.value === searchBy)?.label}`}
                 className="w-full rounded-md border border-slate-300 bg-white px-3 py-3 text-sm outline-none placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
               />
-              {searchOpen && searchText.trim() && (
-                <ul className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
-                  {matches.length === 0 ? (
-                    <li className="px-3 py-2 text-sm text-slate-400">No test matches.</li>
+              {searchOpen && (
+                <ul
+                  // Keeps the input focused while the list is used — grabbing
+                  // its scrollbar would otherwise blur the input, close the
+                  // list, and make a few hundred names impossible to scroll.
+                  onMouseDown={(e) => e.preventDefault()}
+                  className="absolute z-20 mt-1 max-h-96 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                >
+                  {loading && list.length === 0 ? (
+                    <li className="px-3 py-2 text-sm text-slate-400">Loading tests…</li>
+                  ) : matches.length === 0 ? (
+                    <li className="px-3 py-2 text-sm text-slate-400">
+                      {list.length === 0 ? 'No tests on record yet.' : 'No test matches.'}
+                    </li>
                   ) : (
-                    matches.map((t) => (
-                      <li key={t.id}>
-                        <button
-                          type="button"
-                          // mousedown, not click: the input's blur would close
-                          // the list first and swallow the click.
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            guarded(() => void openTest(t.id));
-                          }}
-                          className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
-                        >
-                          <span className="font-medium text-slate-800">{t.name}</span>
-                          <span className="text-xs text-slate-400">
-                            {t.shortName ? `${t.shortName} · ` : ''}
-                            {t.lisCode} · {TEST_TYPE_LABELS[t.testType]}
-                          </span>
-                        </button>
+                    <>
+                      <li className="sticky top-0 border-b border-slate-100 bg-white px-3 py-1.5 text-xs font-medium text-slate-500">
+                        {searchText.trim()
+                          ? `${matches.length} of ${list.length} tests`
+                          : `All ${list.length} tests`}
                       </li>
-                    ))
+                      {matches.map((t) => (
+                        <li key={t.id}>
+                          <button
+                            type="button"
+                            // mousedown, not click: the input's blur would close
+                            // the list first and swallow the click.
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              guarded(() => void openTest(t.id));
+                            }}
+                            className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-slate-50"
+                          >
+                            <span className="font-medium text-slate-800">{t.name}</span>
+                            <span className="shrink-0 text-xs text-slate-400">
+                              {t.shortName ? `${t.shortName} · ` : ''}
+                              {t.lisCode} · {TEST_TYPE_LABELS[t.testType]}
+                              {t.source === 'RATE_LIST' ? ' · Rate list' : ''}
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </>
                   )}
                 </ul>
               )}

@@ -1,16 +1,18 @@
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
+import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { getCommissionReserve, type CommissionReserveEntry } from '@/api/commissionReserve';
 
 /**
- * The company's own share of every agent's Health Pass sale — never shown
- * to a member or an agent anywhere in the app itself, only here. See
- * `app.commission_reserve_entry`'s own doc (migration 0032/0033) for
- * exactly how each row's amount is worked out.
+ * The company's own money from Health Pass activations — never shown to a
+ * member or an agent anywhere in the app itself, only here. Every approved
+ * activation adds 8% of its load; an agent sale can also leave part of its
+ * commission pool unspent. See `app.commission_reserve_entry`'s own doc
+ * (migrations 0032/0033/0053) for exactly how each row's amount is worked out.
  */
 export default function CommissionReservePage() {
   const reserve = useAsync(getCommissionReserve, []);
@@ -40,6 +42,16 @@ export default function CommissionReservePage() {
       render: (row) => <span className="text-xs text-slate-400">#{row.walletCardId}</span>,
     },
     {
+      key: 'source',
+      header: 'Source',
+      render: (row) =>
+        row.source === 'COMPANY_SHARE' ? (
+          <Badge tone="green">Company 8%</Badge>
+        ) : (
+          <Badge tone="gray">Agent pool leftover</Badge>
+        ),
+    },
+    {
       key: 'amount',
       header: 'Reserved',
       render: (row) => (
@@ -53,7 +65,7 @@ export default function CommissionReservePage() {
     <>
       <PageHeader
         title="Reserved"
-        subtitle="The company's own share of every agent's Health Pass sale — never surfaced to a member or an agent, only here."
+        subtitle="The company's own share of every Health Pass activation — never surfaced to a member or an agent, only here."
       />
 
       {reserve.error && (
@@ -62,19 +74,26 @@ export default function CommissionReservePage() {
         </Card>
       )}
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2">
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard
           label="Total reserved"
           value={reserve.data ? formatCurrency(reserve.data.total) : '—'}
-          hint="Sum of every reserve entry below"
+          hint={`Sum of the ${entries.length} entries below`}
           icon="accounts"
           tone="blue"
         />
         <StatCard
-          label="Entries"
-          value={String(entries.length)}
-          hint="One per approved Health Pass activation with a share left over"
+          label="Company share (8%)"
+          value={reserve.data ? formatCurrency(reserve.data.companyShare) : '—'}
+          hint="8% of every approved Health Pass activation"
           icon="wallet"
+          tone="green"
+        />
+        <StatCard
+          label="Agent pool leftover"
+          value={reserve.data ? formatCurrency(reserve.data.poolLeftover) : '—'}
+          hint="Unspent part of agent sales' commission pools"
+          icon="users"
           tone="violet"
         />
       </div>
@@ -82,14 +101,14 @@ export default function CommissionReservePage() {
       <Card>
         <CardHeader
           title="Reserve entries"
-          subtitle="Newest first — what each activation's commission pool left over once the selling agent, and the national agent's override where it applies, were paid"
+          subtitle="Newest first — the company's 8% of each approved activation, and, for agent sales, what the commission pool left over once the seller and the up-line were paid"
         />
         <DataTable
           columns={columns}
           rows={entries}
           loading={reserve.loading}
           error={reserve.error}
-          empty="No Health Pass activation has generated a reserved share yet."
+          empty="No Health Pass activation has been approved yet."
         />
       </Card>
     </>

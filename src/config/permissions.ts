@@ -135,7 +135,7 @@ export const MODULES: NavItem[] = [
     label: 'Reserved',
     path: '/commission-reserve',
     icon: 'accounts',
-    description: "The company's own share of every agent's Health Pass sale",
+    description: "The company's own share of every Health Pass activation (8%)",
   },
 ];
 
