@@ -745,6 +745,22 @@ export function LabTestMaster() {
                   <p className="mt-1 text-xs text-slate-400">
                     Inactive tests stay on record but cannot be added to a group.
                   </p>
+                  {form.testType !== 'PACKAGE' && (
+                    <>
+                      <div className="mt-3">
+                        <LisCheck
+                          label="Show in the app"
+                          checked={form.showInApp}
+                          onChange={(c) => patch({ showInApp: c })}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Members see this {form.testType === 'GROUP' ? 'group test' : 'test'} under
+                        “Top Profiles and Tests” in the Lab section and can book it. It needs to
+                        be Active too.
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

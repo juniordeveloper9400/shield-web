@@ -103,6 +103,100 @@ export async function getLabTest(id: string): Promise<LabTest | null> {
   };
 }
 
+function slugify(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+/**
+ * Keeps the member-facing listing of one test in step with the test itself
+ * (migration 0056) — what "Top Profiles and Tests" in both apps reads.
+ *
+ * A test or group test that is **active and switched on with "Show in the
+ * app"** gets (or keeps) one `app.lab_package` row of its own —
+ * `source_test_id` set, a single profile named after it — because that is what
+ * a member actually books (`lab_booking.lab_package_id`). Its price is the
+ * test's own Amount, its MRP the Rate (never below the price), its test count
+ * the number of tests inside a group (1 for a plain test), and it inherits the
+ * test's category and reporting time. Anything else — switched off, inactive,
+ * a package-type test — has its listing switched off (never deleted, so a
+ * member's earlier booking keeps pointing at something).
+ *
+ * The slug follows the name the way the app derives it when a booking is filed
+ * (`OrderRepository._slug`), so booking a listed test updates this row rather
+ * than creating a second one; a slug already used by a different row gets the
+ * test id appended instead.
+ */
+export async function syncLabTestListing(testId: string): Promise<void> {
+  const rows = await query<Row>(
+    `SELECT t.id, t.test_type, t.name, t.rate, t.amount, t.category_id, t.sample,
+            t.reporting_time, t.is_active, t.show_in_app,
+            (SELECT count(*) FROM app.lab_test_group_item i WHERE i.group_id = t.id) AS item_count
+       FROM app.lab_test t WHERE t.id = $1`,
+    [testId],
+  );
+  const t = rows[0];
+  if (!t) return;
+
+  const listed =
+    Boolean(t.show_in_app) && Boolean(t.is_active) && (t.test_type === 'TEST' || t.test_type === 'GROUP');
+  if (!listed) {
+    await query('UPDATE app.lab_package SET is_active = false WHERE source_test_id = $1', [testId]);
+    return;
+  }
+
+  const name = String(t.name);
+  const testCount = t.test_type === 'GROUP' ? Math.max(num(t.item_count), 1) : 1;
+  const price = num(t.amount);
+  const mrp = Math.max(num(t.rate), price);
+
+  const base = slugify(name) || `test-${testId}`;
+  const [{ taken }] = await query<{ taken: boolean }>(
+    `SELECT EXISTS(SELECT 1 FROM app.lab_package WHERE slug = $1
+                     AND source_test_id IS DISTINCT FROM $2::bigint) AS taken`,
+    [base, testId],
+  );
+  const slug = taken ? `${base}-${testId}` : base;
+
+  const saved = await query<Row>(
+    `INSERT INTO app.lab_package (
+       slug, name, category_id, test_count, profile_count, price, mrp, saved,
+       report_in, sample, is_active, source_test_id
+     )
+     VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, true, $10)
+     ON CONFLICT (source_test_id) DO UPDATE SET
+       slug = EXCLUDED.slug, name = EXCLUDED.name, category_id = EXCLUDED.category_id,
+       test_count = EXCLUDED.test_count, profile_count = 1,
+       price = EXCLUDED.price, mrp = EXCLUDED.mrp, saved = EXCLUDED.saved,
+       report_in = EXCLUDED.report_in, sample = EXCLUDED.sample, is_active = true
+     RETURNING id`,
+    [
+      slug,
+      name,
+      t.category_id ?? null,
+      testCount,
+      price,
+      mrp,
+      Math.max(mrp - price, 0),
+      String(t.reporting_time ?? ''),
+      String(t.sample ?? ''),
+      testId,
+    ],
+  );
+  const packageId = String(saved[0].id);
+
+  await query('DELETE FROM app.lab_profile WHERE lab_package_id = $1', [packageId]);
+  await query(
+    'INSERT INTO app.lab_profile (lab_package_id, name, parameters, sort) VALUES ($1, $2, $3, 0)',
+    [packageId, name, testCount],
+  );
+  // No lab_package_test_item row: source_test_id already ties the listing to its
+  // test, and that link's RESTRICT would stop the test ever being deleted.
+}
+
 /** `"A", "B" and "C"` for an error sentence. */
 function quotedList(names: string[]): string {
   const quoted = names.map((n) => `"${n}"`);
@@ -154,7 +248,16 @@ export async function saveLabTest(
     if (rows.length === 0) {
       throw new Error('That test no longer exists — it may have been deleted. Press New to start again.');
     }
-    return { id: String(rows[0].id), lisCode: num(rows[0].lis_code) };
+    const savedId = String(rows[0].id);
+    try {
+      await syncLabTestListing(savedId);
+    } catch (syncError) {
+      const why = syncError instanceof Error ? syncError.message : 'unknown error';
+      throw new Error(
+        `"${input.name.trim()}" was saved, but its listing in the app could not be updated (${why}). Save it again to retry.`,
+      );
+    }
+    return { id: savedId, lisCode: num(rows[0].lis_code) };
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     if (message.includes('lab_test_name_uidx')) {
@@ -173,5 +276,20 @@ export async function deleteLabTest(id: string, name: string): Promise<void> {
       `"${name}" is used inside ${quotedList(usedIn)}. Remove it from there before deleting it.`,
     );
   }
-  await query('DELETE FROM app.lab_test WHERE id = $1', [id]);
+  try {
+    await query('DELETE FROM app.lab_test WHERE id = $1', [id]);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('lab_package_test_item')) {
+      throw new Error(
+        `"${name}" is part of a package on Member packages. Remove it from that package first.`,
+      );
+    }
+    if (error instanceof Error && error.message.includes('lab_booking')) {
+      // Its app listing (source_test_id, ON DELETE CASCADE) has been booked.
+      throw new Error(
+        `"${name}" has been booked by a member, so it cannot be deleted. Untick "Show in the app" (or mark it inactive) to take it off the app instead.`,
+      );
+    }
+    throw error;
+  }
 }

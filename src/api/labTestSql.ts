@@ -10,6 +10,7 @@ export const LAB_TEST_FIELDS: ReadonlyArray<readonly [column: string, key: keyof
   ['test_type', 'testType'],
   ['name', 'name'],
   ['category_id', 'categoryId'],
+  ['show_in_app', 'showInApp'],
   ['short_name', 'shortName'],
   ['calc_code', 'calcCode'],
   ['division', 'division'],

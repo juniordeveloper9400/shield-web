@@ -870,6 +870,10 @@ export interface LabTestInput {
   name: string;
   /** '' for none — the Test Master form's "Category" dropdown (migration 0055). */
   categoryId: string;
+  /** The form's "Show in the app" switch (migration 0056): a test or group test
+   *  that is on (and active) is offered to members under "Top Profiles and
+   *  Tests" as its own bookable listing. Meaningless for a PACKAGE type. */
+  showInApp: boolean;
   shortName: string;
   calcCode: string;
   division: string;

@@ -12,11 +12,15 @@ function slugify(name: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
+/** The real packages members can book — not the one-test listings the console
+ *  keeps for tests switched on with "Show in the app" (`source_test_id` set,
+ *  migration 0056); those follow their test and are edited on the Test Master. */
 export async function listLabPackages(): Promise<LabPackage[]> {
   const rows = (await sql`
     SELECT id, slug, name, category_id, test_count, profile_count, price, mrp, saved,
            report_in, rating, booked, for_whom, sample, preparation, about, is_active, created_at
     FROM app.lab_package
+    WHERE source_test_id IS NULL
     ORDER BY sort, name
   `) as Row[];
 
