@@ -701,6 +701,22 @@ export type LabBookingStatus =
   | 'report_ready'
   | 'cancelled';
 
+/** Someone a lab booking is for — one row of `app.lab_booking_patient`. */
+export interface LabBookingPatient {
+  name: string;
+  /** Years; null when neither the booking nor the saved patient records one. */
+  age: number | null;
+}
+
+/** One page of a booking's lab report — one row of `app.lab_booking_report`. */
+export interface LabReportPage {
+  id: string;
+  /** The picked file's name. */
+  name: string;
+  /** Resized JPEG data URI. */
+  image: string;
+}
+
 /** A member's lab-test booking — one row of `app.lab_booking`. */
 export interface LabBooking {
   id: string;
@@ -709,10 +725,21 @@ export interface LabBooking {
   memberPhone: string;
   packageName: string;
   patientsCount: number;
+  /** Who the tests are for (a saved patient's name, or a typed one). */
+  patients: LabBookingPatient[];
+  /** The collection address on one line, or '' when the booking has none. */
+  address: string;
+  /** Contact number saved on that address, or ''. */
+  addressPhone: string;
   unitPrice: number;
   totalPrice: number;
   status: LabBookingStatus;
   scheduledFor: string;
+  /** A line from the lab to the member; shown beside the booking in the app. */
+  note: string;
+  /** How many report pages are attached. */
+  reportPages: number;
+  reportUploadedAt: string;
   createdAt: string;
 }
 

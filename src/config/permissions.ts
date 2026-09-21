@@ -191,7 +191,7 @@ export const ROLE_SUMMARY: Record<Role, string> = {
   admin:
     'Runs the app: catalogue, users & agent / investor conversion, orders, bills, prescriptions, privilege plans, labs, appointments and the Accounts money-flow view.',
   pharmacy: 'Works one branch — its member orders, bills and uploaded prescriptions.',
-  lab: 'Handles member lab-test bookings and the package catalogue.',
+  lab: 'Works member lab-test bookings — schedule, notes and reports — and the test master and package catalogue.',
   appointments: 'Handles the clinic, tele and dietitian appointment queue.',
   delivery: "Delivers and collects cash for their branch's cash orders.",
 };

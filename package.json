@@ -10,6 +10,7 @@
     "test:wallet-month": "node --experimental-strip-types --test tests/walletMonth.test.mjs",
     "test:review-video": "node --experimental-strip-types --test tests/reviewVideo.test.mjs",
     "test:lab-tests": "node --experimental-strip-types --test tests/labTests.test.mjs",
+    "test:lab-booking": "node --experimental-strip-types --test tests/labBooking.test.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",

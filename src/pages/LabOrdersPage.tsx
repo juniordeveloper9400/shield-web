@@ -4,14 +4,12 @@ import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
-import { DetailList } from '@/components/ui/DetailList';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
-import { Icon } from '@/components/ui/Icon';
 import { formatCurrency, formatDateTime, toneForStatus } from '@/lib/format';
+import { LabBookingModal } from '@/components/labs/LabBookingModal';
 import { useAsync } from '@/lib/useAsync';
-import { listLabBookings, setLabBookingStatus } from '@/api/labBookings';
+import { listLabBookings } from '@/api/labBookings';
 import type { LabBooking, LabBookingStatus } from '@/types';
 
 const STATUS_LABEL: Record<LabBookingStatus, string> = {
@@ -31,22 +29,6 @@ const STATUS_OPTIONS = [
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
-const NEXT: Record<LabBookingStatus, LabBookingStatus | null> = {
-  requested: 'confirmed',
-  confirmed: 'sample_collected',
-  sample_collected: 'report_ready',
-  report_ready: null,
-  cancelled: null,
-};
-
-const NEXT_LABEL: Record<LabBookingStatus, string> = {
-  requested: 'Confirm',
-  confirmed: 'Sample collected',
-  sample_collected: 'Report ready',
-  report_ready: '',
-  cancelled: '',
-};
-
 export default function LabOrdersPage() {
   const { data, loading, error, reload } = useAsync(listLabBookings, []);
   const rows = useMemo(() => data ?? [], [data]);
@@ -54,7 +36,6 @@ export default function LabOrdersPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -71,17 +52,6 @@ export default function LabOrdersPage() {
       return matchesQuery && matchesStatus;
     });
   }, [rows, search, status]);
-
-  async function changeStatus(id: string, next: LabBookingStatus) {
-    setSaving(true);
-    try {
-      await setLabBookingStatus(id, next);
-      setSelectedId(null);
-      reload();
-    } finally {
-      setSaving(false);
-    }
-  }
 
   const counts = {
     requested: rows.filter((r) => r.status === 'requested').length,
@@ -128,6 +98,18 @@ export default function LabOrdersPage() {
       key: 'scheduled',
       header: 'Scheduled',
       render: (row) => formatDateTime(row.scheduledFor),
+    },
+    {
+      key: 'report',
+      header: 'Report',
+      render: (row) =>
+        row.reportPages > 0 ? (
+          <span className="text-slate-700">
+            {row.reportPages} page{row.reportPages === 1 ? '' : 's'}
+          </span>
+        ) : (
+          <span className="text-slate-400">—</span>
+        ),
     },
     {
       key: 'status',
@@ -180,61 +162,11 @@ export default function LabOrdersPage() {
         />
       </Card>
 
-      <Modal
-        open={Boolean(selected)}
+      <LabBookingModal
+        booking={selected}
         onClose={() => setSelectedId(null)}
-        title={selected ? selected.code : ''}
-        footer={
-          selected && (
-            <>
-              {selected.status !== 'cancelled' &&
-                selected.status !== 'report_ready' && (
-                  <Button
-                    variant="danger"
-                    disabled={saving}
-                    onClick={() => changeStatus(selected.id, 'cancelled')}
-                  >
-                    Cancel
-                  </Button>
-                )}
-              {NEXT[selected.status] && (
-                <Button
-                  variant="primary"
-                  disabled={saving}
-                  onClick={() => changeStatus(selected.id, NEXT[selected.status]!)}
-                >
-                  {selected.status === 'requested' && (
-                    <Icon name="check" className="h-4 w-4" />
-                  )}
-                  {NEXT_LABEL[selected.status]}
-                </Button>
-              )}
-            </>
-          )
-        }
-      >
-        {selected && (
-          <>
-            <div className="mb-3">
-              <Badge tone={toneForStatus(selected.status)}>
-                {STATUS_LABEL[selected.status]}
-              </Badge>
-            </div>
-            <DetailList
-              rows={[
-                { label: 'Member', value: selected.memberName },
-                { label: 'Phone', value: selected.memberPhone },
-                { label: 'Package', value: selected.packageName },
-                { label: 'Patients', value: selected.patientsCount },
-                { label: 'Unit price', value: formatCurrency(selected.unitPrice) },
-                { label: 'Total', value: formatCurrency(selected.totalPrice) },
-                { label: 'Scheduled for', value: formatDateTime(selected.scheduledFor) },
-                { label: 'Booked', value: formatDateTime(selected.createdAt) },
-              ]}
-            />
-          </>
-        )}
-      </Modal>
+        onChanged={reload}
+      />
     </>
   );
 }
