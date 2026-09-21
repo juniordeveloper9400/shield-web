@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { canReviewActivations } from '@/config/permissions';
@@ -23,7 +23,18 @@ import {
   getWalletActivity,
   holdActivation,
   rejectActivation,
+  saveActivationVerification,
 } from '@/api/activations';
+
+const inputClass =
+  'w-full max-w-[220px] rounded-md border border-slate-300 px-2.5 py-1.5 text-sm text-slate-800 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:bg-slate-50 disabled:text-slate-400';
+
+/** ISO timestamp/date → the `YYYY-MM-DD` a `date` input wants, or ''. */
+function toDateInputValue(iso: string): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+}
 
 export default function ActivationDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
@@ -44,6 +55,47 @@ export default function ActivationDetailPage() {
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // ---- The reviewer's own verification checklist ---------------------------
+  // Local form state, seeded from whatever was last saved for this card, and
+  // re-seeded whenever a fresh load of it comes in (a reload after Save, or
+  // switching cards). Gates the Approve button on its own (instant feedback);
+  // the actual write happens on Save, and again — enforced — inside
+  // [approve] before [approveActivation] is ever called.
+  const [verifiedReference, setVerifiedReference] = useState('');
+  const [receivedOn, setReceivedOn] = useState('');
+  const [receiptVerified, setReceiptVerified] = useState(false);
+  const [receivedAmount, setReceivedAmount] = useState('');
+  const [verifySaving, setVerifySaving] = useState(false);
+  const [verifySavedAt, setVerifySavedAt] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!selected) return;
+    setVerifiedReference(selected.verifiedReference);
+    setReceivedOn(toDateInputValue(selected.receivedOn));
+    setReceiptVerified(selected.receiptVerified);
+    setReceivedAmount(
+      selected.receivedAmount > 0 ? String(selected.receivedAmount) : '',
+    );
+    setVerifySavedAt(null);
+  }, [selected]);
+
+  const receivedAmountNumber = Number(receivedAmount);
+  const checklistComplete =
+    verifiedReference.trim() !== '' &&
+    receivedOn !== '' &&
+    receiptVerified &&
+    receivedAmount.trim() !== '' &&
+    Number.isFinite(receivedAmountNumber) &&
+    receivedAmountNumber > 0;
+  const amountMismatch =
+    selected != null &&
+    receivedAmount.trim() !== '' &&
+    Number.isFinite(receivedAmountNumber) &&
+    receivedAmountNumber !== selected.amount;
+
+  const editable =
+    canReview && (selected?.status === 'pending' || selected?.status === 'on_hold');
+
   const back = () =>
     navigate(
       selected?.memberId
@@ -51,14 +103,60 @@ export default function ActivationDetailPage() {
         : '/activations',
     );
 
+  async function saveVerification(): Promise<boolean> {
+    setVerifySaving(true);
+    setActionError(null);
+    try {
+      const ok = await saveActivationVerification(id, {
+        verifiedReference,
+        receivedOn,
+        receiptVerified,
+        receivedAmount: receivedAmount.trim() === '' ? null : receivedAmountNumber,
+      });
+      if (!ok) {
+        setActionError('This activation is no longer pending — reloading.');
+        reload();
+        return false;
+      }
+      setVerifySavedAt(Date.now());
+      return true;
+    } catch (err) {
+      setActionError(
+        err instanceof Error ? err.message : 'Could not save the verification.',
+      );
+      return false;
+    } finally {
+      setVerifySaving(false);
+    }
+  }
+
   async function approve() {
     if (!canReview) {
       setActionError('Only a Super Admin can approve activations.');
       return;
     }
+    if (!checklistComplete) {
+      setActionError('Complete the verification checklist before approving.');
+      return;
+    }
     setSaving(true);
     setActionError(null);
     try {
+      // The checklist is saved for real before it is ever trusted to gate
+      // real money — approveActivation checks the same four columns again
+      // server-side, so a save that silently failed here must never let the
+      // credit through looking successful.
+      const saved = await saveActivationVerification(id, {
+        verifiedReference,
+        receivedOn,
+        receiptVerified,
+        receivedAmount: receivedAmountNumber,
+      });
+      if (!saved) {
+        setActionError('This activation is no longer pending — reloading.');
+        reload();
+        return;
+      }
       const ok = await approveActivation(id);
       if (!ok) {
         setActionError('This activation is no longer pending — reloading.');
@@ -147,21 +245,63 @@ export default function ActivationDetailPage() {
           </p>
         ) : (
           <>
-            <div className="mb-4 max-w-sm">
-              <PrivilegeCard
-                tierKind={selected.tierKind}
-                tierName={selected.tier}
-                cardNumber={selected.cardNumber}
-                holder={selected.memberName}
-                amount={selected.amount}
-                bonus={selected.bonus}
-                status={titleCase(selected.status)}
-                footNote={
-                  selected.expiresOn
-                    ? `Expires ${formatDate(selected.expiresOn)}`
-                    : undefined
-                }
-              />
+            <div className="mb-4 flex flex-wrap items-start gap-4">
+              <div className="w-full max-w-sm">
+                <PrivilegeCard
+                  tierKind={selected.tierKind}
+                  tierName={selected.tier}
+                  cardNumber={selected.cardNumber}
+                  holder={selected.memberName}
+                  amount={selected.amount}
+                  bonus={selected.bonus}
+                  status={titleCase(selected.status)}
+                  footNote={
+                    selected.status === 'approved' && selected.expiresOn
+                      ? `Expires ${formatDate(selected.expiresOn)}`
+                      : undefined
+                  }
+                />
+              </div>
+
+              {/* The member's wallet at a glance, right beside the card being
+                  activated — balance and points, and a way straight to their
+                  full profile. No transaction history here — see the page's
+                  own note on that further down. */}
+              <div className="flex min-w-[220px] flex-1 flex-col gap-2 rounded-lg border border-slate-200 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+                  Member wallet
+                </p>
+                {activity.loading ? (
+                  <p className="text-sm text-slate-400">Loading…</p>
+                ) : activity.error ? (
+                  <p className="text-sm text-rose-600">{activity.error}</p>
+                ) : activity.data ? (
+                  <>
+                    <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
+                      <span>
+                        <span className="text-slate-400">Balance </span>
+                        <span className="font-semibold text-slate-800">
+                          {formatCurrency(activity.data.balance)}
+                        </span>
+                      </span>
+                      <span>
+                        <span className="text-slate-400">Points </span>
+                        <span className="font-semibold text-slate-800">
+                          {activity.data.rewardPoints}
+                        </span>
+                      </span>
+                    </div>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="w-fit"
+                      onClick={() => navigate(`/users/${selected.memberId}`)}
+                    >
+                      Open member profile →
+                    </Button>
+                  </>
+                ) : null}
+              </div>
             </div>
 
             <div className="mb-3">
@@ -177,19 +317,68 @@ export default function ActivationDetailPage() {
                 { label: 'Plan', value: selected.tier },
                 { label: 'Branch', value: selected.storeName },
                 { label: 'Card number', value: selected.cardNumber || '—' },
-                { label: 'Load', value: formatCurrency(selected.amount) },
+                {
+                  label: 'Load',
+                  value: (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{formatCurrency(selected.amount)}</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={receivedAmount}
+                        disabled={!editable}
+                        onChange={(e) => setReceivedAmount(e.target.value)}
+                        placeholder="Received amount"
+                        className={inputClass}
+                      />
+                    </div>
+                  ),
+                },
                 { label: 'Bonus (10%)', value: formatCurrency(selected.bonus) },
                 {
                   label: 'Credits on approval',
                   value: formatCurrency(selected.credited),
                 },
-                { label: 'Receipt ref', value: selected.receiptReference || '—' },
+                {
+                  label: 'UTR / Transaction ID',
+                  value: (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-slate-500">
+                        Member wrote: {selected.receiptReference || '—'}
+                      </span>
+                      <input
+                        type="text"
+                        value={verifiedReference}
+                        disabled={!editable}
+                        onChange={(e) => setVerifiedReference(e.target.value)}
+                        placeholder="Verified UTR / transaction id"
+                        className={inputClass}
+                      />
+                    </div>
+                  ),
+                },
                 { label: 'Receipt file', value: selected.receiptFileName || '—' },
-                { label: 'Submitted', value: formatDateTime(selected.submittedAt) },
-                ...(selected.issuedOn
+                {
+                  label: 'Submitted',
+                  value: (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{formatDateTime(selected.submittedAt)}</span>
+                      <input
+                        type="date"
+                        value={receivedOn}
+                        disabled={!editable}
+                        onChange={(e) => setReceivedOn(e.target.value)}
+                        className={inputClass}
+                      />
+                      <span className="text-xs text-slate-400">Received date</span>
+                    </div>
+                  ),
+                },
+                ...(selected.status === 'approved' && selected.issuedOn
                   ? [{ label: 'Plan issued', value: formatDate(selected.issuedOn) }]
                   : []),
-                ...(selected.expiresOn
+                ...(selected.status === 'approved' && selected.expiresOn
                   ? [
                       {
                         label: 'Plan expires',
@@ -211,6 +400,17 @@ export default function ActivationDetailPage() {
               ]}
             />
 
+            {amountMismatch && (
+              <p className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 ring-1 ring-inset ring-amber-200">
+                <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Received amount ({formatCurrency(receivedAmountNumber)}) does not
+                  match the load ({formatCurrency(selected.amount)}). Check before
+                  approving.
+                </span>
+              </p>
+            )}
+
             {selected.receiptImage ? (
               <div className="mt-4">
                 <p className="mb-1.5 text-sm font-medium text-slate-700">
@@ -228,84 +428,56 @@ export default function ActivationDetailPage() {
                     className="max-h-96 w-full bg-slate-50 object-contain"
                   />
                 </a>
-                <p className="mt-1 text-xs text-slate-400">
-                  Tap to open full size in a new tab.
-                </p>
+                <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={receiptVerified}
+                    disabled={!editable}
+                    onChange={(e) => setReceiptVerified(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  I have checked this receipt image and it matches the transfer.
+                </label>
               </div>
             ) : (
-              <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                No receipt image on file for this activation.
-              </p>
+              <>
+                <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                  No receipt image on file for this activation.
+                </p>
+                <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={receiptVerified}
+                    disabled={!editable}
+                    onChange={(e) => setReceiptVerified(e.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                  />
+                  No image on file, but I have verified this transfer another way.
+                </label>
+              </>
             )}
 
-            <div className="mt-4">
-              <p className="mb-1.5 text-sm font-medium text-slate-700">
-                Member wallet
-              </p>
-              {activity.loading ? (
-                <p className="text-sm text-slate-400">Loading wallet…</p>
-              ) : activity.error ? (
-                <p className="text-sm text-rose-600">{activity.error}</p>
-              ) : activity.data ? (
-                <div className="rounded-lg border border-slate-200">
-                  <div className="flex flex-wrap gap-x-8 gap-y-1 border-b border-slate-200 px-3 py-2 text-sm">
-                    <span>
-                      <span className="text-slate-400">Balance </span>
-                      <span className="font-medium text-slate-800">
-                        {formatCurrency(activity.data.balance)}
-                      </span>
-                    </span>
-                    <span>
-                      <span className="text-slate-400">Points </span>
-                      <span className="font-medium text-slate-800">
-                        {activity.data.rewardPoints}
-                      </span>
-                    </span>
-                    <span>
-                      <span className="text-slate-400">Opened </span>
-                      <span className="font-medium text-slate-800">
-                        {activity.data.openedAt
-                          ? formatDate(activity.data.openedAt)
-                          : 'not yet'}
-                      </span>
-                    </span>
-                  </div>
-                  {activity.data.entries.length === 0 ? (
-                    <p className="px-3 py-3 text-sm text-slate-400">
-                      No wallet activity yet.
-                    </p>
-                  ) : (
-                    <ul className="divide-y divide-slate-100">
-                      {activity.data.entries.map((e) => (
-                        <li
-                          key={e.id}
-                          className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                        >
-                          <span className="min-w-0">
-                            <span className="block truncate text-slate-700">
-                              {e.label}
-                            </span>
-                            <span className="text-xs text-slate-400">
-                              {titleCase(e.kind)} · {formatDate(e.occurredOn)}
-                            </span>
-                          </span>
-                          <span
-                            className={
-                              e.amount < 0
-                                ? 'shrink-0 font-medium text-rose-600'
-                                : 'shrink-0 font-medium text-emerald-600'
-                            }
-                          >
-                            {e.amount < 0 ? '−' : '+'}
-                            {formatCurrency(Math.abs(e.amount))}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              ) : null}
-            </div>
+            {editable && (
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={verifySaving}
+                  onClick={saveVerification}
+                >
+                  {verifySaving ? 'Saving…' : 'Save verification'}
+                </Button>
+                {verifySavedAt && (
+                  <span className="text-xs text-emerald-600">Saved.</span>
+                )}
+                {!checklistComplete && (
+                  <span className="text-xs text-slate-400">
+                    Fill in the UTR, received date, received amount and the
+                    receipt tick above before Approve unlocks.
+                  </span>
+                )}
+              </div>
+            )}
 
             {(selected.status === 'pending' || selected.status === 'on_hold') &&
               canReview && (
@@ -369,7 +541,16 @@ export default function ActivationDetailPage() {
                           Hold
                         </Button>
                       )}
-                      <Button variant="success" disabled={saving} onClick={approve}>
+                      <Button
+                        variant="success"
+                        disabled={saving || !checklistComplete}
+                        title={
+                          checklistComplete
+                            ? undefined
+                            : 'Complete the verification checklist above first.'
+                        }
+                        onClick={approve}
+                      >
                         <Icon name="check" className="h-4 w-4" /> Approve &amp; credit
                       </Button>
                     </div>

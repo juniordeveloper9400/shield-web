@@ -33,6 +33,10 @@ function toActivation(r: Row): PrivilegeActivation {
     issuedOn: iso(r.issued_on) ?? '',
     expiresOn: iso(r.expires_on) ?? '',
     reviewedAt: iso(r.reviewed_at),
+    verifiedReference: String(r.verified_reference ?? ''),
+    receivedOn: iso(r.received_on) ?? '',
+    receiptVerified: r.receipt_verified === true,
+    receivedAmount: num(r.received_amount),
   };
 }
 
@@ -48,6 +52,7 @@ const ACTIVATION_COLUMNS = `
     wc.receipt_reference, wc.receipt_file_name, wc.receipt_image,
     wc.reviewer_note,
     wc.submitted_at, wc.reviewed_at, wc.issued_on, wc.expires_on,
+    wc.verified_reference, wc.received_on, wc.receipt_verified, wc.received_amount,
     s.code AS store_code,
     s.name AS store_name
   FROM app.wallet_card wc
@@ -101,42 +106,69 @@ export async function listActivationsForMember(
 }
 
 /**
- * A member's wallet at a glance — balance, points, and the recent ledger —
- * looked up from the wallet card being reviewed. Lets a reviewer see what the
- * plan will land on top of, and what has moved through the wallet already.
+ * A member's wallet at a glance — balance and reward points, looked up from
+ * the wallet card being reviewed. Lets a reviewer see what the plan will
+ * land on top of. Deliberately just these two figures: the review screen
+ * shows what is there, never the member's transaction history.
  */
 export async function getWalletActivity(
   walletCardId: string,
 ): Promise<WalletActivity> {
   const walletRows = (await sql`
-    SELECT w.balance, w.reward_points, w.opened_at
+    SELECT w.balance, w.reward_points
     FROM app.wallet_card wc
     JOIN app.wallet w ON w.id = wc.wallet_id
     WHERE wc.id = ${walletCardId}
-  `) as Row[];
-
-  const entryRows = (await sql`
-    SELECT e.id, e.kind, e.label, e.amount, e.occurred_on
-    FROM app.wallet_card wc
-    JOIN app.wallet_entry e ON e.wallet_id = wc.wallet_id
-    WHERE wc.id = ${walletCardId}
-    ORDER BY e.occurred_on DESC, e.id DESC
-    LIMIT 25
   `) as Row[];
 
   const w = walletRows[0] ?? {};
   return {
     balance: num(w.balance),
     rewardPoints: num(w.reward_points),
-    openedAt: iso(w.opened_at) ?? null,
-    entries: entryRows.map((r) => ({
-      id: String(r.id),
-      kind: fromEnum(String(r.kind ?? '')),
-      label: String(r.label ?? ''),
-      amount: num(r.amount),
-      occurredOn: iso(r.occurred_on) ?? '',
-    })),
   };
+}
+
+/**
+ * Saves the reviewer's own verification checklist for a pending (or
+ * on-hold) activation — the UTR they read off their own bank statement, when
+ * they saw the transfer land, whether the uploaded receipt image checks out,
+ * and what they saw credited. Separate from, and never overwriting, what the
+ * member submitted (`receiptReference`, `receiptFileName`, `receiptImage`).
+ *
+ * Purely an audit record: it never touches status, the wallet, or any
+ * commission logic — only [approveActivation] does that, and only once this
+ * checklist is complete (see `ActivationDetailPage`'s own doc). A no-op —
+ * and returns `false` — once the card is already decided, so a stray save
+ * after someone else has approved or rejected it cannot silently succeed.
+ */
+export async function saveActivationVerification(
+  id: string,
+  input: {
+    verifiedReference: string;
+    receivedOn: string; // '' clears it
+    receiptVerified: boolean;
+    receivedAmount: number | null;
+  },
+): Promise<boolean> {
+  const rows = await query<Row>(
+    `
+    UPDATE app.wallet_card
+       SET verified_reference = $2,
+           received_on = $3::date,
+           receipt_verified = $4,
+           received_amount = $5
+     WHERE id = $1 AND status IN ('PENDING', 'ON_HOLD')
+     RETURNING id
+    `,
+    [
+      id,
+      input.verifiedReference.trim() || null,
+      input.receivedOn || null,
+      input.receiptVerified,
+      input.receivedAmount,
+    ],
+  );
+  return rows.length > 0;
 }
 
 /**
@@ -159,9 +191,31 @@ export async function getWalletActivity(
  * money. See that function's own doc for the split itself.
  *
  * A no-op — and returns `false` — if the card is already decided (or a
- * stale id).
+ * stale id), or if the reviewer's own verification checklist
+ * ([saveActivationVerification]) is not yet complete: real money moves here,
+ * so this is checked again before the call rather than trusted from the
+ * console's own disabled button alone. Deliberately a separate query before
+ * the one below, not a `WHERE` wrapped around it — `approve_wallet_card_activation`
+ * writes the ledger and credits the balance as a side effect of being
+ * *called*, so gating on the result of the same call would still credit the
+ * money even on a row the gate then filtered out.
  */
 export async function approveActivation(id: string): Promise<boolean> {
+  const [ready] = await query<Row>(
+    `
+    SELECT 1 FROM app.wallet_card
+     WHERE id = $1
+       AND status IN ('PENDING', 'ON_HOLD')
+       AND coalesce(btrim(verified_reference), '') <> ''
+       AND received_on IS NOT NULL
+       AND receipt_verified
+       AND received_amount IS NOT NULL
+    `,
+    [id],
+  );
+  if (!ready) {
+    return false;
+  }
   const rows = await query<Row>(
     `SELECT * FROM app.approve_wallet_card_activation($1)`,
     [id],

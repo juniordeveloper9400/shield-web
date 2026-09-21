@@ -80,7 +80,9 @@ export default function ActivationsPage() {
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('all');
+  // Opens on Pending — this queue is worked from what's waiting, not read as
+  // a full history; a reviewer can still switch to All or another status.
+  const [status, setStatus] = useState('pending');
   const [store, setStore] = useState('all');
 
   const scoped = useMemo(() => scopeToStore(rows, user), [rows, user]);

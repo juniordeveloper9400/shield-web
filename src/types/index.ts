@@ -1001,29 +1001,34 @@ export interface PrivilegeActivation {
   receiptImage: string;
   reviewerNote: string;
   submittedAt: string;
-  /** When the plan was taken out, and when its validity runs out. */
+  /** When the plan was taken out, and when its validity runs out. Only
+   *  meaningful once `status` is `approved` — see `ActivationDetailPage`. */
   issuedOn: string;
   expiresOn: string;
   reviewedAt?: string;
+
+  // ---- The reviewer's own verification checklist (migration 0054) ---------
+  // Separate from what the member submitted above (`receiptReference`,
+  // `receiptFileName`, `receiptImage`). All four are required before Approve
+  // is enabled — see `ActivationDetailPage`'s own doc.
+  /** The UTR / transaction id the admin read off their own bank statement. */
+  verifiedReference: string;
+  /** When the admin actually saw the transfer land. */
+  receivedOn: string;
+  /** The admin has looked at the uploaded receipt image and it checks out. */
+  receiptVerified: boolean;
+  /** What the admin saw credited — compared against `amount`. */
+  receivedAmount: number;
 }
 
-/** One line of a member's wallet ledger — `app.wallet_entry`. */
-export interface WalletActivityEntry {
-  id: string;
-  /** `ACTIVATION` · `BONUS` · `TOPUP` · `SPEND` · `POINTS_REDEEMED` · `AGENT_EARNINGS`. */
-  kind: string;
-  label: string;
-  /** Signed rupees — credits positive, debits negative. */
-  amount: number;
-  occurredOn: string;
-}
-
-/** A member's wallet at a glance, for the activation review panel. */
+/**
+ * A member's wallet at a glance, for the activation review panel — deliberately
+ * just the headline figures, not the ledger: the review screen shows what the
+ * plan will land on top of, never the member's transaction history.
+ */
 export interface WalletActivity {
   balance: number;
   rewardPoints: number;
-  openedAt: string | null;
-  entries: WalletActivityEntry[];
 }
 
 /**

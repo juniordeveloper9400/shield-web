@@ -1,7 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
-import { canReviewActivations } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -14,44 +12,23 @@ import {
   toneForStatus,
 } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
-import { approveActivation, listActivationsForMember } from '@/api/activations';
+import { listActivationsForMember } from '@/api/activations';
 
 export default function MemberActivationsPage() {
   const { memberId = '' } = useParams<{ memberId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const canReview = user ? canReviewActivations(user.role) : false;
 
-  const { data, loading, error, reload } = useAsync(
+  const { data, loading, error } = useAsync(
     () => listActivationsForMember(memberId),
     [memberId],
   );
   const plans = useMemo(() => data ?? [], [data]);
   const member = plans[0];
 
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-
   const totalLoad = plans.reduce((s, p) => s + p.amount, 0);
   const totalCredited = plans
     .filter((p) => p.status === 'approved')
     .reduce((s, p) => s + p.credited, 0);
-
-  async function approve(id: string) {
-    setSavingId(id);
-    setActionError(null);
-    try {
-      const ok = await approveActivation(id);
-      if (!ok) {
-        setActionError('This plan is no longer pending — reloading.');
-      }
-      reload();
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : 'Could not approve.');
-    } finally {
-      setSavingId(null);
-    }
-  }
 
   return (
     <>
@@ -98,12 +75,6 @@ export default function MemberActivationsPage() {
         </div>
       )}
 
-      {actionError && (
-        <p className="mb-4 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
-          {actionError}
-        </p>
-      )}
-
       <Card>
         {loading ? (
           <p className="py-14 text-center text-sm text-slate-400">Loading…</p>
@@ -118,7 +89,8 @@ export default function MemberActivationsPage() {
             {plans.map((p) => (
               <li
                 key={p.id}
-                className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5"
+                onClick={() => navigate(`/activations/${p.id}`)}
+                className="flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3.5 hover:bg-slate-50"
               >
                 <ReceiptThumb
                   image={p.receiptImage}
@@ -142,24 +114,18 @@ export default function MemberActivationsPage() {
                   {titleCase(p.status)}
                 </Badge>
 
+                {/* Approve/reject/hold only happen on the validation screen,
+                    behind the verification checklist — this just opens it. */}
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => navigate(`/activations/${p.id}`)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/activations/${p.id}`);
+                  }}
                 >
-                  Details
+                  Validate
                 </Button>
-
-                {p.status === 'pending' && canReview && (
-                  <Button
-                    variant="success"
-                    size="sm"
-                    disabled={savingId !== null}
-                    onClick={() => approve(p.id)}
-                  >
-                    {savingId === p.id ? 'Approving…' : 'Approve'}
-                  </Button>
-                )}
               </li>
             ))}
           </ul>
