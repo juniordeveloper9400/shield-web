@@ -22,6 +22,7 @@ import LabOrdersPage from '@/pages/LabOrdersPage';
 import AppointmentsPage from '@/pages/AppointmentsPage';
 import LabsPage from '@/pages/LabsPage';
 import AccountsPage from '@/pages/AccountsPage';
+import AgentWithdrawalsPage from '@/pages/AgentWithdrawalsPage';
 import CommissionReservePage from '@/pages/CommissionReservePage';
 import AdminsPage from '@/pages/AdminsPage';
 import DeliveriesPage from '@/pages/DeliveriesPage';
@@ -52,6 +53,7 @@ export default function App() {
       />
 
       <Route element={<DashboardLayout />}>
+        <Route path="/agent-withdrawals" element={<ProtectedRoute module="accounts"><AgentWithdrawalsPage /></ProtectedRoute>} />
         <Route
           path="/dashboard"
           element={

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
@@ -146,6 +147,7 @@ export default function AccountsPage() {
 
   return (
     <>
+      <Link to="/agent-withdrawals" className="mb-4 inline-block rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">Review agent withdrawals</Link>
       <PageHeader
         title="Accounts"
         subtitle="Total money flow across the app — revenue collected, plans loaded, and payouts made."
