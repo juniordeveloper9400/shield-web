@@ -11,6 +11,7 @@ import { completeBilledOrder, sendOrderInvoice } from '@/api/orders';
 import {
   collectBillWithWallet,
   getMonthlyRedeemableForOrder,
+  getAvailableAllowanceForOrder,
   getRedeemedThisMonthForOrder,
   getWalletBalanceForOrder,
 } from '@/api/billPayments';
@@ -112,6 +113,7 @@ export function BillEditorModal({
   // Health Pass "monthly allowance" is a member-facing display idea, not a
   // real ceiling on the balance itself, which is fully spendable the
   // moment it lands.
+  const { data: availableAllowance } = useAsync(() => getAvailableAllowanceForOrder(order.id), [order.id]);
   const { data: monthlyRedeemable } = useAsync(
     () => getMonthlyRedeemableForOrder(order.id),
     [order.id],
@@ -450,7 +452,7 @@ export function BillEditorModal({
             <WalletBreakdown
               walletBalance={walletBalance ?? 0}
               monthlyRedeemable={monthlyRedeemable}
-              redeemedThisMonth={redeemedThisMonth}
+              redeemedThisMonth={redeemedThisMonth} availableAllowance={availableAllowance}
               walletShare={walletCoverage}
               walletShareLabel="Will draw from wallet"
               cashOwed={cashOwed}
@@ -620,7 +622,7 @@ export function BillEditorModal({
               <WalletBreakdown
                 walletBalance={walletBalance ?? 0}
                 monthlyRedeemable={monthlyRedeemable}
-                redeemedThisMonth={redeemedThisMonth}
+                redeemedThisMonth={redeemedThisMonth} availableAllowance={availableAllowance}
                 walletShare={walletCoverage}
                 walletShareLabel="From wallet"
                 cashOwed={cashOwed}

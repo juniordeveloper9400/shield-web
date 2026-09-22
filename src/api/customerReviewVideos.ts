@@ -1,4 +1,3 @@
-import { sql, query } from '@/lib/db';
 import { api } from '@/lib/api';
 import {
   describeUploadFailure,
@@ -6,7 +5,6 @@ import {
   reviewVideoProblem,
   reviewVideoSource,
 } from '@/lib/reviewVideo';
-import { iso, num } from '@/lib/mappers';
 import type { CustomerReviewVideo, NewCustomerReviewVideo } from '@/types';
 
 type Row = Record<string, unknown>;
@@ -16,87 +14,87 @@ function toVideo(r: Row): CustomerReviewVideo {
     id: String(r.id),
     name: String(r.name ?? ''),
     subtitle: String(r.subtitle ?? ''),
-    videoUrl: String(r.video_url ?? ''),
+    videoUrl: String(r.videoUrl ?? ''),
     thumbnail: String(r.thumbnail ?? ''),
-    isActive: r.is_active === true,
-    sort: num(r.sort),
-    createdAt: iso(r.created_at) ?? new Date(0).toISOString(),
+    isActive: r.isActive === true,
+    sort: Number(r.sort ?? 0),
+    createdAt: String(r.createdAt ?? new Date(0).toISOString()),
   };
 }
 
+// Every write below goes through backend/api (`v1/staff/catalogue/review-
+// videos*`, see `catalogue-admin.controller.ts`/`catalogue.service.ts`)
+// rather than a direct Neon write. That is what actually invalidates the
+// `catalogue:review-videos:active` Redis cache the app and web build read
+// through (`GET /v1/public/catalogue/review-videos`, 60s TTL) — a clip added
+// through a direct Neon insert here saved correctly, but the cache had no way
+// to know, so it kept serving whatever it last held (up to 60s stale, or
+// longer if the direct-Neon endpoint itself is unreachable from the browser,
+// as `lib/db.ts`'s own doc on that trade-off explains). `listCustomerReviewVideos`
+// still needs a token: unlike the app/web reads, the console's list includes
+// hidden clips too (`listAllReviewVideosForStaff`), which only staff may see.
+
 /**
- * Every clip in "What our customers have to say" — `app.customer_review_video`
- * — in display order. The console shows all of them (active and not); the
- * app and web build only ever query the active ones.
+ * Every clip in "What our customers have to say" — active and hidden alike,
+ * in display order. The console shows all of them; the app and web build
+ * only ever see the active ones, through the separate public endpoint.
  */
-export async function listCustomerReviewVideos(): Promise<CustomerReviewVideo[]> {
-  const rows = (await sql`
-    SELECT id, name, subtitle, video_url, thumbnail, is_active, sort, created_at
-    FROM app.customer_review_video
-    ORDER BY sort, id
-  `) as Row[];
+export async function listCustomerReviewVideos(
+  token: string | null,
+): Promise<CustomerReviewVideo[]> {
+  const rows = await api.get<Row[]>('/v1/staff/catalogue/review-videos', token);
   return rows.map(toVideo);
 }
 
 /** Inserts a clip after the current last one unless a sort is given. */
 export async function createCustomerReviewVideo(
   input: NewCustomerReviewVideo,
+  token: string | null,
 ): Promise<string> {
-  const rows = await query<Row>(
-    `
-    INSERT INTO app.customer_review_video
-      (name, subtitle, video_url, thumbnail, is_active, sort)
-    VALUES ($1, $2, $3, $4, $5,
-      COALESCE($6, (SELECT COALESCE(MAX(sort), -1) + 1 FROM app.customer_review_video)))
-    RETURNING id
-    `,
-    [
-      input.name.trim(),
-      input.subtitle.trim(),
-      input.videoUrl.trim(),
-      input.thumbnail || null,
-      input.isActive,
-      Number.isFinite(input.sort) ? input.sort : null,
-    ],
+  const created = await api.post<Row>(
+    '/v1/staff/catalogue/review-videos',
+    {
+      name: input.name.trim(),
+      subtitle: input.subtitle.trim(),
+      videoUrl: input.videoUrl.trim(),
+      thumbnail: input.thumbnail || undefined,
+      isActive: input.isActive,
+      sort: Number.isFinite(input.sort) ? input.sort : undefined,
+    },
+    token,
   );
-  return String(rows[0].id);
+  return String(created.id);
 }
 
 export async function updateCustomerReviewVideo(
   id: string,
   input: NewCustomerReviewVideo,
+  token: string | null,
 ): Promise<void> {
-  await query(
-    `
-    UPDATE app.customer_review_video
-       SET name = $2, subtitle = $3, video_url = $4, thumbnail = $5,
-           is_active = $6, sort = $7, updated_at = now()
-     WHERE id = $1
-    `,
-    [
-      id,
-      input.name.trim(),
-      input.subtitle.trim(),
-      input.videoUrl.trim(),
-      input.thumbnail || null,
-      input.isActive,
-      input.sort,
-    ],
+  await api.patch(
+    `/v1/staff/catalogue/review-videos/${id}`,
+    {
+      name: input.name.trim(),
+      subtitle: input.subtitle.trim(),
+      videoUrl: input.videoUrl.trim(),
+      thumbnail: input.thumbnail || '',
+      isActive: input.isActive,
+      sort: input.sort,
+    },
+    token,
   );
 }
 
 export async function setCustomerReviewVideoActive(
   id: string,
   active: boolean,
+  token: string | null,
 ): Promise<void> {
-  await query(
-    `UPDATE app.customer_review_video SET is_active = $2, updated_at = now() WHERE id = $1`,
-    [id, active],
-  );
+  await api.patch(`/v1/staff/catalogue/review-videos/${id}`, { isActive: active }, token);
 }
 
-export async function deleteCustomerReviewVideo(id: string): Promise<void> {
-  await query(`DELETE FROM app.customer_review_video WHERE id = $1`, [id]);
+export async function deleteCustomerReviewVideo(id: string, token: string | null): Promise<void> {
+  await api.delete(`/v1/staff/catalogue/review-videos/${id}`, token);
 }
 
 /**
@@ -108,6 +106,7 @@ export async function moveCustomerReviewVideo(
   id: string,
   direction: 'up' | 'down',
   order: CustomerReviewVideo[],
+  token: string | null,
 ): Promise<void> {
   const index = order.findIndex((v) => v.id === id);
   const swapWith = direction === 'up' ? index - 1 : index + 1;
@@ -116,14 +115,8 @@ export async function moveCustomerReviewVideo(
   }
   const a = order[index];
   const b = order[swapWith];
-  await query(`UPDATE app.customer_review_video SET sort = $2 WHERE id = $1`, [
-    a.id,
-    b.sort,
-  ]);
-  await query(`UPDATE app.customer_review_video SET sort = $2 WHERE id = $1`, [
-    b.id,
-    a.sort,
-  ]);
+  await api.patch(`/v1/staff/catalogue/review-videos/${a.id}`, { sort: b.sort }, token);
+  await api.patch(`/v1/staff/catalogue/review-videos/${b.id}`, { sort: a.sort }, token);
 }
 
 // ---- Uploaded video files (stored in Supabase Storage via backend/api) ------

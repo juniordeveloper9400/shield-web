@@ -1,6 +1,29 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { monthlyBalanceOf, redeemedThisMonth } from '../src/lib/walletMonth.ts';
+import { monthlyBalanceOf, redeemedThisMonth, availablePlanAllowance } from '../src/lib/walletMonth.ts';
+
+test('unused allowance carries forward and earlier spending cannot be reused', () => {
+  const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
+  const entries = [{ kind: 'SPEND', amount: -400, occurredOn: '2026-08-20' }];
+  assert.equal(availablePlanAllowance(cards, entries, new Date(2026, 8, 14), 10600), 516);
+  assert.equal(availablePlanAllowance(cards, entries, new Date(2026, 8, 15), 10600), 1432);
+  assert.equal(availablePlanAllowance(cards, entries, new Date(2026, 8, 15), 100), 100);
+});
+
+test('commission spends do not reduce carried plan allowance', () => {
+  assert.equal(availablePlanAllowance([{ loaded: 11000, issuedOn: '2026-08-15' }], [
+    { kind: 'REFERRAL_EARNINGS', amount: 200, occurredOn: '2026-08-20' },
+    { kind: 'SPEND', amount: -300, occurredOn: '2026-08-21' },
+  ], new Date(2026, 8, 15), 10900), 1732);
+});
+
+test('month-end, future activation and final release boundaries', () => {
+  const cards = [{ loaded: 11000, issuedOn: '2026-01-31' }];
+  assert.equal(availablePlanAllowance(cards, [], new Date(2026, 0, 30), 11000), 0);
+  assert.equal(availablePlanAllowance(cards, [], new Date(2026, 1, 28), 11000), 1832);
+  assert.equal(availablePlanAllowance(cards, [], new Date(2026, 2, 1), 11000), 1832);
+  assert.equal(availablePlanAllowance(cards, [], new Date(2027, 0, 31), 11000), 10992);
+});
 
 const NOW = new Date(2026, 8, 20, 16, 0); // 20 Sep 2026, local
 const spend = (amount, occurredOn) => ({ kind: 'SPEND', amount: -amount, occurredOn });

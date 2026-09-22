@@ -1,5 +1,4 @@
 import type { ReactNode } from 'react';
-import { monthlyBalanceOf } from '@/lib/walletMonth';
 
 /**
  * What the member's wallet looks like against the bill on screen: their
@@ -18,6 +17,7 @@ export function WalletBreakdown({
   walletBalance,
   monthlyRedeemable,
   redeemedThisMonth,
+  availableAllowance,
   walletShare,
   walletShareLabel,
   cashOwed,
@@ -27,6 +27,7 @@ export function WalletBreakdown({
   /** Null/undefined until loaded — the month block only shows once both figures are in. */
   monthlyRedeemable: number | null | undefined;
   redeemedThisMonth: number | null | undefined;
+  availableAllowance: number | null | undefined;
   walletShare: number;
   /** "From wallet" while pricing, "Will draw from wallet" while collecting. */
   walletShareLabel: string;
@@ -39,10 +40,9 @@ export function WalletBreakdown({
   const hasMonth =
     monthlyRedeemable != null &&
     redeemedThisMonth != null &&
-    (monthlyRedeemable > 0 || redeemedThisMonth > 0);
-  const monthlyBalance = hasMonth
-    ? monthlyBalanceOf(monthlyRedeemable, redeemedThisMonth)
-    : 0;
+    availableAllowance != null &&
+    (monthlyRedeemable > 0 || redeemedThisMonth > 0 || availableAllowance > 0);
+  const monthlyBalance = availableAllowance ?? 0;
 
   return (
     <div className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-600">
@@ -52,7 +52,7 @@ export function WalletBreakdown({
           <Row label="Health Pass monthly redeemable" value={format(monthlyRedeemable)} />
           <Row label="Redeemed this month" value={format(redeemedThisMonth)} />
           <Row
-            label="Monthly balance"
+            label="Available allowance (includes carry-forward)"
             value={format(monthlyBalance)}
             emphasis={monthlyBalance > 0 ? 'good' : 'muted'}
           />

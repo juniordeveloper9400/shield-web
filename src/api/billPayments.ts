@@ -1,7 +1,24 @@
 import { query } from '@/lib/db';
 import { api } from '@/lib/api';
 import { num } from '@/lib/mappers';
-import { redeemedThisMonth } from '@/lib/walletMonth';
+import { redeemedThisMonth, availablePlanAllowance } from '@/lib/walletMonth';
+
+export async function getAvailableAllowanceForOrder(orderId: string): Promise<number> {
+  const [cards, entries, balance] = await Promise.all([
+    query<Row>(`SELECT wc.amount + wc.bonus + wc.recharged_extra AS loaded, wc.issued_on::text AS issued_on
+      FROM app."order" o JOIN app.wallet w ON w.member_id = o.member_id
+      JOIN app.wallet_card wc ON wc.wallet_id = w.id AND wc.status = 'APPROVED' WHERE o.id = $1`, [orderId]),
+    query<Row>(`SELECT we.kind::text AS kind, we.amount, we.occurred_on::text AS occurred_on
+      FROM app."order" o JOIN app.wallet w ON w.member_id = o.member_id
+      JOIN app.wallet_entry we ON we.wallet_id = w.id WHERE o.id = $1 ORDER BY we.created_at, we.id`, [orderId]),
+    getWalletBalanceForOrder(orderId),
+  ]);
+  return availablePlanAllowance(
+    cards.map(r => ({ loaded: num(r.loaded), issuedOn: String(r.issued_on) })),
+    entries.map(r => ({ kind: String(r.kind), amount: num(r.amount), occurredOn: String(r.occurred_on) })),
+    new Date(), balance,
+  );
+}
 
 type Row = Record<string, unknown>;
 
