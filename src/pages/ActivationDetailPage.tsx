@@ -39,14 +39,14 @@ function toDateInputValue(iso: string): string {
 export default function ActivationDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const canReview = user ? canReviewActivations(user.role) : false;
 
   const { data: selected, loading, error, reload } = useAsync(
-    () => getActivation(id),
-    [id],
+    () => getActivation(id, accessToken),
+    [id, accessToken],
   );
-  const activity = useAsync(() => getWalletActivity(id), [id]);
+  const activity = useAsync(() => getWalletActivity(id, accessToken), [id, accessToken]);
 
   // Reject and hold both need a note from the reviewer before they submit;
   // this is which one that note is for, or null for the plain button row.
@@ -129,12 +129,16 @@ export default function ActivationDetailPage() {
     setVerifySaving(true);
     setActionError(null);
     try {
-      const ok = await saveActivationVerification(id, {
-        verifiedReference,
-        receivedOn,
-        receiptVerified,
-        receivedAmount: receivedAmount.trim() === '' ? null : receivedAmountNumber,
-      });
+      const ok = await saveActivationVerification(
+        id,
+        {
+          verifiedReference,
+          receivedOn,
+          receiptVerified,
+          receivedAmount: receivedAmount.trim() === '' ? null : receivedAmountNumber,
+        },
+        accessToken,
+      );
       if (!ok) {
         setActionError('This activation is no longer pending — reloading.');
         reload();
@@ -173,18 +177,22 @@ export default function ActivationDetailPage() {
       // real money — approveActivation checks the same four columns again
       // server-side, so a save that silently failed here must never let the
       // credit through looking successful.
-      const saved = await saveActivationVerification(id, {
-        verifiedReference,
-        receivedOn,
-        receiptVerified,
-        receivedAmount: receivedAmountNumber,
-      });
+      const saved = await saveActivationVerification(
+        id,
+        {
+          verifiedReference,
+          receivedOn,
+          receiptVerified,
+          receivedAmount: receivedAmountNumber,
+        },
+        accessToken,
+      );
       if (!saved) {
         setActionError('This activation is no longer pending — reloading.');
         reload();
         return;
       }
-      const ok = await approveActivation(id);
+      const ok = await approveActivation(id, accessToken);
       if (!ok) {
         setActionError('This activation is no longer pending — reloading.');
         reload();
@@ -210,7 +218,7 @@ export default function ActivationDetailPage() {
     setSaving(true);
     setActionError(null);
     try {
-      await rejectActivation(id, note);
+      await rejectActivation(id, note, accessToken);
       back();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : 'Could not reject.');
@@ -231,7 +239,7 @@ export default function ActivationDetailPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const ok = await holdActivation(id, note);
+      const ok = await holdActivation(id, note, accessToken);
       if (!ok) {
         setActionError('This activation is no longer pending — reloading.');
         reload();

@@ -74,9 +74,9 @@ function groupByMember(rows: PrivilegeActivation[]): MemberGroup[] {
 }
 
 export default function ActivationsPage() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const navigate = useNavigate();
-  const { data, loading, error } = useAsync(listActivations, []);
+  const { data, loading, error } = useAsync(() => listActivations(accessToken), [accessToken]);
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');

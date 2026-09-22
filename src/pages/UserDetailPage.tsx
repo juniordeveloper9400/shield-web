@@ -19,6 +19,7 @@ import {
   toneForStatus,
 } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import {
   getUser,
   getUserDetail,
@@ -145,11 +146,12 @@ const TXN_COLUMNS: Column<MoneyFlowEntry>[] = [
 export default function UserDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { accessToken } = useAuth();
 
   const user = useAsync(() => getUser(id), [id]);
   const detail = useAsync(() => getUserDetail(id), [id]);
   const agents = useAsync(listAgentOptions, []);
-  const plans = useAsync(() => listActivationsForMember(id), [id]);
+  const plans = useAsync(() => listActivationsForMember(id, accessToken), [id, accessToken]);
   const transactions = useAsync(() => listMemberTransactions(id), [id]);
   const prescriptions = useAsync(() => listPrescriptionsForMember(id), [id]);
   const selected = user.data;

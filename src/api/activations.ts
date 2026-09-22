@@ -1,107 +1,106 @@
-import { sql, query } from '@/lib/db';
-import { fromEnum, iso, num } from '@/lib/mappers';
+import { api, ApiError } from '@/lib/api';
+import { fromEnum, num } from '@/lib/mappers';
 import type {
   PrivilegeActivation,
   PrivilegeActivationStatus,
   WalletActivity,
 } from '@/types';
 
-type Row = Record<string, unknown>;
+/** The shape `GET/PATCH /v1/staff/wallet-cards*` sends back —
+ *  WalletService's joined drizzle rows, camelCase. `numeric` columns
+ *  (amount/bonus/rechargedExtra/receivedAmount) come back as strings,
+ *  same Postgres convention as everywhere else this console reads. */
+interface ActivationApiRow {
+  id: number;
+  uuid: string;
+  memberId: number | null;
+  memberName: string;
+  memberPhone: string;
+  tierName: string;
+  tierKind: string;
+  amount: string;
+  bonus: string;
+  rechargedExtra: string;
+  status: string;
+  cardNumber: string | null;
+  receiptReference: string | null;
+  receiptFileName: string | null;
+  receiptImage: string | null;
+  reviewerNote: string;
+  submittedAt: string;
+  reviewedAt: string | null;
+  issuedOn: string | null;
+  expiresOn: string | null;
+  verifiedReference: string | null;
+  receivedOn: string | null;
+  receiptVerified: boolean;
+  receivedAmount: string | null;
+  storeCode: string | null;
+  storeName: string | null;
+}
 
-/** `app.wallet_card` + member + tier + branch → the shape the console renders. */
-function toActivation(r: Row): PrivilegeActivation {
+function toActivation(r: ActivationApiRow): PrivilegeActivation {
   return {
     id: String(r.id),
-    uuid: String(r.uuid),
-    memberId: String(r.member_id ?? ''),
-    memberName: String(r.member_name ?? '—'),
-    memberPhone: String(r.member_phone ?? ''),
-    tier: String(r.tier_name ?? '—'),
-    tierKind: fromEnum(String(r.tier_kind ?? '')),
+    uuid: r.uuid,
+    memberId: String(r.memberId ?? ''),
+    memberName: r.memberName || '—',
+    memberPhone: r.memberPhone || '',
+    tier: r.tierName || '—',
+    tierKind: fromEnum(r.tierKind || ''),
     amount: num(r.amount),
     bonus: num(r.bonus),
-    credited: num(r.amount) + num(r.bonus) + num(r.recharged_extra),
-    status: fromEnum<PrivilegeActivationStatus>(String(r.status)),
-    storeCode: String(r.store_code ?? ''),
-    storeName: String(r.store_name ?? '—'),
-    cardNumber: String(r.card_number ?? ''),
-    receiptReference: String(r.receipt_reference ?? ''),
-    receiptFileName: String(r.receipt_file_name ?? ''),
-    receiptImage: String(r.receipt_image ?? ''),
-    reviewerNote: String(r.reviewer_note ?? ''),
-    submittedAt: iso(r.submitted_at) ?? new Date(0).toISOString(),
-    issuedOn: iso(r.issued_on) ?? '',
-    expiresOn: iso(r.expires_on) ?? '',
-    reviewedAt: iso(r.reviewed_at),
-    verifiedReference: String(r.verified_reference ?? ''),
-    receivedOn: iso(r.received_on) ?? '',
-    receiptVerified: r.receipt_verified === true,
-    receivedAmount: num(r.received_amount),
+    credited: num(r.amount) + num(r.bonus) + num(r.rechargedExtra),
+    status: fromEnum<PrivilegeActivationStatus>(r.status),
+    storeCode: r.storeCode || '',
+    storeName: r.storeName || '—',
+    cardNumber: r.cardNumber || '',
+    receiptReference: r.receiptReference || '',
+    receiptFileName: r.receiptFileName || '',
+    receiptImage: r.receiptImage || '',
+    reviewerNote: r.reviewerNote || '',
+    submittedAt: r.submittedAt || new Date(0).toISOString(),
+    issuedOn: r.issuedOn || '',
+    expiresOn: r.expiresOn || '',
+    reviewedAt: r.reviewedAt ?? undefined,
+    verifiedReference: r.verifiedReference || '',
+    receivedOn: r.receivedOn || '',
+    receiptVerified: r.receiptVerified === true,
+    receivedAmount: num(r.receivedAmount),
   };
 }
 
-const ACTIVATION_COLUMNS = `
-    wc.id, wc.uuid,
-    w.member_id AS member_id,
-    m.name  AS member_name,
-    m.phone AS member_phone,
-    mt.name AS tier_name,
-    mt.kind AS tier_kind,
-    wc.amount, wc.bonus, wc.recharged_extra,
-    wc.status, wc.card_number,
-    wc.receipt_reference, wc.receipt_file_name, wc.receipt_image,
-    wc.reviewer_note,
-    wc.submitted_at, wc.reviewed_at, wc.issued_on, wc.expires_on,
-    wc.verified_reference, wc.received_on, wc.receipt_verified, wc.received_amount,
-    s.code AS store_code,
-    s.name AS store_name
-  FROM app.wallet_card wc
-  JOIN app.wallet w           ON w.id  = wc.wallet_id
-  JOIN app.users m            ON m.id  = w.member_id
-  JOIN app.membership_tier mt ON mt.id = wc.tier_id
-  LEFT JOIN app.shield_store s ON s.id = wc.store_id
-`;
+/** True for the two outcomes the review screen treats as "no longer
+ *  actionable, reload" rather than a real error — matches what a
+ *  stale/already-decided card used to come back as a plain `false` for
+ *  under the old direct-Neon queries. */
+function isStaleCardError(err: unknown): boolean {
+  return err instanceof ApiError && (err.status === 403 || err.status === 404);
+}
 
 /**
  * Every privilege-plan activation members have submitted — `app.wallet_card`
- * joined to its member, tier and branch. Pending first, then newest.
+ * joined to its member, tier and branch. Pending first, then newest. Migrated
+ * off direct Neon onto `GET /v1/staff/wallet-cards` (`WalletService.listCards`)
+ * — see backend/docs/migration-plan.md Phase 1.
  */
-export async function listActivations(): Promise<PrivilegeActivation[]> {
-  const rows = await query<Row>(
-    `SELECT ${ACTIVATION_COLUMNS}
-     ORDER BY
-       CASE wc.status WHEN 'PENDING' THEN 0 WHEN 'ON_HOLD' THEN 1 ELSE 2 END,
-       wc.submitted_at DESC`,
-  );
+export async function listActivations(token: string | null): Promise<PrivilegeActivation[]> {
+  const rows = await api.get<ActivationApiRow[]>('/v1/staff/wallet-cards', token);
   return rows.map(toActivation);
 }
 
 /** A single activation by `app.wallet_card.id`, for the review page. */
-export async function getActivation(
-  id: string,
-): Promise<PrivilegeActivation | null> {
-  const rows = await query<Row>(
-    `SELECT ${ACTIVATION_COLUMNS} WHERE wc.id = $1 LIMIT 1`,
-    [id],
-  );
-  return rows[0] ? toActivation(rows[0]) : null;
+export async function getActivation(id: string, token: string | null): Promise<PrivilegeActivation | null> {
+  const row = await api.get<ActivationApiRow | null>(`/v1/staff/wallet-cards/${id}`, token);
+  return row ? toActivation(row) : null;
 }
 
 /**
  * Every privilege plan one member has activated (`app.wallet.member_id`),
  * newest first — the cards shown on their user page and member-plans page.
  */
-export async function listActivationsForMember(
-  memberId: string,
-): Promise<PrivilegeActivation[]> {
-  const rows = await query<Row>(
-    `SELECT ${ACTIVATION_COLUMNS}
-     WHERE w.member_id = $1
-     ORDER BY
-       CASE wc.status WHEN 'PENDING' THEN 0 WHEN 'ON_HOLD' THEN 1 ELSE 2 END,
-       wc.submitted_at DESC`,
-    [memberId],
-  );
+export async function listActivationsForMember(memberId: string, token: string | null): Promise<PrivilegeActivation[]> {
+  const rows = await api.get<ActivationApiRow[]>(`/v1/staff/wallet-cards/member/${memberId}`, token);
   return rows.map(toActivation);
 }
 
@@ -120,22 +119,12 @@ export async function listActivationsForMember(
  * (`app.reward_point_transaction`) — the same figure `UserDetailPage`
  * already shows (`src/api/users.ts`).
  */
-export async function getWalletActivity(
-  walletCardId: string,
-): Promise<WalletActivity> {
-  const walletRows = (await sql`
-    SELECT w.balance, u.reward_points
-    FROM app.wallet_card wc
-    JOIN app.wallet w ON w.id = wc.wallet_id
-    JOIN app.users u  ON u.id = w.member_id
-    WHERE wc.id = ${walletCardId}
-  `) as Row[];
-
-  const w = walletRows[0] ?? {};
-  return {
-    balance: num(w.balance),
-    rewardPoints: num(w.reward_points),
-  };
+export async function getWalletActivity(walletCardId: string, token: string | null): Promise<WalletActivity> {
+  const w = await api.get<{ balance: string; rewardPoints: number }>(
+    `/v1/staff/wallet-cards/${walletCardId}/wallet-activity`,
+    token,
+  );
+  return { balance: num(w.balance), rewardPoints: num(w.rewardPoints) };
 }
 
 /**
@@ -159,26 +148,9 @@ export async function saveActivationVerification(
     receiptVerified: boolean;
     receivedAmount: number | null;
   },
+  token: string | null,
 ): Promise<boolean> {
-  const rows = await query<Row>(
-    `
-    UPDATE app.wallet_card
-       SET verified_reference = $2,
-           received_on = $3::date,
-           receipt_verified = $4,
-           received_amount = $5
-     WHERE id = $1 AND status IN ('PENDING', 'ON_HOLD')
-     RETURNING id
-    `,
-    [
-      id,
-      input.verifiedReference.trim() || null,
-      input.receivedOn || null,
-      input.receiptVerified,
-      input.receivedAmount,
-    ],
-  );
-  return rows.length > 0;
+  return api.patch<boolean>(`/v1/staff/wallet-cards/${id}/verification`, input, token);
 }
 
 /**
@@ -191,46 +163,27 @@ export async function saveActivationVerification(
  * between the direct-selling agent, the one national agent, and the
  * company's own reserved share.
  *
- * That whole write is now `app.approve_wallet_card_activation` (migration
- * 0033), a single Postgres function rather than the multi-CTE statement this
- * used to be inline: this driver is one HTTP call per statement with no
- * cross-statement transaction, and the commission split's own conditional
- * branching (who sold it, whether they're the national agent, whether a
- * national agent exists at all) doesn't fit that shape cleanly enough to
- * trust as a correlated-subquery CTE chain for something crediting real
- * money. See that function's own doc for the split itself.
+ * That whole write is now `WalletService.approveCard` (`PATCH
+ * /v1/staff/wallet-cards/:id/approve`) — a typed, pg-mem-tested port of what
+ * `app.approve_wallet_card_activation` (migration 0033) used to do as the
+ * only way to move this money transactionally over the old one-statement-
+ * per-HTTP-call Neon driver. See backend/docs/migration-plan.md Phase 1 for
+ * why the SQL function is no longer what real approvals call.
  *
  * A no-op — and returns `false` — if the card is already decided (or a
  * stale id), or if the reviewer's own verification checklist
  * ([saveActivationVerification]) is not yet complete: real money moves here,
- * so this is checked again before the call rather than trusted from the
- * console's own disabled button alone. Deliberately a separate query before
- * the one below, not a `WHERE` wrapped around it — `approve_wallet_card_activation`
- * writes the ledger and credits the balance as a side effect of being
- * *called*, so gating on the result of the same call would still credit the
- * money even on a row the gate then filtered out.
+ * so the backend checks this again itself (a `403`) rather than trusting the
+ * console's own disabled button alone.
  */
-export async function approveActivation(id: string): Promise<boolean> {
-  const [ready] = await query<Row>(
-    `
-    SELECT 1 FROM app.wallet_card
-     WHERE id = $1
-       AND status IN ('PENDING', 'ON_HOLD')
-       AND coalesce(btrim(verified_reference), '') <> ''
-       AND received_on IS NOT NULL
-       AND receipt_verified
-       AND received_amount IS NOT NULL
-    `,
-    [id],
-  );
-  if (!ready) {
-    return false;
+export async function approveActivation(id: string, token: string | null): Promise<boolean> {
+  try {
+    await api.patch(`/v1/staff/wallet-cards/${id}/approve`, undefined, token);
+    return true;
+  } catch (err) {
+    if (isStaleCardError(err)) return false;
+    throw err;
   }
-  const rows = await query<Row>(
-    `SELECT * FROM app.approve_wallet_card_activation($1)`,
-    [id],
-  );
-  return rows.length > 0;
 }
 
 /**
@@ -238,22 +191,16 @@ export async function approveActivation(id: string): Promise<boolean> {
  * their wallet. Nothing is credited. Returns `false` if the card was already
  * decided.
  */
-export async function rejectActivation(
-  id: string,
-  note: string,
-): Promise<boolean> {
+export async function rejectActivation(id: string, note: string, token: string | null): Promise<boolean> {
   const trimmed = note.trim();
   if (!trimmed) throw new Error('A rejection needs a reason.');
-  const rows = await query<Row>(
-    `
-    UPDATE app.wallet_card
-       SET status = 'REJECTED', reviewer_note = $2, reviewed_at = now()
-     WHERE id = $1 AND status IN ('PENDING', 'ON_HOLD')
-     RETURNING id
-    `,
-    [id, trimmed],
-  );
-  return rows.length > 0;
+  try {
+    await api.patch(`/v1/staff/wallet-cards/${id}/reject`, { note: trimmed }, token);
+    return true;
+  } catch (err) {
+    if (isStaleCardError(err)) return false;
+    throw err;
+  }
 }
 
 /**
@@ -265,20 +212,14 @@ export async function rejectActivation(
  * accept an `ON_HOLD` card the same as a `PENDING` one. Returns `false` if
  * the card was not `PENDING` (already decided, or already on hold).
  */
-export async function holdActivation(
-  id: string,
-  note: string,
-): Promise<boolean> {
+export async function holdActivation(id: string, note: string, token: string | null): Promise<boolean> {
   const trimmed = note.trim();
   if (!trimmed) throw new Error('Give the member a reason it is on hold.');
-  const rows = await query<Row>(
-    `
-    UPDATE app.wallet_card
-       SET status = 'ON_HOLD', reviewer_note = $2, reviewed_at = now()
-     WHERE id = $1 AND status = 'PENDING'
-     RETURNING id
-    `,
-    [id, trimmed],
-  );
-  return rows.length > 0;
+  try {
+    await api.patch(`/v1/staff/wallet-cards/${id}/hold`, { note: trimmed }, token);
+    return true;
+  } catch (err) {
+    if (isStaleCardError(err)) return false;
+    throw err;
+  }
 }

@@ -186,7 +186,7 @@ export function BillEditorModal({
       // Firebase codes are single-use. A collection retry needs a fresh code.
       setOtpConfirmation(null);
       setOtpCode('');
-      const result = await collectBillWithWallet(order.id);
+      const result = await collectBillWithWallet(order.id, accessToken);
       if (!result.ok) {
         setOtpError(result.reason);
         return;

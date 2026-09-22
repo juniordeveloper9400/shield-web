@@ -12,15 +12,17 @@ import {
   toneForStatus,
 } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import { listActivationsForMember } from '@/api/activations';
 
 export default function MemberActivationsPage() {
   const { memberId = '' } = useParams<{ memberId: string }>();
   const navigate = useNavigate();
+  const { accessToken } = useAuth();
 
   const { data, loading, error } = useAsync(
-    () => listActivationsForMember(memberId),
-    [memberId],
+    () => listActivationsForMember(memberId, accessToken),
+    [memberId, accessToken],
   );
   const plans = useMemo(() => data ?? [], [data]);
   const member = plans[0];
