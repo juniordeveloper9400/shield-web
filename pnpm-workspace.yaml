@@ -1,4 +1,13 @@
 allowBuilds:
   '@firebase/util': true
+  core-js: set this to true or false
   esbuild: true
   protobufjs: true
+minimumReleaseAgeExclude:
+  - '@sentry/browser-utils@10.75.1'
+  - '@sentry/browser@10.75.1'
+  - '@sentry/core@10.75.1'
+  - '@sentry/feedback@10.75.1'
+  - '@sentry/react@10.75.1'
+  - '@sentry/replay-canvas@10.75.1'
+  - '@sentry/replay@10.75.1'

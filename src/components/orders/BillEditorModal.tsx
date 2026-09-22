@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { formatInvoiceCurrency as formatCurrency } from '@/lib/invoice';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { useAsync } from '@/lib/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import { completeBilledOrder, sendOrderInvoice } from '@/api/orders';
 import {
   collectBillWithWallet,
@@ -82,7 +83,8 @@ export function BillEditorModal({
   // For the invoice's letterhead — resolved by the order's own branch code
   // rather than passed in, so this modal (shared by BillsPage and
   // OrdersPage) doesn't need a store prop threaded through both call sites.
-  const { data: stores } = useAsync(listStores, []);
+  const { accessToken } = useAuth();
+  const { data: stores } = useAsync(() => listStores(accessToken), [accessToken]);
   const store = stores?.find((s) => s.code === order.storeCode);
 
   // This order's own intake medicines, when it has any (a prescription

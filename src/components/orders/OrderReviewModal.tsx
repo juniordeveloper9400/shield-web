@@ -13,6 +13,7 @@ import {
   ORDER_LINE_STATUS_TONE,
 } from '@/lib/orderLineStatus';
 import { useAsync } from '@/lib/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import {
   markOrderConvertedToBill,
   markOrderStoreContacted,
@@ -76,7 +77,8 @@ export function OrderReviewModal({
   const [contactedAt, setContactedAt] = useState(order.storeContactedAt);
   const [viewImage, setViewImage] = useState<{ src: string; title: string } | null>(null);
 
-  const { data: storeRows } = useAsync(listStores, []);
+  const { accessToken } = useAuth();
+  const { data: storeRows } = useAsync(() => listStores(accessToken), [accessToken]);
   const stores = storeRows ?? [];
 
   // Delivery boys at this order's branch — only fetched for a cash order still

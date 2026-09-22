@@ -12,6 +12,7 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { Icon } from '@/components/ui/Icon';
 import { formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import {
   listStores,
   setStoreActive,
@@ -121,7 +122,11 @@ function coordProblem(latRaw: string, lngRaw: string): string | null {
 }
 
 export default function StoresPage() {
-  const { data, loading, error, reload } = useAsync(listStores, []);
+  const { accessToken } = useAuth();
+  const { data, loading, error, reload } = useAsync(
+    () => listStores(accessToken),
+    [accessToken],
+  );
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
@@ -193,11 +198,14 @@ export default function StoresPage() {
     setSaving(true);
     setAddError(null);
     try {
-      const id = await createStore({
-        ...draft,
-        latitude: coord(addLat),
-        longitude: coord(addLng),
-      });
+      const id = await createStore(
+        {
+          ...draft,
+          latitude: coord(addLat),
+          longitude: coord(addLng),
+        },
+        accessToken,
+      );
       if (!id) {
         setAddError(
           `The code ${draft.code.trim().toUpperCase()} is already in use.`,
@@ -259,7 +267,7 @@ export default function StoresPage() {
   async function toggleActive(id: string, isActive: boolean) {
     setSaving(true);
     try {
-      await setStoreActive(id, isActive);
+      await setStoreActive(id, isActive, accessToken);
       setSelectedId(null);
       reload();
     } finally {
@@ -270,7 +278,7 @@ export default function StoresPage() {
   async function toggleLabCollection(id: string, offersLab: boolean) {
     setSaving(true);
     try {
-      await setStoreOffersLab(id, offersLab);
+      await setStoreOffersLab(id, offersLab, accessToken);
       reload();
     } finally {
       setSaving(false);
@@ -296,26 +304,30 @@ export default function StoresPage() {
     setSaving(true);
     setEditError(null);
     try {
-      await updateStore(selected.id, {
-        name: form.name.trim() || selected.name,
-        phone: form.phone.trim(),
-        hours: form.hours.trim() || selected.hours,
-        area: form.area.trim() || selected.area,
-        city: form.city.trim() || selected.city,
-        state: form.state.trim() || selected.state,
-        pincode: form.pincode.trim() || selected.pincode,
-        latitude: coord(form.latitude),
-        longitude: coord(form.longitude),
-        mapsUrl: form.mapsUrl.trim(),
-        bankAccountName: form.bankAccountName.trim(),
-        bankAccountNumber: form.bankAccountNumber.trim(),
-        bankIfsc: form.bankIfsc.trim().toUpperCase(),
-        bankName: form.bankName.trim(),
-        // Not part of this form — toggled on its own from the detail view
-        // (like Active/Inactive) — carried through unchanged so saving the
-        // rest of the branch's details never reverts it.
-        offersLabCollection: selected.offersLabCollection,
-      });
+      await updateStore(
+        selected.id,
+        {
+          name: form.name.trim() || selected.name,
+          phone: form.phone.trim(),
+          hours: form.hours.trim() || selected.hours,
+          area: form.area.trim() || selected.area,
+          city: form.city.trim() || selected.city,
+          state: form.state.trim() || selected.state,
+          pincode: form.pincode.trim() || selected.pincode,
+          latitude: coord(form.latitude),
+          longitude: coord(form.longitude),
+          mapsUrl: form.mapsUrl.trim(),
+          bankAccountName: form.bankAccountName.trim(),
+          bankAccountNumber: form.bankAccountNumber.trim(),
+          bankIfsc: form.bankIfsc.trim().toUpperCase(),
+          bankName: form.bankName.trim(),
+          // Not part of this form — toggled on its own from the detail view
+          // (like Active/Inactive) — carried through unchanged so saving the
+          // rest of the branch's details never reverts it.
+          offersLabCollection: selected.offersLabCollection,
+        },
+        accessToken,
+      );
       setEditing(false);
       reload();
     } catch (err) {

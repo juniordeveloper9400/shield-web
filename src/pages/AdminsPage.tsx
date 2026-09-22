@@ -90,7 +90,7 @@ export default function AdminsPage() {
   );
   const rows = useMemo<AdminRow[]>(() => (data ?? []).map(toAdminRow), [data]);
 
-  const { data: storeRows } = useAsync(listStores, []);
+  const { data: storeRows } = useAsync(() => listStores(accessToken), [accessToken]);
   const storeOptions = useMemo(
     () => (storeRows ?? []).map((s) => ({ value: s.id, label: `${s.name} (${s.code})` })),
     [storeRows],

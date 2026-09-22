@@ -75,7 +75,7 @@ function codeCell(row: DeliveryOrder, onOpen: (row: DeliveryOrder) => void) {
  * needing the delivery boy's own two-queue view.
  */
 export default function DeliveriesPage() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const isDeliveryBoy = user?.role === 'delivery';
   const isPharmacy = user?.role === 'pharmacy';
   const needsStorePicker = user?.role === 'admin' || user?.role === 'superadmin';
@@ -116,8 +116,8 @@ export default function DeliveriesPage() {
 
   // --- Everyone else's simple store-scoped assignment view -------------
   const stores = useAsync(
-    () => (needsStorePicker ? listStores() : Promise.resolve([])),
-    [needsStorePicker],
+    () => (needsStorePicker ? listStores(accessToken) : Promise.resolve([])),
+    [needsStorePicker, accessToken],
   );
   const [selectedStore, setSelectedStore] = useState('');
 

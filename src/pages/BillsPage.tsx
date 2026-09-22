@@ -30,10 +30,10 @@ const BILL_OPTIONS = [
  * OTP-gated payment collection all happen from this page.
  */
 export default function BillsPage() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(listOrders, []);
   const rows = useMemo(() => data ?? [], [data]);
-  const { data: stores } = useAsync(listStores, []);
+  const { data: stores } = useAsync(() => listStores(accessToken), [accessToken]);
   const storesByCode = useMemo(() => {
     const map = new Map<string, Store>();
     for (const s of stores ?? []) map.set(s.code, s);

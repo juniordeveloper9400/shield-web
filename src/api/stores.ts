@@ -1,8 +1,33 @@
-import { sql, query } from '@/lib/db';
-import { iso, num } from '@/lib/mappers';
+import { api } from '@/lib/api';
+import { isoRequired, num } from '@/lib/mappers';
 import type { NewStore, Store } from '@/types';
 
-type Row = Record<string, unknown>;
+/** The shape `GET/POST/PATCH /v1/staff/catalogue/stores*` sends back —
+ *  CatalogueService's drizzle rows, camelCase, `numeric` columns as strings
+ *  (Postgres convention, same as every other numeric this console reads). */
+interface StoreApiRow {
+  id: number;
+  code: string;
+  name: string;
+  area: string;
+  city: string;
+  state: string;
+  pincode: string;
+  phone: string;
+  hours: string;
+  isActive: boolean;
+  offersLabCollection: boolean;
+  latitude: string | null;
+  longitude: string | null;
+  mapsUrl: string;
+  bankAccountName: string;
+  bankAccountNumber: string;
+  bankIfsc: string;
+  bankName: string;
+  createdAt: string;
+  memberCount: number;
+  orderCount: number;
+}
 
 function numOrNull(v: unknown): number | null {
   if (v == null || v === '') return null;
@@ -10,56 +35,52 @@ function numOrNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function toStore(r: Row): Store {
+function toStore(r: StoreApiRow): Store {
   return {
     id: String(r.id),
-    code: String(r.code),
-    name: String(r.name),
-    area: String(r.area ?? ''),
-    city: String(r.city ?? ''),
-    state: String(r.state ?? ''),
-    pincode: String(r.pincode ?? ''),
-    phone: String(r.phone ?? ''),
-    hours: String(r.hours ?? ''),
-    isActive: Boolean(r.is_active),
-    offersLabCollection: Boolean(r.offers_lab_collection),
+    code: r.code,
+    name: r.name,
+    area: r.area,
+    city: r.city,
+    state: r.state,
+    pincode: r.pincode,
+    phone: r.phone,
+    hours: r.hours,
+    isActive: r.isActive,
+    offersLabCollection: r.offersLabCollection,
     latitude: numOrNull(r.latitude),
     longitude: numOrNull(r.longitude),
-    mapsUrl: String(r.maps_url ?? ''),
-    bankAccountName: String(r.bank_account_name ?? ''),
-    bankAccountNumber: String(r.bank_account_number ?? ''),
-    bankIfsc: String(r.bank_ifsc ?? ''),
-    bankName: String(r.bank_name ?? ''),
-    memberCount: num(r.member_count),
-    orderCount: num(r.order_count),
-    openedAt: iso(r.created_at) ?? new Date(0).toISOString(),
+    mapsUrl: r.mapsUrl,
+    bankAccountName: r.bankAccountName,
+    bankAccountNumber: r.bankAccountNumber,
+    bankIfsc: r.bankIfsc,
+    bankName: r.bankName,
+    memberCount: num(r.memberCount),
+    orderCount: num(r.orderCount),
+    openedAt: isoRequired(r.createdAt),
   };
 }
 
-/** Every Sahakar 360 branch, with its live member and order counts. */
-export async function listStores(): Promise<Store[]> {
-  const rows = (await sql`
-    SELECT s.id, s.code, s.name, s.area, s.city, s.state, s.pincode,
-           s.phone, s.hours, s.is_active, s.offers_lab_collection, s.latitude, s.longitude, s.created_at,
-           s.maps_url, s.bank_account_name, s.bank_account_number,
-           s.bank_ifsc, s.bank_name,
-           (SELECT count(*) FROM app.users m
-              WHERE m.home_store_id = s.id AND m.deleted_at IS NULL) AS member_count,
-           (SELECT count(*) FROM app."order" o WHERE o.store_id = s.id) AS order_count
-    FROM app.shield_store s
-    ORDER BY s.sort, s.name
-  `) as Row[];
+/**
+ * Every Sahakar 360 branch, with its live member and order counts —
+ * `GET /v1/staff/catalogue/stores` (`CatalogueService.listStoresForStaff`),
+ * migrated off direct Neon; see backend/docs/migration-plan.md Phase 1. Open
+ * to any staff role (branch pickers on Bills/Deliveries/order and
+ * prescription review need it too), not just the roles that can write.
+ */
+export async function listStores(token: string | null): Promise<Store[]> {
+  const rows = await api.get<StoreApiRow[]>('/v1/staff/catalogue/stores', token);
   return rows.map(toStore);
 }
 
-export async function setStoreActive(id: string, isActive: boolean): Promise<void> {
-  await query('UPDATE app.shield_store SET is_active = $2 WHERE id = $1', [id, isActive]);
+export async function setStoreActive(id: string, isActive: boolean, token: string | null): Promise<void> {
+  await api.patch(`/v1/staff/catalogue/stores/${id}/active`, { isActive }, token);
 }
 
 /** Whether this branch takes lab bookings at all (migration 0057) — drops it
  *  from the app's branch picker at lab checkout the moment it's off. */
-export async function setStoreOffersLab(id: string, offersLab: boolean): Promise<void> {
-  await query('UPDATE app.shield_store SET offers_lab_collection = $2 WHERE id = $1', [id, offersLab]);
+export async function setStoreOffersLab(id: string, offersLab: boolean, token: string | null): Promise<void> {
+  await api.patch(`/v1/staff/catalogue/stores/${id}/offers-lab`, { offersLabCollection: offersLab }, token);
 }
 
 export async function updateStore(
@@ -81,34 +102,9 @@ export async function updateStore(
     bankName: string;
     offersLabCollection: boolean;
   },
+  token: string | null,
 ): Promise<void> {
-  await query(
-    `UPDATE app.shield_store
-       SET name = $2, phone = $3, hours = $4, area = $5, city = $6,
-           state = $7, pincode = $8, latitude = $9, longitude = $10,
-           maps_url = $11, bank_account_name = $12, bank_account_number = $13,
-           bank_ifsc = $14, bank_name = $15, offers_lab_collection = $16,
-           updated_at = now()
-     WHERE id = $1`,
-    [
-      id,
-      patch.name,
-      patch.phone,
-      patch.hours,
-      patch.area,
-      patch.city,
-      patch.state,
-      patch.pincode,
-      patch.latitude,
-      patch.longitude,
-      patch.mapsUrl,
-      patch.bankAccountName,
-      patch.bankAccountNumber,
-      patch.bankIfsc,
-      patch.bankName,
-      patch.offersLabCollection,
-    ],
-  );
+  await api.patch(`/v1/staff/catalogue/stores/${id}`, patch, token);
 }
 
 /**
@@ -116,39 +112,7 @@ export async function updateStore(
  * is written — the app reads `app.shield_store` for its branch directory.
  * Returns the new id, or `null` when the code is already taken.
  */
-export async function createStore(s: NewStore): Promise<string | null> {
-  const code = s.code.trim().toUpperCase();
-  const rows = await query<Row>(
-    `
-    INSERT INTO app.shield_store
-      (code, name, area, city, state, pincode, phone, hours, is_active,
-       offers_lab_collection, latitude, longitude, maps_url, bank_account_name,
-       bank_account_number, bank_ifsc, bank_name, sort)
-    VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
-       COALESCE((SELECT max(sort) + 1 FROM app.shield_store), 0))
-    ON CONFLICT (code) DO NOTHING
-    RETURNING id
-    `,
-    [
-      code,
-      s.name.trim(),
-      s.area.trim(),
-      s.city.trim(),
-      s.state.trim(),
-      s.pincode.trim(),
-      s.phone.trim(),
-      s.hours.trim() || '8:00 AM – 10:00 PM',
-      s.isActive,
-      s.offersLabCollection,
-      s.latitude,
-      s.longitude,
-      s.mapsUrl.trim(),
-      s.bankAccountName.trim(),
-      s.bankAccountNumber.trim(),
-      s.bankIfsc.trim().toUpperCase(),
-      s.bankName.trim(),
-    ],
-  );
-  return rows.length > 0 ? String(rows[0].id) : null;
+export async function createStore(s: NewStore, token: string | null): Promise<string | null> {
+  const { store } = await api.post<{ store: StoreApiRow | null }>('/v1/staff/catalogue/stores', s, token);
+  return store ? String(store.id) : null;
 }

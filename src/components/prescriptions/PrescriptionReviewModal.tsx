@@ -49,6 +49,7 @@ import {
 import { createPatient, listPatients, updateMemberContact } from '@/api/users';
 import { listStores } from '@/api/stores';
 import { useAsync } from '@/lib/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import type {
   MemberPatient,
   Prescription,
@@ -125,7 +126,8 @@ export function PrescriptionReviewModal({
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   // Every branch, for the "Branch" dropdown on the Details step.
-  const { data: storeRows } = useAsync(listStores, []);
+  const { accessToken } = useAuth();
+  const { data: storeRows } = useAsync(() => listStores(accessToken), [accessToken]);
   const stores = storeRows ?? [];
 
   // One section at a time rather than one long scroll through both: the
