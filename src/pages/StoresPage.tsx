@@ -15,6 +15,7 @@ import { useAsync } from '@/lib/useAsync';
 import {
   listStores,
   setStoreActive,
+  setStoreOffersLab,
   updateStore,
   createStore,
 } from '@/api/stores';
@@ -60,6 +61,7 @@ const EMPTY_NEW: NewStore = {
   bankIfsc: '',
   bankName: '',
   isActive: true,
+  offersLabCollection: true,
 };
 
 /** Indian IFSC — four letters, a zero, then six alphanumerics. */
@@ -265,6 +267,16 @@ export default function StoresPage() {
     }
   }
 
+  async function toggleLabCollection(id: string, offersLab: boolean) {
+    setSaving(true);
+    try {
+      await setStoreOffersLab(id, offersLab);
+      reload();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveEdit() {
     if (!selected) return;
     if (form.pincode.trim() && !/^\d{6}$/.test(form.pincode.trim())) {
@@ -299,6 +311,10 @@ export default function StoresPage() {
         bankAccountNumber: form.bankAccountNumber.trim(),
         bankIfsc: form.bankIfsc.trim().toUpperCase(),
         bankName: form.bankName.trim(),
+        // Not part of this form — toggled on its own from the detail view
+        // (like Active/Inactive) — carried through unchanged so saving the
+        // rest of the branch's details never reverts it.
+        offersLabCollection: selected.offersLabCollection,
       });
       setEditing(false);
       reload();
@@ -440,6 +456,13 @@ export default function StoresPage() {
                   <Button variant="secondary" onClick={() => setEditing(true)}>
                     <Icon name="plus" className="h-4 w-4" /> Edit details
                   </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={saving}
+                    onClick={() => toggleLabCollection(selected.id, !selected.offersLabCollection)}
+                  >
+                    {selected.offersLabCollection ? 'Turn off lab collection' : 'Turn on lab collection'}
+                  </Button>
                   {selected.isActive ? (
                     <Button
                       variant="danger"
@@ -465,9 +488,12 @@ export default function StoresPage() {
       >
         {selected && !editing && (
           <>
-            <div className="mb-3">
+            <div className="mb-3 flex flex-wrap gap-2">
               <Badge tone={selected.isActive ? 'green' : 'gray'}>
                 {selected.isActive ? 'Active' : 'Inactive'}
+              </Badge>
+              <Badge tone={selected.offersLabCollection ? 'blue' : 'gray'}>
+                {selected.offersLabCollection ? 'Takes lab bookings' : 'No lab bookings'}
               </Badge>
             </div>
             <DetailList
@@ -764,6 +790,14 @@ export default function StoresPage() {
               onChange={(e) => patchDraft({ isActive: e.target.checked })}
             />
             Active — visible in the app straight away
+          </label>
+          <label className="flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={draft.offersLabCollection}
+              onChange={(e) => patchDraft({ offersLabCollection: e.target.checked })}
+            />
+            Takes lab bookings
           </label>
           {addError && (
             <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">

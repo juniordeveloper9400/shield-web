@@ -1,9 +1,24 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+import * as Sentry from '@sentry/react';
 import App from './App';
 import { AuthProvider } from './context/AuthContext';
 import './index.css';
+
+// Crash and error reporting. Safe to call unconditionally — passing no `dsn`
+// is Sentry's own documented way to leave a build disabled, the same
+// "no-op until configured" contract every other optional integration here
+// already follows (VITE_DATABASE_URL, VITE_API_BASE_URL). Set
+// VITE_SENTRY_DSN to turn it on; see docs/sentry.md.
+Sentry.init({
+  dsn: import.meta.env.VITE_SENTRY_DSN,
+  environment: import.meta.env.MODE,
+  // Off by default — see backend/api's instrument.ts for the same choice
+  // and why: performance tracing counts separately against a Sentry plan's
+  // event quota from error events.
+  tracesSampleRate: 0,
+});
 
 // Keep the shared backend's Vercel functions and Neon database from
 // suspending while this console is open, the same reasoning and interval as

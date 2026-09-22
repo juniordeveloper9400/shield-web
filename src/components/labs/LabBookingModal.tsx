@@ -273,6 +273,7 @@ function BookingWindow({
               ),
             })),
             { label: 'Package', value: booking.packageName },
+            { label: 'Branch', value: booking.storeName || '—' },
             {
               label: `Patients (${booking.patientsCount})`,
               value:

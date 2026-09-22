@@ -76,6 +76,10 @@ export interface Store {
   phone: string;
   hours: string;
   isActive: boolean;
+  /** Migration 0057 — whether this branch takes lab bookings. On by default;
+   *  a branch with no phlebotomist can be switched off, which drops it from
+   *  the app's own branch picker at lab checkout. */
+  offersLabCollection: boolean;
   /** Town-centre coordinates. Null until pinned; the app then falls back to
    *  pincode ranking for this branch. */
   latitude: number | null;
@@ -106,6 +110,7 @@ export interface NewStore {
   pincode: string;
   phone: string;
   hours: string;
+  offersLabCollection: boolean;
   latitude: number | null;
   longitude: number | null;
   /** Pasted Google Maps share link. Optional. */
@@ -724,6 +729,10 @@ export interface LabBooking {
   memberName: string;
   memberPhone: string;
   packageName: string;
+  /** The branch this booking is routed to (migration 0057) — '' for a
+   *  booking made before branches existed, or whose branch has since gone. */
+  storeCode: string;
+  storeName: string;
   patientsCount: number;
   /** Who the tests are for (a saved patient's name, or a typed one). */
   patients: LabBookingPatient[];

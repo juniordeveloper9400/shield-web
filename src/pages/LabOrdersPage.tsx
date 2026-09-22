@@ -35,9 +35,20 @@ export default function LabOrdersPage() {
 
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
+  const [store, setStore] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
+
+  const storeOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const r of rows) if (r.storeCode) seen.set(r.storeCode, r.storeName);
+    return [
+      { value: 'all', label: 'All branches' },
+      { value: 'none', label: 'No branch on record' },
+      ...[...seen].map(([value, label]) => ({ value, label })),
+    ];
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -49,9 +60,12 @@ export default function LabOrdersPage() {
         row.packageName.toLowerCase().includes(q) ||
         row.memberPhone.includes(q);
       const matchesStatus = status === 'all' || row.status === status;
-      return matchesQuery && matchesStatus;
+      const matchesStore =
+        store === 'all' ||
+        (store === 'none' ? !row.storeCode : row.storeCode === store);
+      return matchesQuery && matchesStatus && matchesStore;
     });
-  }, [rows, search, status]);
+  }, [rows, search, status, store]);
 
   const counts = {
     requested: rows.filter((r) => r.status === 'requested').length,
@@ -82,6 +96,11 @@ export default function LabOrdersPage() {
       ),
     },
     { key: 'package', header: 'Package', render: (row) => row.packageName },
+    {
+      key: 'branch',
+      header: 'Branch',
+      render: (row) => row.storeName || <span className="text-slate-400">—</span>,
+    },
     {
       key: 'patients',
       header: 'Patients',
@@ -152,6 +171,7 @@ export default function LabOrdersPage() {
             placeholder="Search booking, member, package…"
           />
           <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
+          <FilterSelect value={store} onChange={setStore} options={storeOptions} />
         </div>
         <DataTable
           columns={columns}

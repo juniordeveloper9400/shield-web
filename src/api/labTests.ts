@@ -27,7 +27,26 @@ function toInput(r: Row): LabTestInput {
 }
 
 /** Every saved test, group test and package — the list under the form. */
+export async function syncAllActiveLabTests(): Promise<void> {
+  const activeTests = await query<Row>(
+    `SELECT id FROM app.lab_test WHERE is_active = true AND show_in_app = true`,
+  );
+  for (const r of activeTests) {
+    try {
+      await syncLabTestListing(String(r.id));
+    } catch {
+      // ignore individual sync errors
+    }
+  }
+}
+
+/** Every saved test, group test and package — the list under the form. */
 export async function listLabTests(): Promise<LabTestSummary[]> {
+  try {
+    await syncAllActiveLabTests();
+  } catch {
+    // best-effort sync
+  }
   const rows = await query<Row>(
     `SELECT t.id, t.lis_code, t.test_type, t.name, t.short_name, t.department,
             t.method, t.sample, t.reporting_time, t.amount, t.lab_rate, t.source, t.is_active,
@@ -115,20 +134,15 @@ function slugify(name: string): string {
  * Keeps the member-facing listing of one test in step with the test itself
  * (migration 0056) — what "Top Profiles and Tests" in both apps reads.
  *
- * A test or group test that is **active and switched on with "Show in the
- * app"** gets (or keeps) one `app.lab_package` row of its own —
- * `source_test_id` set, a single profile named after it — because that is what
- * a member actually books (`lab_booking.lab_package_id`). Its price is the
- * test's own Amount, its MRP the Rate (never below the price), its test count
- * the number of tests inside a group (1 for a plain test), and it inherits the
- * test's category and reporting time. Anything else — switched off, inactive,
- * a package-type test — has its listing switched off (never deleted, so a
- * member's earlier booking keeps pointing at something).
- *
- * The slug follows the name the way the app derives it when a booking is filed
- * (`OrderRepository._slug`), so booking a listed test updates this row rather
- * than creating a second one; a slug already used by a different row gets the
- * test id appended instead.
+ * A test, group test, or package that is **active and switched on with "Show in
+ * the app"** gets (or keeps) one `app.lab_package` row of its own —
+ * `source_test_id` set — because that is what a member actually books
+ * (`lab_booking.lab_package_id`). Its price is the test's own Amount, its MRP
+ * the Rate (never below the price), its test count the number of tests inside a
+ * group/package (1 for a plain test), and it inherits the test's category and
+ * reporting time. Anything else — switched off or inactive — has its listing
+ * switched off (never deleted, so a member's earlier booking keeps pointing at
+ * something).
  */
 export async function syncLabTestListing(testId: string): Promise<void> {
   const rows = await query<Row>(
@@ -141,15 +155,15 @@ export async function syncLabTestListing(testId: string): Promise<void> {
   const t = rows[0];
   if (!t) return;
 
-  const listed =
-    Boolean(t.show_in_app) && Boolean(t.is_active) && (t.test_type === 'TEST' || t.test_type === 'GROUP');
+  const listed = Boolean(t.show_in_app) && Boolean(t.is_active);
   if (!listed) {
     await query('UPDATE app.lab_package SET is_active = false WHERE source_test_id = $1', [testId]);
     return;
   }
 
   const name = String(t.name);
-  const testCount = t.test_type === 'GROUP' ? Math.max(num(t.item_count), 1) : 1;
+  const testCount =
+    t.test_type === 'GROUP' || t.test_type === 'PACKAGE' ? Math.max(num(t.item_count), 1) : 1;
   const price = num(t.amount);
   const mrp = Math.max(num(t.rate), price);
 
@@ -188,13 +202,30 @@ export async function syncLabTestListing(testId: string): Promise<void> {
   );
   const packageId = String(saved[0].id);
 
-  await query('DELETE FROM app.lab_profile WHERE lab_package_id = $1', [packageId]);
-  await query(
-    'INSERT INTO app.lab_profile (lab_package_id, name, parameters, sort) VALUES ($1, $2, $3, 0)',
-    [packageId, name, testCount],
+  const memberItems = await query<Row>(
+    `SELECT t.name, t.department
+       FROM app.lab_test_group_item i
+       JOIN app.lab_test t ON t.id = i.test_id
+      WHERE i.group_id = $1
+      ORDER BY i.set_order, i.id`,
+    [testId],
   );
-  // No lab_package_test_item row: source_test_id already ties the listing to its
-  // test, and that link's RESTRICT would stop the test ever being deleted.
+
+  await query('DELETE FROM app.lab_profile WHERE lab_package_id = $1', [packageId]);
+  if (memberItems.length > 0) {
+    for (let idx = 0; idx < memberItems.length; idx++) {
+      const item = memberItems[idx];
+      await query(
+        'INSERT INTO app.lab_profile (lab_package_id, name, parameters, sort) VALUES ($1, $2, 1, $3)',
+        [packageId, String(item.name ?? ''), idx],
+      );
+    }
+  } else {
+    await query(
+      'INSERT INTO app.lab_profile (lab_package_id, name, parameters, sort) VALUES ($1, $2, $3, 0)',
+      [packageId, name, testCount],
+    );
+  }
 }
 
 /** `"A", "B" and "C"` for an error sentence. */

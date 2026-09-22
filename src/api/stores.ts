@@ -22,6 +22,7 @@ function toStore(r: Row): Store {
     phone: String(r.phone ?? ''),
     hours: String(r.hours ?? ''),
     isActive: Boolean(r.is_active),
+    offersLabCollection: Boolean(r.offers_lab_collection),
     latitude: numOrNull(r.latitude),
     longitude: numOrNull(r.longitude),
     mapsUrl: String(r.maps_url ?? ''),
@@ -39,7 +40,7 @@ function toStore(r: Row): Store {
 export async function listStores(): Promise<Store[]> {
   const rows = (await sql`
     SELECT s.id, s.code, s.name, s.area, s.city, s.state, s.pincode,
-           s.phone, s.hours, s.is_active, s.latitude, s.longitude, s.created_at,
+           s.phone, s.hours, s.is_active, s.offers_lab_collection, s.latitude, s.longitude, s.created_at,
            s.maps_url, s.bank_account_name, s.bank_account_number,
            s.bank_ifsc, s.bank_name,
            (SELECT count(*) FROM app.users m
@@ -53,6 +54,12 @@ export async function listStores(): Promise<Store[]> {
 
 export async function setStoreActive(id: string, isActive: boolean): Promise<void> {
   await query('UPDATE app.shield_store SET is_active = $2 WHERE id = $1', [id, isActive]);
+}
+
+/** Whether this branch takes lab bookings at all (migration 0057) — drops it
+ *  from the app's branch picker at lab checkout the moment it's off. */
+export async function setStoreOffersLab(id: string, offersLab: boolean): Promise<void> {
+  await query('UPDATE app.shield_store SET offers_lab_collection = $2 WHERE id = $1', [id, offersLab]);
 }
 
 export async function updateStore(
@@ -72,6 +79,7 @@ export async function updateStore(
     bankAccountNumber: string;
     bankIfsc: string;
     bankName: string;
+    offersLabCollection: boolean;
   },
 ): Promise<void> {
   await query(
@@ -79,7 +87,7 @@ export async function updateStore(
        SET name = $2, phone = $3, hours = $4, area = $5, city = $6,
            state = $7, pincode = $8, latitude = $9, longitude = $10,
            maps_url = $11, bank_account_name = $12, bank_account_number = $13,
-           bank_ifsc = $14, bank_name = $15,
+           bank_ifsc = $14, bank_name = $15, offers_lab_collection = $16,
            updated_at = now()
      WHERE id = $1`,
     [
@@ -98,6 +106,7 @@ export async function updateStore(
       patch.bankAccountNumber,
       patch.bankIfsc,
       patch.bankName,
+      patch.offersLabCollection,
     ],
   );
 }
@@ -113,10 +122,10 @@ export async function createStore(s: NewStore): Promise<string | null> {
     `
     INSERT INTO app.shield_store
       (code, name, area, city, state, pincode, phone, hours, is_active,
-       latitude, longitude, maps_url, bank_account_name, bank_account_number,
-       bank_ifsc, bank_name, sort)
+       offers_lab_collection, latitude, longitude, maps_url, bank_account_name,
+       bank_account_number, bank_ifsc, bank_name, sort)
     VALUES
-      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+      ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,
        COALESCE((SELECT max(sort) + 1 FROM app.shield_store), 0))
     ON CONFLICT (code) DO NOTHING
     RETURNING id
@@ -131,6 +140,7 @@ export async function createStore(s: NewStore): Promise<string | null> {
       s.phone.trim(),
       s.hours.trim() || '8:00 AM – 10:00 PM',
       s.isActive,
+      s.offersLabCollection,
       s.latitude,
       s.longitude,
       s.mapsUrl.trim(),

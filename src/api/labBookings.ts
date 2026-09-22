@@ -35,6 +35,7 @@ export async function listLabBookings(): Promise<LabBooking[]> {
            m.name  AS member_name,
            m.phone AS member_phone,
            lp.name AS package_name,
+           s.code AS store_code, s.name AS store_name,
            lb.patients_count, lb.unit_price, lb.total_price, lb.status,
            lb.scheduled_for, lb.note, lb.report_uploaded_at, lb.created_at,
            concat_ws(', ',
@@ -62,6 +63,7 @@ export async function listLabBookings(): Promise<LabBooking[]> {
     LEFT JOIN app.users m           ON m.id  = lb.member_id
     LEFT JOIN app.lab_package lp    ON lp.id = lb.lab_package_id
     LEFT JOIN app.member_address ma ON ma.id = lb.address_id
+    LEFT JOIN app.shield_store s    ON s.id  = lb.store_id
     ORDER BY lb.created_at DESC
   `) as Row[];
 
@@ -71,6 +73,8 @@ export async function listLabBookings(): Promise<LabBooking[]> {
     memberName: String(r.member_name ?? '—'),
     memberPhone: String(r.member_phone ?? ''),
     packageName: String(r.package_name ?? '—'),
+    storeCode: String(r.store_code ?? ''),
+    storeName: String(r.store_name ?? ''),
     patientsCount: num(r.patients_count),
     patients: toPatients(r.patients),
     address: String(r.address ?? ''),

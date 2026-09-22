@@ -20,6 +20,13 @@ interface ImportMetaEnv {
    * over the data operations above as each module is migrated.
    */
   readonly VITE_API_BASE_URL: string;
+
+  /**
+   * Sentry DSN for crash and error reporting (main.tsx). Optional — an empty
+   * value leaves Sentry disabled, the same as the two above being unset
+   * leaves their own features off rather than erroring. See docs/sentry.md.
+   */
+  readonly VITE_SENTRY_DSN: string;
 }
 
 interface ImportMeta {

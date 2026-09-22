@@ -171,7 +171,7 @@ export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   superadmin: [...APP_MODULES, 'admins', 'commission_reserve'],
   admin: [...APP_MODULES],
   pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries'],
-  lab: ['dashboard', 'lab_orders', 'lab_tests'],
+  lab: ['dashboard', 'stores', 'lab_orders', 'lab_tests'],
   appointments: ['dashboard', 'appointments'],
   delivery: ['dashboard', 'deliveries'],
 };
@@ -191,7 +191,7 @@ export const ROLE_SUMMARY: Record<Role, string> = {
   admin:
     'Runs the app: catalogue, users & agent / investor conversion, orders, bills, prescriptions, privilege plans, labs, appointments and the Accounts money-flow view.',
   pharmacy: 'Works one branch — its member orders, bills and uploaded prescriptions.',
-  lab: 'Works member lab-test bookings — schedule, notes and reports — and the test master and package catalogue.',
+  lab: 'Works member lab-test bookings — schedule, notes and reports — the test master and package catalogue, and the branch list.',
   appointments: 'Handles the clinic, tele and dietitian appointment queue.',
   delivery: "Delivers and collects cash for their branch's cash orders.",
 };
