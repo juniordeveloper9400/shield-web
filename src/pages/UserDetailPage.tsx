@@ -273,7 +273,9 @@ export default function UserDetailPage() {
         label: 'Referred by',
         value: d?.referredByName
           ? `${d.referredByName}${d.referredByPhone ? ` · ${d.referredByPhone}` : ''}`
-          : '—',
+          : d?.referredByAgentName
+            ? `${d.referredByAgentName} (agent · ${d.referredByAgentCode}) — direct-sale customer, not a member referral`
+            : '—',
       },
       {
         label: 'Registered',

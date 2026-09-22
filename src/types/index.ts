@@ -690,8 +690,13 @@ export interface UserDetail {
   state: string;
   rewardPoints: number;
   referralCode: string;
+  /** Set when another member's own referral code brought this member in. */
   referredByName: string;
   referredByPhone: string;
+  /** Set instead of the two above when an agent's own code (`SHD-…`) brought
+   *  this member in — the two never both apply to the same member. */
+  referredByAgentName: string;
+  referredByAgentCode: string;
   /** ISO timestamp the member finished registration, or ''. */
   registrationCompletedAt: string;
   patients: MemberPatient[];

@@ -79,9 +79,18 @@ export async function getUserDetail(userId: string): Promise<UserDetail> {
     SELECT u.gender, u.dob, u.address, u.place, u.pincode, u.state,
            u.reward_points, u.referral_code, u.registration_completed_at,
            r.name  AS referred_by_name,
-           r.phone AS referred_by_phone
+           r.phone AS referred_by_phone,
+           ag.name AS referred_by_agent_name,
+           ag.code AS referred_by_agent_code
     FROM app.users u
     LEFT JOIN app.users r ON r.id = u.referred_by_member_id
+    -- A member referred by an agent's own code (SHD-…) has no
+    -- referred_by_member_id — that link lives here instead (migration 0026),
+    -- set by AgentCustomerRepository.linkCustomer at registration. The two
+    -- never both apply to one member, so this is only ever shown when the
+    -- member join above found nothing.
+    LEFT JOIN app.agent_customer ac ON ac.member_id = u.id
+    LEFT JOIN app.agent ag ON ag.id = ac.agent_id
     WHERE u.id = $1
     LIMIT 1
     `,
@@ -159,6 +168,8 @@ export async function getUserDetail(userId: string): Promise<UserDetail> {
     referralCode: String(p.referral_code ?? ''),
     referredByName: String(p.referred_by_name ?? ''),
     referredByPhone: String(p.referred_by_phone ?? ''),
+    referredByAgentName: String(p.referred_by_agent_name ?? ''),
+    referredByAgentCode: String(p.referred_by_agent_code ?? ''),
     registrationCompletedAt: iso(p.registration_completed_at) ?? '',
     patients,
     addresses,
