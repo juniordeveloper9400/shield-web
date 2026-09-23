@@ -53,7 +53,7 @@ export default function App() {
       />
 
       <Route element={<DashboardLayout />}>
-        <Route path="/agent-withdrawals" element={<ProtectedRoute module="accounts"><AgentWithdrawalsPage /></ProtectedRoute>} />
+        <Route path="/agent-withdrawals" element={<ProtectedRoute module="agent_withdrawals"><AgentWithdrawalsPage /></ProtectedRoute>} />
         <Route
           path="/dashboard"
           element={

@@ -82,6 +82,13 @@ export const MODULES: NavItem[] = [
     description: 'New agents awaiting a position & approval',
   },
   {
+    key: 'agent_withdrawals',
+    label: 'Agent Withdrawals',
+    path: '/agent-withdrawals',
+    icon: 'accounts',
+    description: 'Verify, approve and record agent earnings withdrawals',
+  },
+  {
     key: 'lab_orders',
     label: 'Lab Orders',
     path: '/lab-orders',
@@ -156,6 +163,7 @@ const APP_MODULES: ModuleKey[] = [
   'prescriptions',
   'activations',
   'agent_approvals',
+  'agent_withdrawals',
   'users',
   'lab_orders',
   'lab_tests',

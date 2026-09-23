@@ -30,6 +30,7 @@ export type ModuleKey =
   | 'prescriptions'
   | 'activations'
   | 'agent_approvals'
+  | 'agent_withdrawals'
   | 'users'
   | 'lab_orders'
   | 'lab_tests'
