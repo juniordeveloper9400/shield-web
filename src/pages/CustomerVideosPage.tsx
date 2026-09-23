@@ -47,7 +47,10 @@ interface PickedVideo {
 
 export default function CustomerVideosPage() {
   const { accessToken } = useAuth();
-  const { data, loading, error, reload } = useAsync(listCustomerReviewVideos, []);
+  const { data, loading, error, reload } = useAsync(
+    () => (accessToken ? listCustomerReviewVideos(accessToken) : Promise.resolve([])),
+    [accessToken],
+  );
   const rows = useMemo(() => data ?? [], [data]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -59,6 +62,7 @@ export default function CustomerVideosPage() {
   // frame grabbed from a newly picked video.
   const [thumbnailChosen, setThumbnailChosen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -156,12 +160,13 @@ export default function CustomerVideosPage() {
       setFormError('Upload a video file for this clip.');
       return;
     }
-    if (picked && !accessToken) {
+    if (!accessToken) {
       setFormError('Your session has expired — sign in again to upload.');
       return;
     }
 
     setSaving(true);
+    setActionError(null);
     setFormError(null);
     setProgress(null);
     const abort = new AbortController();
@@ -171,7 +176,7 @@ export default function CustomerVideosPage() {
       let videoUrl = draft.videoUrl;
       if (picked) {
         setProgress(0);
-        const ticket = await requestReviewVideoUpload(picked.file, accessToken!);
+        const ticket = await requestReviewVideoUpload(picked.file, accessToken);
         await uploadReviewVideoFile(ticket, picked.file, setProgress, abort.signal);
         uploadedUrl = ticket.publicUrl;
         videoUrl = ticket.publicUrl;
@@ -183,9 +188,9 @@ export default function CustomerVideosPage() {
         thumbnail: thumbnailChosen ? draft.thumbnail : picked ? (picked.poster ?? '') : draft.thumbnail,
       };
       if (editingId) {
-        await updateCustomerReviewVideo(editingId, input);
+        await updateCustomerReviewVideo(editingId, input, accessToken);
       } else {
-        await createCustomerReviewVideo(input);
+        await createCustomerReviewVideo(input, accessToken);
       }
       // The row now points at the new file; the one it replaced is unreferenced.
       if (editingVideo && picked && editingVideo.videoUrl !== videoUrl) {
@@ -210,25 +215,50 @@ export default function CustomerVideosPage() {
   }
 
   async function remove(video: CustomerReviewVideo) {
+    if (!accessToken) {
+      setFormError('Your session has expired — sign in again to delete this clip.');
+      return;
+    }
     setSaving(true);
+    setFormError(null);
     try {
-      await deleteCustomerReviewVideo(video.id);
+      await deleteCustomerReviewVideo(video.id, accessToken);
       void deleteStoredReviewVideo(video.videoUrl, accessToken).catch(() => undefined);
       closeForm();
       reload();
+    } catch (err) {
+      setFormError(describeActionError(err, 'Could not delete the clip.'));
     } finally {
       setSaving(false);
     }
   }
 
   async function toggleActive(video: CustomerReviewVideo) {
-    await setCustomerReviewVideoActive(video.id, !video.isActive);
-    reload();
+    if (!accessToken) {
+      setActionError('Your session has expired — sign in again to change this clip.');
+      return;
+    }
+    setActionError(null);
+    try {
+      await setCustomerReviewVideoActive(video.id, !video.isActive, accessToken);
+      reload();
+    } catch (err) {
+      setActionError(describeActionError(err, 'Could not change the clip status.'));
+    }
   }
 
   async function move(video: CustomerReviewVideo, direction: 'up' | 'down') {
-    await moveCustomerReviewVideo(video.id, direction, rows);
-    reload();
+    if (!accessToken) {
+      setActionError('Your session has expired — sign in again to reorder clips.');
+      return;
+    }
+    setActionError(null);
+    try {
+      await moveCustomerReviewVideo(video.id, direction, rows, accessToken);
+      reload();
+    } catch (err) {
+      setActionError(describeActionError(err, 'Could not reorder the clips.'));
+    }
   }
 
   const columns: Column<CustomerReviewVideo>[] = [
@@ -347,6 +377,11 @@ export default function CustomerVideosPage() {
       />
 
       <Card>
+        {actionError && (
+          <p role="alert" className="mb-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {actionError}
+          </p>
+        )}
         <DataTable
           columns={columns}
           rows={rows}
@@ -553,6 +588,18 @@ function describeSaveError(err: unknown): string {
     return 'Couldn’t reach the server to start the upload. Check your connection and try again.';
   }
   return err instanceof Error ? err.message : 'Could not save the clip.';
+}
+
+function describeActionError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    if (err.status === 401) return 'Your session has expired — sign in again and try again.';
+    if (err.status === 403) return 'Your account is not allowed to manage customer videos.';
+    return err.message;
+  }
+  if (err instanceof TypeError) {
+    return 'Could not reach the server. Check your connection and try again.';
+  }
+  return err instanceof Error ? err.message : fallback;
 }
 
 const inputClass =
