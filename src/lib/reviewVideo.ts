@@ -6,9 +6,9 @@
 /** What the backend accepts as a review clip — keep in step with
  *  `REVIEW_VIDEO_CONTENT_TYPES` in backend/api's catalogue `dto.ts`. */
 export const REVIEW_VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime'] as const;
-/** The hard ceiling. The server's own limit (`REVIEW_VIDEO_MAX_MB`, 50 by
- *  default — Supabase's free-plan cap) is stricter and answers with its own
- *  message, before any upload starts. */
+/** The hard ceiling. The server's own configured limit (`REVIEW_VIDEO_MAX_MB`,
+ *  50 by default) is usually stricter and answers with its own message,
+ *  before any upload starts. */
 export const MAX_REVIEW_VIDEO_BYTES = 200 * 1024 * 1024;
 
 const TYPE_BY_EXTENSION: Record<string, (typeof REVIEW_VIDEO_TYPES)[number]> = {
@@ -66,32 +66,4 @@ export function reviewVideoSource(url: string): ReviewVideoSource {
   } catch {
     return 'other';
   }
-}
-
-
-/**
- * An admin-readable reason for a refused upload, from the HTTP status and body
- * Supabase Storage answered with (`{ statusCode, error, message }`).
- */
-export function describeUploadFailure(status: number, responseText = ''): string {
-  let detail = '';
-  try {
-    const parsed = JSON.parse(responseText) as { message?: unknown; error?: unknown };
-    detail = String(parsed.message ?? parsed.error ?? '').trim();
-  } catch {
-    // Not JSON — fall through to the status alone.
-  }
-  if (status === 413) {
-    return 'Storage refused the video as too large. Supabase’s free plan allows 50 MB per file — compress it, or raise the bucket’s limit.';
-  }
-  if (status === 415 || /mime|type/i.test(detail)) {
-    return 'The storage bucket doesn’t accept this kind of video. Check its allowed file types in Supabase.';
-  }
-  if (status === 401 || status === 403) {
-    return 'Storage refused the upload — the upload link has probably expired. Try again.';
-  }
-  if (status === 409) {
-    return 'A file with that name already exists in storage. Try again.';
-  }
-  return `Storage rejected the upload (${status}${detail ? `: ${detail}` : ''}).`;
 }

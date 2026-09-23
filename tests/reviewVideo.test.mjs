@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   MAX_REVIEW_VIDEO_BYTES,
-  describeUploadFailure,
   formatMegabytes,
   reviewVideoContentType,
   reviewVideoProblem,
@@ -48,17 +47,4 @@ test('tells an uploaded clip from the old rows the app cannot play', () => {
   assert.equal(reviewVideoSource(''), 'other');
   assert.equal(reviewVideoSource('not a url'), 'other');
   assert.equal(reviewVideoSource('ftp://example.com/a.mp4'), 'other');
-});
-
-test('explains a refused upload in terms an admin can act on', () => {
-  const body = (message) => JSON.stringify({ statusCode: '400', error: 'x', message });
-  assert.match(describeUploadFailure(413, body('The object exceeded the maximum allowed size')), /50 MB per file/);
-  assert.match(describeUploadFailure(415, ''), /doesn’t accept this kind of video/);
-  assert.match(describeUploadFailure(400, body('mime type video/quicktime is not supported')), /allowed file types/);
-  assert.match(describeUploadFailure(403, ''), /link has probably expired/);
-  assert.match(describeUploadFailure(401, body('Invalid JWT')), /link has probably expired/);
-  assert.match(describeUploadFailure(409, ''), /already exists/);
-  // Anything else says what Supabase said, and copes with a body that isn't JSON.
-  assert.equal(describeUploadFailure(500, body('boom')), 'Storage rejected the upload (500: boom).');
-  assert.equal(describeUploadFailure(502, '<html>Bad gateway</html>'), 'Storage rejected the upload (502).');
 });

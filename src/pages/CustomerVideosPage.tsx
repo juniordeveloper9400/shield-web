@@ -11,18 +11,17 @@ import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { readVideoInfo } from '@/lib/videoPoster';
-import { formatMegabytes, reviewVideoProblem, reviewVideoSource } from '@/lib/reviewVideo';
+import { formatMegabytes, reviewVideoContentType, reviewVideoProblem, reviewVideoSource } from '@/lib/reviewVideo';
+import { discardReviewVideoMedia, uploadReviewVideo } from '@/lib/reviewVideoUpload';
 import { useAsync } from '@/lib/useAsync';
 import {
   createCustomerReviewVideo,
   deleteCustomerReviewVideo,
-  deleteStoredReviewVideo,
   listCustomerReviewVideos,
   moveCustomerReviewVideo,
-  requestReviewVideoUpload,
+  reviewVideoMediaTransport,
   setCustomerReviewVideoActive,
   updateCustomerReviewVideo,
-  uploadReviewVideoFile,
 } from '@/api/customerReviewVideos';
 import type { CustomerReviewVideo, NewCustomerReviewVideo } from '@/types';
 
@@ -171,15 +170,16 @@ export default function CustomerVideosPage() {
     setProgress(null);
     const abort = new AbortController();
     abortRef.current = abort;
-    let uploadedUrl: string | null = null;
+    let uploadedMediaId: string | null = null;
     try {
       let videoUrl = draft.videoUrl;
       if (picked) {
         setProgress(0);
-        const ticket = await requestReviewVideoUpload(picked.file, accessToken);
-        await uploadReviewVideoFile(ticket, picked.file, setProgress, abort.signal);
-        uploadedUrl = ticket.publicUrl;
-        videoUrl = ticket.publicUrl;
+        const transport = reviewVideoMediaTransport(accessToken);
+        const contentType = reviewVideoContentType(picked.file) ?? picked.file.type;
+        const uploaded = await uploadReviewVideo(picked.file, contentType, transport, setProgress, abort.signal);
+        uploadedMediaId = uploaded.mediaId;
+        videoUrl = uploaded.publicUrl;
       }
       const input: NewCustomerReviewVideo = {
         ...draft,
@@ -192,16 +192,18 @@ export default function CustomerVideosPage() {
       } else {
         await createCustomerReviewVideo(input, accessToken);
       }
-      // The row now points at the new file; the one it replaced is unreferenced.
-      if (editingVideo && picked && editingVideo.videoUrl !== videoUrl) {
-        void deleteStoredReviewVideo(editingVideo.videoUrl, accessToken).catch(() => undefined);
-      }
+      // Nothing to clean up here on a replace: backend/api's own
+      // updateReviewVideo deletes the media the old videoUrl pointed at,
+      // server-side, the moment this same write lands (see
+      // customerReviewVideos.ts's own doc on this).
       closeForm();
       reload();
     } catch (err) {
-      // The file made it to storage but the row didn't save: don't leave it orphaned.
-      if (uploadedUrl) {
-        void deleteStoredReviewVideo(uploadedUrl, accessToken).catch(() => undefined);
+      // The bytes made it into Neon but the row didn't save: don't leave
+      // them orphaned — this is the one cleanup still ours to do, since the
+      // metadata write that would have referenced them never happened.
+      if (uploadedMediaId) {
+        void discardReviewVideoMedia(uploadedMediaId, reviewVideoMediaTransport(accessToken)).catch(() => undefined);
       }
       if (err instanceof DOMException && err.name === 'AbortError') {
         return;
@@ -222,8 +224,9 @@ export default function CustomerVideosPage() {
     setSaving(true);
     setFormError(null);
     try {
+      // Deletes its media server-side too, the same as a replace does — see
+      // customerReviewVideos.ts's own doc.
       await deleteCustomerReviewVideo(video.id, accessToken);
-      void deleteStoredReviewVideo(video.videoUrl, accessToken).catch(() => undefined);
       closeForm();
       reload();
     } catch (err) {
@@ -459,8 +462,8 @@ export default function CustomerVideosPage() {
             ) : (
               <p className="mt-1 text-xs text-slate-400">
                 A short MP4, WebM or MOV clip — 50 MB by default (the server says if a file is
-                over its limit). It’s stored in Supabase and plays inside the app; nothing is sent
-                to YouTube.
+                over its limit). It’s stored in the database and plays inside the app; nothing is
+                sent to YouTube.
               </p>
             )}
             {needsUpload && !picked && (
@@ -572,20 +575,18 @@ function formatDuration(seconds: number): string {
   return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
 }
 
-/** A message an admin can act on, for whatever went wrong requesting the
- *  upload, sending the file, or saving the row. */
+/** A message an admin can act on, for whatever went wrong during the chunked
+ *  upload or saving the row — including an oversize refusal, whose own
+ *  message ("exceeds the N MB upload limit") already reads on its own. */
 function describeSaveError(err: unknown): string {
   if (err instanceof ApiError) {
-    if (err.code === 'STORAGE_NOT_CONFIGURED') {
-      return 'Video storage isn’t set up on the server yet — see the Supabase setup steps in docs/admin-console.md.';
-    }
     if (err.status === 401) return 'Your session has expired — sign in again to upload.';
     if (err.status === 403) return 'Your account isn’t allowed to manage customer videos.';
     return err.message;
   }
   if (err instanceof TypeError) {
     // fetch() rejects with a TypeError when the API itself can't be reached.
-    return 'Couldn’t reach the server to start the upload. Check your connection and try again.';
+    return 'Couldn’t reach the server during the upload. Check your connection and try again.';
   }
   return err instanceof Error ? err.message : 'Could not save the clip.';
 }

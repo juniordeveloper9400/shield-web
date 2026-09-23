@@ -1,10 +1,5 @@
 import { api } from '@/lib/api';
-import {
-  describeUploadFailure,
-  reviewVideoContentType,
-  reviewVideoProblem,
-  reviewVideoSource,
-} from '@/lib/reviewVideo';
+import type { ReviewVideoUploadTransport } from '@/lib/reviewVideoUpload';
 import type { CustomerReviewVideo, NewCustomerReviewVideo } from '@/types';
 
 type Row = Record<string, unknown>;
@@ -119,93 +114,29 @@ export async function moveCustomerReviewVideo(
   await api.patch(`/v1/staff/catalogue/review-videos/${b.id}`, { sort: a.sort }, token);
 }
 
-// ---- Uploaded video files (stored in Supabase Storage via backend/api) ------
+// ---- Uploaded video bytes (stored in Neon Postgres via backend/api) --------
 //
-// The console never holds the Supabase key. It asks backend/api (staff-only)
-// for a single-use signed upload link, then sends the file straight to the
-// bucket; the clip's public URL is what ends up in `video_url`.
+// The clip's video is not sent as one request: `uploadReviewVideo`
+// (lib/reviewVideoUpload.ts) splits it into 786432-byte chunks and drives
+// this transport through create -> chunks -> complete. The console never
+// deletes an old clip's media itself on replace or delete — backend/api's
+// `updateReviewVideo`/`deleteReviewVideo` already do that server-side, the
+// moment the metadata write that made the old media unreferenced succeeds.
+// `discard` here is for the one case that is still this console's to handle:
+// a media upload that completed but the metadata save that would have used
+// it failed, leaving it referenced by nothing.
 
-interface UploadTicket {
-  /** Single-use link that already carries its own authorization. */
-  uploadUrl: string;
-  publicUrl: string;
-  method: 'PUT';
-  /** Request headers the upload must send. */
-  headers: Record<string, string>;
-  /** Form fields sent in the multipart body alongside the file. */
-  fields: Record<string, string>;
-  expiresInSeconds: number;
-}
-
-/** Asks backend/api for a signed upload link for `file`. Throws an `ApiError`
- *  — including `STORAGE_NOT_CONFIGURED` when Supabase isn't set up and
- *  `VIDEO_TOO_LARGE` when the file is over the server's limit. */
-export async function requestReviewVideoUpload(
-  file: File,
-  token: string,
-): Promise<UploadTicket> {
-  const contentType = reviewVideoContentType(file);
-  if (!contentType) throw new Error(reviewVideoProblem(file) ?? 'Unsupported video.');
-  return api.post<UploadTicket>(
-    '/v1/staff/catalogue/review-videos/upload-url',
-    { contentType, size: file.size },
-    token,
-  );
-}
-
-/** Sends `file` to the bucket with progress (0–1) reported as it goes. Uses
- *  XMLHttpRequest because `fetch` can't report upload progress. Aborting
- *  `signal` cancels the transfer. */
-export function uploadReviewVideoFile(
-  ticket: UploadTicket,
-  file: File,
-  onProgress: (fraction: number) => void,
-  signal?: AbortSignal,
-): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open(ticket.method, ticket.uploadUrl);
-    for (const [name, value] of Object.entries(ticket.headers)) {
-      xhr.setRequestHeader(name, value);
-    }
-    // The body Supabase's own client sends for a signed upload: the fields,
-    // then the file as the part with an empty name. The type is pinned to what
-    // was validated, since a bucket can restrict which MIME types it accepts
-    // and a `.mov` from some browsers reports no type at all.
-    const body = new FormData();
-    for (const [name, value] of Object.entries(ticket.fields)) {
-      body.append(name, value);
-    }
-    body.append('', new Blob([file], { type: reviewVideoContentType(file) ?? file.type }));
-
-    xhr.upload.onprogress = (event) => {
-      if (event.lengthComputable) onProgress(event.loaded / event.total);
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress(1);
-        resolve();
-      } else {
-        reject(new Error(describeUploadFailure(xhr.status, xhr.responseText)));
-      }
-    };
-    xhr.onerror = () =>
-      reject(
-        new Error(
-          'The upload didn’t reach storage. Check your connection and try again.',
-        ),
-      );
-    xhr.onabort = () => reject(new DOMException('Upload cancelled.', 'AbortError'));
-    signal?.addEventListener('abort', () => xhr.abort(), { once: true });
-    xhr.send(body);
-  });
-}
-
-/** Removes a stored clip that's no longer used — a replaced video, a deleted
- *  clip, or an upload whose row failed to save. Best-effort by design: the
- *  backend ignores any URL that isn't one of its own uploads, and a failure
- *  here only ever leaves an unreferenced file behind, so callers swallow it. */
-export async function deleteStoredReviewVideo(url: string, token: string | null): Promise<void> {
-  if (!token || reviewVideoSource(url) !== 'video') return;
-  await api.post('/v1/staff/catalogue/review-videos/media/delete', { url }, token);
+/** A `ReviewVideoUploadTransport` (see lib/reviewVideoUpload.ts) backed by
+ *  backend/api's `/v1/staff/catalogue/review-video-media` routes. */
+export function reviewVideoMediaTransport(token: string): ReviewVideoUploadTransport {
+  return {
+    create: (input) => api.post('/v1/staff/catalogue/review-video-media', input, token),
+    status: (id) => api.get(`/v1/staff/catalogue/review-video-media/${id}`, token),
+    putChunk: (id, index, data) =>
+      api.put(`/v1/staff/catalogue/review-video-media/${id}/chunks/${index}`, { data }, token),
+    complete: (id) => api.post(`/v1/staff/catalogue/review-video-media/${id}/complete`, undefined, token),
+    discard: async (id) => {
+      await api.delete(`/v1/staff/catalogue/review-video-media/${id}`, token);
+    },
+  };
 }

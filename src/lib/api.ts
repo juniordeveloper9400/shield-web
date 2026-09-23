@@ -15,6 +15,7 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    public readonly details?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -45,7 +46,7 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
 
   if (!res.ok) {
     const err = (json as ErrorEnvelope | null)?.error ?? { code: 'ERROR', message: res.statusText };
-    throw new ApiError(res.status, err.code, err.message);
+    throw new ApiError(res.status, err.code, err.message, err.details);
   }
 
   return json as T;

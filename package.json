@@ -9,6 +9,7 @@
     "test:contact": "node --experimental-strip-types --test tests/contactLinks.test.mjs",
     "test:wallet-month": "node --experimental-strip-types --test tests/walletMonth.test.mjs",
     "test:review-video": "node --experimental-strip-types --test tests/reviewVideo.test.mjs",
+    "test:review-video-upload": "node --experimental-strip-types --test tests/reviewVideoUpload.test.mjs",
     "test:agent-withdrawals": "node --experimental-strip-types --test tests/agentWithdrawalsNavigation.test.mjs",
     "test:lab-tests": "node --experimental-strip-types --test tests/labTests.test.mjs",
     "test:lab-booking": "node --experimental-strip-types --test tests/labBooking.test.mjs",
