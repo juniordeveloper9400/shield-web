@@ -388,10 +388,11 @@ export async function convertToAgent(
   const parentId =
     opts.parentId ?? (await deriveParentAgentId(level, opts.areaId));
 
-  // See the identical comment in agents.ts's approveAgent — the level-
-  // tagged geo code for this agent's own slot when one is available, with
-  // the SQL below falling back to the older sequential form otherwise.
-  const slotCode = (await agentCodeForSlot(level, opts.areaId)) ?? '';
+  // See the identical comment in agents.ts's approveAgent — the one
+  // combined geo-slot + member-id code for this agent, when both halves
+  // are available, with the SQL below falling back to the older sequential
+  // form otherwise.
+  const slotCode = (await agentCodeForSlot(level, opts.areaId, { userId })) ?? '';
 
   const rows = await query<Row>(
     `

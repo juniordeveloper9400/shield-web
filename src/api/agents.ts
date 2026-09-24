@@ -142,7 +142,7 @@ export async function approveAgent(
   // still goes through. Both are exactly the "orphan agent" shape this
   // console's own approval queue is meant to keep out.
   const [member] = await query<Row>(
-    `SELECT u.registration_completed_at
+    `SELECT u.registration_completed_at, u.id AS user_id
        FROM app.agent_request r
        JOIN app.users u ON u.phone = r.phone
       WHERE r.id = $1
@@ -177,13 +177,16 @@ export async function approveAgent(
   const parentId =
     opts.parentId ?? (await deriveParentAgentId(level, effectiveAreaId));
 
-  // The level-tagged geo code for this agent's own slot ('STA-KER-01',
-  // 'TVM-01', 'GP-<name>-G01001', …) when one is available; the SQL below
-  // falls back to the older sequential 'SHD-AGT-NNN' form when it isn't
-  // (no area picked, prefix_code not backfilled yet) or when it's somehow
-  // already taken (a rejected agent from an earlier round at this same
-  // slot, say) — an agent always gets a real, unique code either way.
-  const slotCode = (await agentCodeForSlot(level, effectiveAreaId)) ?? '';
+  // The one combined code this agent gets — their geo slot's prefix plus
+  // their own member id's numeric suffix ('STA-KER-01-1042'), see
+  // agentCodeForSlot's doc. The SQL below falls back to the older plain
+  // sequential 'SHD-AGT-NNN' form when either half isn't available (no
+  // area picked, prefix_code not backfilled yet, no member id yet) or the
+  // combined code is somehow already taken (a rejected agent from an
+  // earlier round at this same slot, say) — an agent always gets a real,
+  // unique code either way.
+  const slotCode =
+    (await agentCodeForSlot(level, effectiveAreaId, { userId: member.user_id as string | number })) ?? '';
 
   // member_id is resolved by phone here (this recruit isn't a member row
   // yet in every legacy case, so a plain FK on agent_request isn't

@@ -110,30 +110,54 @@ const GEO_TABLE_BY_LEVEL: Record<string, string> = {
 const NATIONAL_PREFIX_CODE = 'NAT-INDIA-01';
 
 /**
- * The level-tagged display code for the geo slot [areaId] sits at —
- * `'STA-KER-01'`, `'TVM-01'`, `'GP-<name>-G01001'`, and so on (migration
- * 0062's `prefix_code` column) — or the fixed national constant when
- * [level] is NATIONAL, since that tier has no geo row to read one from.
+ * The one code a newly-approved agent gets: their own geo slot's level-
+ * tagged prefix (`'STA-KER-01'`, `'TVM-01'`, `'GP-<name>-G01001'`, …, or the
+ * fixed `'NAT-INDIA-01'` for national — migration 0062's `prefix_code`
+ * column) combined with their own member id's numeric suffix
+ * (`'SAHAKAR-1042'` -> `'1042'`) — `'STA-KER-01-1042'`. Deliberately one
+ * combined id, not a separate geo prefix and a separate member id shown
+ * side by side: `app.agent.code` is this whole string, so every screen
+ * that already shows an agent's code shows the member id as part of it for
+ * free, with nothing else to change.
  *
- * Returns null when there's nothing to read yet — `areaId` unset (a region
- * agent has no area to pick, an admin left it blank, …) or a slot whose
- * `prefix_code` hasn't been backfilled — so callers can fall back to the
- * older sequential code rather than ever insert a blank one.
+ * [member] is looked up by whichever of `userId`/`phone` the caller
+ * already has on hand.
+ *
+ * Returns null when either half is missing — no `prefix_code` yet for this
+ * slot, or no matching member row (or one with no referral code) — so
+ * callers can fall back to the older plain sequential code rather than
+ * ever store a partial or blank one.
  */
 export async function agentCodeForSlot(
   level: string,
   areaId: string | null | undefined,
+  member: { userId?: string | number; phone?: string },
 ): Promise<string | null> {
   const lvl = level.toUpperCase();
-  if (lvl === 'NATIONAL') return NATIONAL_PREFIX_CODE;
-  const table = GEO_TABLE_BY_LEVEL[lvl];
-  if (!table || !areaId) return null;
-  const [row] = await query<Row>(
-    `SELECT prefix_code FROM app.${table} WHERE id = $1`,
-    [areaId],
-  );
-  const code = row?.prefix_code ? String(row.prefix_code).trim() : '';
-  return code || null;
+  let prefix: string | null;
+  if (lvl === 'NATIONAL') {
+    prefix = NATIONAL_PREFIX_CODE;
+  } else {
+    const table = GEO_TABLE_BY_LEVEL[lvl];
+    if (!table || !areaId) return null;
+    const [row] = await query<Row>(
+      `SELECT prefix_code FROM app.${table} WHERE id = $1`,
+      [areaId],
+    );
+    const code = row?.prefix_code ? String(row.prefix_code).trim() : '';
+    prefix = code || null;
+  }
+  if (!prefix) return null;
+
+  const memberRows =
+    member.userId != null
+      ? await query<Row>(`SELECT referral_code FROM app.users WHERE id = $1`, [member.userId])
+      : member.phone
+        ? await query<Row>(`SELECT referral_code FROM app.users WHERE phone = $1 LIMIT 1`, [member.phone])
+        : [];
+  const referralCode = memberRows[0]?.referral_code ? String(memberRows[0].referral_code) : '';
+  const suffix = /(\d+)$/.exec(referralCode)?.[1];
+  return suffix ? `${prefix}-${suffix}` : null;
 }
 
 /**
