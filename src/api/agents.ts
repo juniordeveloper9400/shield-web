@@ -1,6 +1,6 @@
 import { query } from '@/lib/db';
 import { fromEnum, iso } from '@/lib/mappers';
-import { deriveParentAgentId, resyncGeoSlotAgent } from '@/api/geo';
+import { agentCodeForSlot, deriveParentAgentId, resyncGeoSlotAgent } from '@/api/geo';
 import type { AgentLevel, AgentRow, PendingAgent } from '@/types';
 
 type Row = Record<string, unknown>;
@@ -177,6 +177,14 @@ export async function approveAgent(
   const parentId =
     opts.parentId ?? (await deriveParentAgentId(level, effectiveAreaId));
 
+  // The level-tagged geo code for this agent's own slot ('STA-KER-01',
+  // 'TVM-01', 'GP-<name>-G01001', …) when one is available; the SQL below
+  // falls back to the older sequential 'SHD-AGT-NNN' form when it isn't
+  // (no area picked, prefix_code not backfilled yet) or when it's somehow
+  // already taken (a rejected agent from an earlier round at this same
+  // slot, say) — an agent always gets a real, unique code either way.
+  const slotCode = (await agentCodeForSlot(level, effectiveAreaId)) ?? '';
+
   // member_id is resolved by phone here (this recruit isn't a member row
   // yet in every legacy case, so a plain FK on agent_request isn't
   // available) rather than left unset: backend/api's member-facing agent
@@ -200,10 +208,14 @@ export async function approveAgent(
       )
       SELECT
         (SELECT id FROM app.users WHERE phone = r.phone LIMIT 1),
-        'SHD-AGT-' || lpad((
-          COALESCE(
-            (SELECT max(substring(code from '[0-9]+$')::int) FROM app.agent), 0
-          ) + 1)::text, 3, '0'),
+        CASE
+          WHEN $6::text <> '' AND NOT EXISTS (SELECT 1 FROM app.agent WHERE code = $6::text)
+            THEN $6::text
+          ELSE 'SHD-AGT-' || lpad((
+            COALESCE(
+              (SELECT max(substring(code from '[0-9]+$')::int) FROM app.agent), 0
+            ) + 1)::text, 3, '0')
+        END,
         r.name, r.phone, $2::app.agent_level, $3, $4,
         COALESCE($5::uuid, r.requested_area_id),
         r.first_name, r.middle_name, r.last_name, r.dob, r.aadhaar, r.pan,
@@ -218,7 +230,7 @@ export async function approveAgent(
     )
     SELECT id, area_id FROM ins
     `,
-    [id, level, parentId, opts.area ?? '', opts.areaId ?? null],
+    [id, level, parentId, opts.area ?? '', opts.areaId ?? null, slotCode],
   );
   if (rows.length === 0) {
     return false;

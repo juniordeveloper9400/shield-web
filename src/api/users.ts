@@ -1,6 +1,6 @@
 import { sql, query } from '@/lib/db';
 import { fromEnum, iso, num, toEnum } from '@/lib/mappers';
-import { deriveParentAgentId, resyncGeoSlotAgent } from '@/api/geo';
+import { agentCodeForSlot, deriveParentAgentId, resyncGeoSlotAgent } from '@/api/geo';
 import type {
   AgentLevel,
   AgentOption,
@@ -388,16 +388,25 @@ export async function convertToAgent(
   const parentId =
     opts.parentId ?? (await deriveParentAgentId(level, opts.areaId));
 
+  // See the identical comment in agents.ts's approveAgent — the level-
+  // tagged geo code for this agent's own slot when one is available, with
+  // the SQL below falling back to the older sequential form otherwise.
+  const slotCode = (await agentCodeForSlot(level, opts.areaId)) ?? '';
+
   const rows = await query<Row>(
     `
     INSERT INTO app.agent
       (member_id, code, name, phone, level, parent_id, area, area_id, approval_status)
     SELECT u.id,
-           'SHD-AGT-' || lpad((
-             COALESCE(
-               (SELECT max(substring(code from '[0-9]+$')::int) FROM app.agent),
-               0
-             ) + 1)::text, 3, '0'),
+           CASE
+             WHEN $6::text <> '' AND NOT EXISTS (SELECT 1 FROM app.agent WHERE code = $6::text)
+               THEN $6::text
+             ELSE 'SHD-AGT-' || lpad((
+               COALESCE(
+                 (SELECT max(substring(code from '[0-9]+$')::int) FROM app.agent),
+                 0
+               ) + 1)::text, 3, '0')
+           END,
            u.name, u.phone, $2::app.agent_level, $3, $4, $5::uuid, 'APPROVED'
     FROM app.users u
     WHERE u.id = $1
@@ -406,7 +415,7 @@ export async function convertToAgent(
       AND NOT EXISTS (SELECT 1 FROM app.investor WHERE member_id = u.id)
     RETURNING code
     `,
-    [userId, level, parentId, opts.area ?? '', opts.areaId ?? null],
+    [userId, level, parentId, opts.area ?? '', opts.areaId ?? null, slotCode],
   );
   if (rows.length > 0) {
     // Mirror the new agent onto their geo slot's own row — see

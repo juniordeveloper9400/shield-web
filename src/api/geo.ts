@@ -104,6 +104,38 @@ const GEO_TABLE_BY_LEVEL: Record<string, string> = {
   WARD: 'ward',
 };
 
+/** There's no `national` geo table (India is implicit — see 0014's header),
+ *  and only ever one national agent, so its display code is a fixed
+ *  constant rather than something derived per row. */
+const NATIONAL_PREFIX_CODE = 'NAT-INDIA-01';
+
+/**
+ * The level-tagged display code for the geo slot [areaId] sits at —
+ * `'STA-KER-01'`, `'TVM-01'`, `'GP-<name>-G01001'`, and so on (migration
+ * 0062's `prefix_code` column) — or the fixed national constant when
+ * [level] is NATIONAL, since that tier has no geo row to read one from.
+ *
+ * Returns null when there's nothing to read yet — `areaId` unset (a region
+ * agent has no area to pick, an admin left it blank, …) or a slot whose
+ * `prefix_code` hasn't been backfilled — so callers can fall back to the
+ * older sequential code rather than ever insert a blank one.
+ */
+export async function agentCodeForSlot(
+  level: string,
+  areaId: string | null | undefined,
+): Promise<string | null> {
+  const lvl = level.toUpperCase();
+  if (lvl === 'NATIONAL') return NATIONAL_PREFIX_CODE;
+  const table = GEO_TABLE_BY_LEVEL[lvl];
+  if (!table || !areaId) return null;
+  const [row] = await query<Row>(
+    `SELECT prefix_code FROM app.${table} WHERE id = $1`,
+    [areaId],
+  );
+  const code = row?.prefix_code ? String(row.prefix_code).trim() : '';
+  return code || null;
+}
+
 /**
  * Recomputes `app.<table for level>.agent_id` for [areaId] from whichever
  * approved agent (if any) currently has that `area_id` — a denormalized
