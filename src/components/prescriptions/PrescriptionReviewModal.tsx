@@ -33,6 +33,7 @@ import {
   type DropRouteCode,
 } from '@/lib/routeTimes';
 import {
+  createOrderForPrescription,
   savePrescriptionIntake,
   setPrescriptionImageRotation,
   setPrescriptionStatus,
@@ -1223,11 +1224,27 @@ export function PrescriptionReviewModal({
     }
     if (await saveDetailsAndIntake()) {
       onSaved();
-      if (prescription?.orderId) {
-        // The Bills page lists only orders stamped as converted, so this
-        // has to land before handing off or the order wouldn't show there.
+      if (prescription) {
+        let orderId = prescription.orderId;
         try {
-          await markOrderConvertedToBill(prescription.orderId);
+          if (!orderId) {
+            // Admin recovery — every prescription is meant to already
+            // have the order its own member checkout created (see
+            // Prescription.orderId's own doc), but this one somehow
+            // doesn't. Creates it from exactly what's already confirmed
+            // right here on the Details step, then carries on exactly as
+            // if it had existed all along.
+            orderId = await createOrderForPrescription(
+              prescription.id,
+              prescription.fulfillmentType === 'store_pickup'
+                ? 'STORE_PICKUP'
+                : 'HOME_DELIVERY',
+            );
+          }
+          // The Bills page lists only orders stamped as converted, so
+          // this has to land before handing off or the order wouldn't
+          // show there.
+          await markOrderConvertedToBill(orderId);
         } catch (err) {
           setDetailsError(
             err instanceof Error ? err.message : 'Could not convert this order to a bill.',
@@ -1240,17 +1257,7 @@ export function PrescriptionReviewModal({
         // Bills page's own editor for this exact order, not something to
         // come back to here.
         onClose();
-        navigate(`/bills?open=${prescription.orderId}`);
-      } else {
-        // Was a silent no-op before — setStep('details') when we're
-        // already on that step changes nothing on screen, so clicking
-        // "Convert to bill" with no linked order looked exactly like the
-        // button did nothing at all, with no way to tell why. This is the
-        // one real reason conversion can't proceed here (everything else
-        // that can block it already sets its own detailsError above).
-        setDetailsError(
-          'This prescription has no linked order yet, so there is nothing to convert to a bill.',
-        );
+        navigate(`/bills?open=${orderId}`);
       }
     } else {
       setStep('details');

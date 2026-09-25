@@ -422,3 +422,49 @@ export async function savePrescriptionIntake(
     );
   }
 }
+
+/**
+ * Admin recovery only — not the normal path. Every prescription is meant
+ * to already carry the `app."order"` (kind `PRESCRIPTION`) the member's own
+ * checkout created alongside it (see `Prescription.orderId`'s own doc:
+ * "shouldn't happen once uploaded via checkout"); this exists for the rare
+ * one that somehow doesn't, so "Convert to bill" has something to convert
+ * instead of refusing outright. Uses exactly the fields already confirmed
+ * right there on the Details step — the member, the pinned branch, the
+ * fulfilment type shown — rather than inventing anything a reviewer
+ * hasn't already set. Returns the new order's id.
+ */
+export async function createOrderForPrescription(
+  prescriptionId: string,
+  fulfillmentType: 'HOME_DELIVERY' | 'STORE_PICKUP',
+): Promise<string> {
+  const rows = await query<{ id: unknown }>(
+    `INSERT INTO app."order" (member_id, code, kind, status, store_id, fulfillment_type, item_count)
+     SELECT rx.member_id, 'SH-TMP-' || substr(gen_random_uuid()::text, 1, 8),
+            'PRESCRIPTION'::app.order_kind, 'PROCESSING'::app.order_status,
+            rx.store_id, $2::app.fulfillment_type, 1
+       FROM app.prescription rx
+      WHERE rx.id = $1
+     RETURNING id`,
+    [prescriptionId, fulfillmentType],
+  );
+  if (!rows.length) {
+    throw new Error('Could not create an order for this prescription.');
+  }
+  const orderId = String(rows[0].id);
+  // A real, stable code now that the row's own id exists to build it from
+  // — the placeholder above only ever has to satisfy the NOT NULL UNIQUE
+  // constraint for the instant between these two statements.
+  await query('UPDATE app."order" SET code = $2 WHERE id = $1', [
+    orderId,
+    `SH-${orderId}`,
+  ]);
+  await query(
+    `INSERT INTO app.prescription_order (prescription_id, order_id, store_id, status)
+     SELECT $1, $2, rx.store_id, 'SUBMITTED'
+       FROM app.prescription rx
+      WHERE rx.id = $1`,
+    [prescriptionId, orderId],
+  );
+  return orderId;
+}
