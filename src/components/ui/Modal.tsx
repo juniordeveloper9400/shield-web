@@ -15,8 +15,10 @@ export function Modal({
   title: string;
   children: ReactNode;
   footer?: ReactNode;
-  /** `md` (default, ~512px) · `lg` (~672px) · `xl` (~896px, for a split view). */
-  size?: 'md' | 'lg' | 'xl';
+  /** `md` (default, ~512px) · `lg` (~672px) · `xl` (~896px, for a split view)
+   *  · `full` (near-viewport-filling, for a page-like split view with its
+   *  own scrolling table — the prescription intake screen). */
+  size?: 'md' | 'lg' | 'xl' | 'full';
 }) {
   useEffect(() => {
     if (!open) return;
@@ -34,8 +36,15 @@ export function Modal({
   if (!open) return null;
 
   const widthClass =
-    size === 'xl' ? 'max-w-4xl' : size === 'lg' ? 'max-w-2xl' : 'max-w-lg';
-  const bodyMaxHeight = size === 'md' ? 'max-h-[60vh]' : 'max-h-[74vh]';
+    size === 'full'
+      ? 'w-[96vw] max-w-[1600px]'
+      : size === 'xl'
+        ? 'max-w-4xl'
+        : size === 'lg'
+          ? 'max-w-2xl'
+          : 'max-w-lg';
+  const bodyMaxHeight =
+    size === 'full' ? 'max-h-[86vh]' : size === 'md' ? 'max-h-[60vh]' : 'max-h-[74vh]';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

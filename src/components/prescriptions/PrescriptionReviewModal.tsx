@@ -536,33 +536,21 @@ export function PrescriptionReviewModal({
     };
     return (
                     <div
-                      className="rounded-lg border border-blue-700 bg-blue-600 p-3 text-white"
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-800"
                     >
                       <div className="mb-1.5 flex items-center justify-between">
-                        <span className="text-xs font-medium text-blue-100">
+                        <span className="text-xs font-medium text-slate-500">
                           Medicine {i + 1}
                         </span>
-                        <div className="flex items-center gap-3">
-                          {isTopEntry && (
-                            <button
-                              type="button"
-                              disabled={!row.name.trim()}
-                              className="text-xs font-medium text-white disabled:cursor-not-allowed disabled:text-blue-200"
-                              onClick={commitTopRow}
-                            >
-                              + Add to list
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="text-xs font-medium text-rose-200 hover:text-rose-100"
-                            onClick={() => removeRow(i)}
-                          >
-                            Remove
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-rose-500 hover:text-rose-600"
+                          onClick={() => removeRow(i)}
+                        >
+                          Remove
+                        </button>
                       </div>
-                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Name
                       </p>
                       <input
@@ -572,7 +560,7 @@ export function PrescriptionReviewModal({
                         placeholder="e.g. Paracetamol 500mg"
                         className={inputClass}
                       />
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Type
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -591,7 +579,7 @@ export function PrescriptionReviewModal({
                             setAddingTypeFor(i);
                             setNewTypeValue('');
                           }}
-                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                          className="shrink-0 rounded-md border border-slate-300 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                         >
                           <Icon name="plus" className="h-3.5 w-3.5" />
                         </button>
@@ -623,14 +611,13 @@ export function PrescriptionReviewModal({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-white hover:bg-white/10"
                             onClick={() => setAddingTypeFor(null)}
                           >
                             Cancel
                           </Button>
                         </div>
                       )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Quantity
                       </p>
                       <input
@@ -645,7 +632,7 @@ export function PrescriptionReviewModal({
                         inputMode="numeric"
                         className={inputClass}
                       />
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Intake preset
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -675,13 +662,13 @@ export function PrescriptionReviewModal({
                             setAddingFrequencyFor(i);
                             setNewFrequencyValue('');
                           }}
-                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                          className="shrink-0 rounded-md border border-slate-300 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                         >
                           <Icon name="plus" className="h-3.5 w-3.5" />
                         </button>
                       </div>
                       {row.intake && (
-                        <p className="mt-1 text-xs text-blue-100">
+                        <p className="mt-1 text-xs text-slate-500">
                           Intake set to {row.intake.split('').join('-')} — pick
                           a different preset to change it.
                         </p>
@@ -715,14 +702,13 @@ export function PrescriptionReviewModal({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-white hover:bg-white/10"
                             onClick={() => setAddingFrequencyFor(null)}
                           >
                             Cancel
                           </Button>
                         </div>
                       )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Route &amp; time
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -762,7 +748,7 @@ export function PrescriptionReviewModal({
                             setAddingRouteTimeFor(i);
                             setNewRouteTimeValue('');
                           }}
-                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                          className="shrink-0 rounded-md border border-slate-300 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                         >
                           <Icon name="plus" className="h-3.5 w-3.5" />
                         </button>
@@ -794,14 +780,13 @@ export function PrescriptionReviewModal({
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="text-white hover:bg-white/10"
                             onClick={() => setAddingRouteTimeFor(null)}
                           >
                             Cancel
                           </Button>
                         </div>
                       )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Stock status
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -824,10 +809,161 @@ export function PrescriptionReviewModal({
                           {STOCK_STATUS_LABEL[row.status]}
                         </Badge>
                       </div>
-                      <p className="mt-1 text-xs text-blue-100">
+                      <p className="mt-1 text-xs text-slate-500">
                         For the counter only — never shown in the member's app.
                       </p>
                     </div>
+    );
+  }
+
+  /** Every already-added line (everything but the open entry card at
+   *  displayOrder[0]) as a compact table — full width, under the intake
+   *  card and script image both, not squeezed into the card's own column.
+   *  Name/Type/Qty stay lightly editable in place; the "add a new
+   *  type/intake/route" mini-forms only exist on the open card, so
+   *  introducing something brand new naturally happens before a line is
+   *  committed, not after. Only relevant to the plain (not "Process"-
+   *  grouped) view — that one shows every row as a full card instead, see
+   *  its own branch above. Always rendered, even with nothing added yet —
+   *  the header row is what makes "+ Add to list" legible as "goes here". */
+  function renderMedicineTable() {
+    return (
+      <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <table className="w-full text-left text-xs">
+          <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+            <tr>
+              <th className="px-3 py-2">Name</th>
+              <th className="px-3 py-2">Type</th>
+              <th className="px-3 py-2">Qty</th>
+              <th className="px-3 py-2">Intake</th>
+              <th className="px-3 py-2">Route &amp; time</th>
+              <th className="px-3 py-2">Stock status</th>
+              <th className="px-3 py-2" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {displayOrder.length <= 1 && (
+              <tr>
+                <td colSpan={7} className="px-3 py-3 text-center text-slate-400">
+                  Added medicines land here.
+                </td>
+              </tr>
+            )}
+            {displayOrder.slice(1).map((i) => {
+              const row = draft[i];
+              return (
+                <tr key={i} className="align-top">
+                  <td className="min-w-[140px] px-3 py-2">
+                    <input
+                      value={row.name}
+                      onChange={(e) => patchRow(i, { name: e.target.value })}
+                      placeholder="e.g. Paracetamol 500mg"
+                      className={inputClass}
+                    />
+                  </td>
+                  <td className="min-w-[120px] px-3 py-2">
+                    <Combobox
+                      value={row.pack}
+                      onChange={(v) => patchRow(i, { pack: v })}
+                      options={typeOptions.map((t) => ({ value: t, label: t }))}
+                      placeholder="Type"
+                      searchPlaceholder="Search types…"
+                    />
+                  </td>
+                  <td className="w-20 px-3 py-2">
+                    <input
+                      value={row.totalUnits || ''}
+                      onChange={(e) =>
+                        patchRow(i, { totalUnits: Number(e.target.value) || 0 })
+                      }
+                      placeholder="Qty"
+                      inputMode="numeric"
+                      className={inputClass}
+                    />
+                  </td>
+                  <td className="min-w-[140px] px-3 py-2">
+                    <Combobox
+                      value={selectedFrequency[i] ?? ''}
+                      onChange={(v) => {
+                        setSelectedFrequency((m) => ({ ...m, [i]: v }));
+                        const preset = frequencyOptions.find((f) => f.code === v);
+                        if (preset) applyFrequency(i, preset);
+                      }}
+                      options={frequencyOptions.map((f) => ({
+                        value: f.code,
+                        label: f.description ? `${f.code} — ${f.description}` : f.code,
+                      }))}
+                      placeholder="OD, BD, TDS, …"
+                      searchPlaceholder="Search intake presets…"
+                    />
+                  </td>
+                  <td className="min-w-[160px] px-3 py-2">
+                    <div className="flex items-center gap-1">
+                      <Combobox
+                        value={selectedRouteCode[i] ?? row.routeTime}
+                        onChange={(v) => applyRouteTime(i, v)}
+                        options={routeTimeOptions.map((r) => ({
+                          value: r.code,
+                          label: r.description ? `${r.code} — ${r.description}` : r.code,
+                        }))}
+                        placeholder="Route & time"
+                        searchPlaceholder="Search route & time…"
+                        className="flex-1"
+                      />
+                      {isDropRouteCode(selectedRouteCode[i] ?? '') && (
+                        <select
+                          value={dropCount[i] ?? 1}
+                          onChange={(e) => applyDropCount(i, Number(e.target.value))}
+                          title="Number of drops"
+                          className={`${inputClass} w-16 shrink-0`}
+                        >
+                          {[1, 2, 3, 4, 5, 6].map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </td>
+                  <td className="min-w-[150px] px-3 py-2">
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={row.status}
+                        onChange={(e) =>
+                          patchRow(i, {
+                            status: e.target.value as PrescriptionMedicineStatus,
+                          })
+                        }
+                        className={inputClass}
+                      >
+                        {STOCK_STATUS_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      <Badge tone={STOCK_STATUS_TONE[row.status]}>
+                        {STOCK_STATUS_LABEL[row.status]}
+                      </Badge>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <button
+                      type="button"
+                      title="Remove"
+                      className="font-medium text-rose-500 hover:text-rose-600"
+                      onClick={() => removeRow(i)}
+                    >
+                      ✕
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     );
   }
 
@@ -1086,7 +1222,7 @@ export function PrescriptionReviewModal({
       <Modal
         open={Boolean(prescription)}
         onClose={onClose}
-        size="xl"
+        size="full"
         title={prescription ? prescription.code : ''}
         footer={
           prescription &&
@@ -1273,179 +1409,24 @@ export function PrescriptionReviewModal({
                       );
                     })
                   ) : (
-                    <>
-                      {draft.length > 0 && renderMedicineCard(displayOrder[0], true)}
-                      {/* Every earlier line, already filled in, as a compact
-                          table — the one open entry card above stays the
-                          only place still being typed into. Name/Type/Qty
-                          stay lightly editable in place; the "add a new
-                          type/intake/route" mini-forms only exist on the
-                          open card above, so introducing something brand
-                          new naturally happens before a line is committed,
-                          not after. Always shown, even with nothing added
-                          yet — the table's own header row is what makes
-                          "+ Add to list" legible as "goes here", not just
-                          a vanishing element that only exists once it has
-                          something in it. */}
-                      <div className="overflow-x-auto rounded-lg border border-slate-200">
-                          <table className="w-full text-left text-xs">
-                            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                              <tr>
-                                <th className="px-3 py-2">Name</th>
-                                <th className="px-3 py-2">Type</th>
-                                <th className="px-3 py-2">Qty</th>
-                                <th className="px-3 py-2">Intake</th>
-                                <th className="px-3 py-2">Route &amp; time</th>
-                                <th className="px-3 py-2">Stock status</th>
-                                <th className="px-3 py-2" />
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100">
-                              {displayOrder.length <= 1 && (
-                                <tr>
-                                  <td
-                                    colSpan={7}
-                                    className="px-3 py-3 text-center text-slate-400"
-                                  >
-                                    Added medicines land here.
-                                  </td>
-                                </tr>
-                              )}
-                              {displayOrder.slice(1).map((i) => {
-                                const row = draft[i];
-                                return (
-                                  <tr key={i} className="align-top">
-                                    <td className="min-w-[140px] px-3 py-2">
-                                      <input
-                                        value={row.name}
-                                        onChange={(e) =>
-                                          patchRow(i, { name: e.target.value })
-                                        }
-                                        placeholder="e.g. Paracetamol 500mg"
-                                        className={inputClass}
-                                      />
-                                    </td>
-                                    <td className="min-w-[120px] px-3 py-2">
-                                      <Combobox
-                                        value={row.pack}
-                                        onChange={(v) => patchRow(i, { pack: v })}
-                                        options={typeOptions.map((t) => ({
-                                          value: t,
-                                          label: t,
-                                        }))}
-                                        placeholder="Type"
-                                        searchPlaceholder="Search types…"
-                                      />
-                                    </td>
-                                    <td className="w-20 px-3 py-2">
-                                      <input
-                                        value={row.totalUnits || ''}
-                                        onChange={(e) =>
-                                          patchRow(i, {
-                                            totalUnits: Number(e.target.value) || 0,
-                                          })
-                                        }
-                                        placeholder="Qty"
-                                        inputMode="numeric"
-                                        className={inputClass}
-                                      />
-                                    </td>
-                                    <td className="min-w-[140px] px-3 py-2">
-                                      <Combobox
-                                        value={selectedFrequency[i] ?? ''}
-                                        onChange={(v) => {
-                                          setSelectedFrequency((m) => ({
-                                            ...m,
-                                            [i]: v,
-                                          }));
-                                          const preset = frequencyOptions.find(
-                                            (f) => f.code === v,
-                                          );
-                                          if (preset) applyFrequency(i, preset);
-                                        }}
-                                        options={frequencyOptions.map((f) => ({
-                                          value: f.code,
-                                          label: f.description
-                                            ? `${f.code} — ${f.description}`
-                                            : f.code,
-                                        }))}
-                                        placeholder="OD, BD, TDS, …"
-                                        searchPlaceholder="Search intake presets…"
-                                      />
-                                    </td>
-                                    <td className="min-w-[160px] px-3 py-2">
-                                      <div className="flex items-center gap-1">
-                                        <Combobox
-                                          value={selectedRouteCode[i] ?? row.routeTime}
-                                          onChange={(v) => applyRouteTime(i, v)}
-                                          options={routeTimeOptions.map((r) => ({
-                                            value: r.code,
-                                            label: r.description
-                                              ? `${r.code} — ${r.description}`
-                                              : r.code,
-                                          }))}
-                                          placeholder="Route & time"
-                                          searchPlaceholder="Search route & time…"
-                                          className="flex-1"
-                                        />
-                                        {isDropRouteCode(selectedRouteCode[i] ?? '') && (
-                                          <select
-                                            value={dropCount[i] ?? 1}
-                                            onChange={(e) =>
-                                              applyDropCount(i, Number(e.target.value))
-                                            }
-                                            title="Number of drops"
-                                            className={`${inputClass} w-16 shrink-0`}
-                                          >
-                                            {[1, 2, 3, 4, 5, 6].map((n) => (
-                                              <option key={n} value={n}>
-                                                {n}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        )}
-                                      </div>
-                                    </td>
-                                    <td className="min-w-[150px] px-3 py-2">
-                                      <div className="flex items-center gap-1.5">
-                                        <select
-                                          value={row.status}
-                                          onChange={(e) =>
-                                            patchRow(i, {
-                                              status: e.target
-                                                .value as PrescriptionMedicineStatus,
-                                            })
-                                          }
-                                          className={inputClass}
-                                        >
-                                          {STOCK_STATUS_OPTIONS.map((o) => (
-                                            <option key={o.value} value={o.value}>
-                                              {o.label}
-                                            </option>
-                                          ))}
-                                        </select>
-                                        <Badge tone={STOCK_STATUS_TONE[row.status]}>
-                                          {STOCK_STATUS_LABEL[row.status]}
-                                        </Badge>
-                                      </div>
-                                    </td>
-                                    <td className="px-3 py-2 text-right">
-                                      <button
-                                        type="button"
-                                        title="Remove"
-                                        className="font-medium text-rose-500 hover:text-rose-600"
-                                        onClick={() => removeRow(i)}
-                                      >
-                                        ✕
-                                      </button>
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                      </div>
-                    </>
+                    draft.length > 0 && (
+                      <>
+                        {renderMedicineCard(displayOrder[0], true)}
+                        {/* Outside the card on purpose — a separate,
+                            obvious action rather than one more thing
+                            competing for attention inside it. Same
+                            commitTopRow as Enter in the card's Name/
+                            Quantity fields above. */}
+                        <Button
+                          variant="secondary"
+                          disabled={!draft[displayOrder[0]].name.trim()}
+                          onClick={commitTopRow}
+                          className="w-full"
+                        >
+                          + Add to list
+                        </Button>
+                      </>
+                    )
                   )}
                   {draft.length === 0 && (
                     <p className="text-sm text-slate-400">
@@ -1824,6 +1805,13 @@ export function PrescriptionReviewModal({
               );
             })()}
           </div>
+        )}
+        {/* Full width, under the card and the script image both — not
+            squeezed into the card's own column. See renderMedicineTable's
+            own doc for why it's only shown in the plain, un-"Process"d
+            view. */}
+        {prescription && step === 'intake' && !processed && (
+          <div className="mt-4">{renderMedicineTable()}</div>
         )}
       </Modal>
 
