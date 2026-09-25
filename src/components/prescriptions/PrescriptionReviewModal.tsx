@@ -139,12 +139,6 @@ export function PrescriptionReviewModal({
   // no longer needed on screen -- that step is the details form alone,
   // full width. "Next" / "Back" move between them.
   const [step, setStep] = useState<'intake' | 'details'>('intake');
-  // Whether the intake card is showing as one grouped-by-status list rather
-  // than plain entry order — off until "Process" is pressed, once every
-  // row's stock status has been set, so lines needing the same follow-up
-  // (e.g. every out-of-stock line) sit together under one heading instead
-  // of scattered through the list in whatever order they were typed.
-  const [processed, setProcessed] = useState(false);
   // What the member sent up front, editable here: blank/wrong doctor names
   // and durations are exactly what a reviewer corrects while reading the
   // actual script. durationToken is the raw app.medicine_duration value;
@@ -406,7 +400,6 @@ export function PrescriptionReviewModal({
       setRotations({});
       setSelectedImageIndex(0);
       setStep('intake');
-      setProcessed(false);
       setDoctor('');
       setDurationToken('');
       setCustomDays(0);
@@ -447,7 +440,6 @@ export function PrescriptionReviewModal({
     setRotations(Object.fromEntries(prescription.images.map((img) => [img.id, img.rotation])));
     setSelectedImageIndex(0);
     setStep('intake');
-    setProcessed(false);
     setDoctor(prescription.doctor);
     setDurationToken(prescription.durationToken);
     setCustomDays(prescription.customDays);
@@ -503,33 +495,28 @@ export function PrescriptionReviewModal({
     setDropCount(reindex);
   }
 
-  /** The plain (not "Process"-grouped) intake view keeps exactly one row
-   *  open for editing at a time — index [displayOrder[0]], the top of the
-   *  list — and shows every earlier line already filled in as a compact
-   *  table row below it. Confirming the open row (the "Add" button on its
-   *  card, or Enter in its Name/Quantity field) calls the existing
-   *  [addRow] unchanged: it prepends a fresh blank row, which both opens a
-   *  new entry card and pushes the just-filled row down into the table,
-   *  in one step. A blank name is refused rather than committed as an
-   *  empty table line. */
+  /** The intake view keeps exactly one row open for editing at a time —
+   *  index 0, the top of the list — and shows every earlier line already
+   *  filled in as a compact table row below it. Confirming the open row
+   *  (the "Add to list" button under its card, or Enter in its Name/
+   *  Quantity field) calls the existing [addRow] unchanged: it prepends a
+   *  fresh blank row, which both opens a new entry card and pushes the
+   *  just-filled row down into the table, in one step. A blank name is
+   *  refused rather than committed as an empty table line. */
   function commitTopRow() {
-    const top = draft[displayOrder[0]];
+    const top = draft[0];
     if (!top || !top.name.trim()) return;
     addRow();
   }
 
-  /** The full editable card for draft row [i] — every field a medicine
-   *  line carries, unchanged from before this card/table split. When
-   *  [isTopEntry] is true (the one open entry in the plain, un-"Process"d
-   *  view) it also gets an explicit "Add to list" button and Enter-to-add
-   *  on its Name and Quantity fields, both calling [commitTopRow] — never
-   *  wired for a row already sitting in the table below, or in the
-   *  "Process"-grouped view, where every row stays a full card and Enter
-   *  has no special meaning. */
-  function renderMedicineCard(i: number, isTopEntry: boolean) {
+  /** The one open entry card — always draft row 0, see [commitTopRow]'s
+   *  doc — with an explicit "Add to list" button and Enter-to-add on its
+   *  Name and Quantity fields. */
+  function renderMedicineCard() {
+    const i = 0;
     const row = draft[i];
     const handleEnterToAdd = (e: KeyboardEvent<HTMLInputElement>) => {
-      if (isTopEntry && e.key === 'Enter') {
+      if (e.key === 'Enter') {
         e.preventDefault();
         commitTopRow();
       }
@@ -816,16 +803,14 @@ export function PrescriptionReviewModal({
     );
   }
 
-  /** Every already-added line (everything but the open entry card at
-   *  displayOrder[0]) as a compact table — full width, under the intake
-   *  card and script image both, not squeezed into the card's own column.
-   *  Name/Type/Qty stay lightly editable in place; the "add a new
-   *  type/intake/route" mini-forms only exist on the open card, so
-   *  introducing something brand new naturally happens before a line is
-   *  committed, not after. Only relevant to the plain (not "Process"-
-   *  grouped) view — that one shows every row as a full card instead, see
-   *  its own branch above. Always rendered, even with nothing added yet —
-   *  the header row is what makes "+ Add to list" legible as "goes here". */
+  /** Every already-added line (everything but the open entry card at draft
+   *  row 0) as a compact table — full width, under the intake card and
+   *  script image both, not squeezed into the card's own column. Name/
+   *  Type/Qty stay lightly editable in place; the "add a new type/intake/
+   *  route" mini-forms only exist on the open card, so introducing
+   *  something brand new naturally happens before a line is committed,
+   *  not after. Always rendered, even with nothing added yet — the header
+   *  row is what makes "+ Add to list" legible as "goes here". */
   function renderMedicineTable() {
     return (
       <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -842,15 +827,15 @@ export function PrescriptionReviewModal({
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {displayOrder.length <= 1 && (
+            {draft.length <= 1 && (
               <tr>
                 <td colSpan={7} className="px-3 py-3 text-center text-slate-400">
                   Added medicines land here.
                 </td>
               </tr>
             )}
-            {displayOrder.slice(1).map((i) => {
-              const row = draft[i];
+            {draft.slice(1).map((row, idx) => {
+              const i = idx + 1;
               return (
                 <tr key={i} className="align-top">
                   <td className="min-w-[140px] px-3 py-2">
@@ -1137,28 +1122,6 @@ export function PrescriptionReviewModal({
 
   const draftHasRows = draft.some((r) => r.name.trim().length > 0);
 
-  // The order the intake cards render in: plain entry order until
-  // "Process" is pressed, then grouped by stock status (available first,
-  // then out-of-stock, ordered, not-possible — STOCK_STATUS_OPTIONS' own
-  // order), each group's rows keeping their original relative order (a
-  // stable sort). Holds original draft indices, not rows themselves, so
-  // every existing per-row handler (patchRow(i, …), removeRow(i), the
-  // preset dropdowns keyed by index) keeps working unchanged underneath.
-  const statusRank = useMemo(
-    () =>
-      Object.fromEntries(
-        STOCK_STATUS_OPTIONS.map((o, rank) => [o.value, rank]),
-      ) as Record<PrescriptionMedicineStatus, number>,
-    [],
-  );
-  const displayOrder = useMemo(() => {
-    const indices = draft.map((_, i) => i);
-    if (!processed) return indices;
-    return [...indices].sort(
-      (a, b) => statusRank[draft[a].status] - statusRank[draft[b].status],
-    );
-  }, [draft, processed, statusRank]);
-
   // Can this prescription's order be billed at all -- the same "at least
   // read" gate that unlocks the "Convert to bill" button in the footer, and
   // a linked order to actually invoice against.
@@ -1348,19 +1311,6 @@ export function PrescriptionReviewModal({
                   <div className="flex items-center gap-3">
                     <button
                       type="button"
-                      disabled={!draftHasRows}
-                      title={
-                        processed
-                          ? 'Show the medicines in plain entry order again'
-                          : "Group the medicines below by stock status once every row's status is set"
-                      }
-                      className="text-xs font-medium text-brand-600 disabled:cursor-not-allowed disabled:text-slate-300"
-                      onClick={() => setProcessed((p) => !p)}
-                    >
-                      {processed ? '← Unprocess' : 'Process ✓'}
-                    </button>
-                    <button
-                      type="button"
                       className="text-xs font-medium text-brand-600"
                       onClick={addRow}
                     >
@@ -1374,59 +1324,23 @@ export function PrescriptionReviewModal({
                   code the customer's app expands when you send this.
                 </p>
                 <div className="space-y-2">
-                  {processed ? (
-                    displayOrder.map((i, pos) => {
-                      const row = draft[i];
-                      const groupStart =
-                        pos === 0 ||
-                        draft[displayOrder[pos - 1]].status !== row.status;
-                      return (
-                        <div key={i}>
-                          {groupStart && (
-                            <div
-                              className={`mb-1.5 flex items-center gap-2 ${pos === 0 ? '' : 'mt-3'}`}
-                            >
-                              <Badge tone={STOCK_STATUS_TONE[row.status]}>
-                                {STOCK_STATUS_LABEL[row.status]}
-                              </Badge>
-                              <span className="text-xs font-medium text-slate-400">
-                                {
-                                  displayOrder.filter(
-                                    (j) => draft[j].status === row.status,
-                                  ).length
-                                }{' '}
-                                medicine
-                                {displayOrder.filter(
-                                  (j) => draft[j].status === row.status,
-                                ).length === 1
-                                  ? ''
-                                  : 's'}
-                              </span>
-                            </div>
-                          )}
-                          {renderMedicineCard(i, false)}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    draft.length > 0 && (
-                      <>
-                        {renderMedicineCard(displayOrder[0], true)}
-                        {/* Outside the card on purpose — a separate,
-                            obvious action rather than one more thing
-                            competing for attention inside it. Same
-                            commitTopRow as Enter in the card's Name/
-                            Quantity fields above. */}
-                        <Button
-                          variant="secondary"
-                          disabled={!draft[displayOrder[0]].name.trim()}
-                          onClick={commitTopRow}
-                          className="w-full"
-                        >
-                          + Add to list
-                        </Button>
-                      </>
-                    )
+                  {draft.length > 0 && (
+                    <>
+                      {renderMedicineCard()}
+                      {/* Outside the card on purpose — a separate,
+                          obvious action rather than one more thing
+                          competing for attention inside it. Same
+                          commitTopRow as Enter in the card's Name/
+                          Quantity fields above. */}
+                      <Button
+                        variant="secondary"
+                        disabled={!draft[0].name.trim()}
+                        onClick={commitTopRow}
+                        className="w-full"
+                      >
+                        + Add to list
+                      </Button>
+                    </>
                   )}
                   {draft.length === 0 && (
                     <p className="text-sm text-slate-400">
@@ -1807,10 +1721,8 @@ export function PrescriptionReviewModal({
           </div>
         )}
         {/* Full width, under the card and the script image both — not
-            squeezed into the card's own column. See renderMedicineTable's
-            own doc for why it's only shown in the plain, un-"Process"d
-            view. */}
-        {prescription && step === 'intake' && !processed && (
+            squeezed into the card's own column. */}
+        {prescription && step === 'intake' && (
           <div className="mt-4">{renderMedicineTable()}</div>
         )}
       </Modal>
