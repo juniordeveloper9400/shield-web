@@ -1282,9 +1282,12 @@ export function PrescriptionReviewModal({
                           type/intake/route" mini-forms only exist on the
                           open card above, so introducing something brand
                           new naturally happens before a line is committed,
-                          not after. */}
-                      {displayOrder.length > 1 && (
-                        <div className="overflow-x-auto rounded-lg border border-slate-200">
+                          not after. Always shown, even with nothing added
+                          yet — the table's own header row is what makes
+                          "+ Add to list" legible as "goes here", not just
+                          a vanishing element that only exists once it has
+                          something in it. */}
+                      <div className="overflow-x-auto rounded-lg border border-slate-200">
                           <table className="w-full text-left text-xs">
                             <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                               <tr>
@@ -1298,6 +1301,16 @@ export function PrescriptionReviewModal({
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
+                              {displayOrder.length <= 1 && (
+                                <tr>
+                                  <td
+                                    colSpan={7}
+                                    className="px-3 py-3 text-center text-slate-400"
+                                  >
+                                    Added medicines land here.
+                                  </td>
+                                </tr>
+                              )}
                               {displayOrder.slice(1).map((i) => {
                                 const row = draft[i];
                                 return (
@@ -1431,8 +1444,7 @@ export function PrescriptionReviewModal({
                               })}
                             </tbody>
                           </table>
-                        </div>
-                      )}
+                      </div>
                     </>
                   )}
                   {draft.length === 0 && (
