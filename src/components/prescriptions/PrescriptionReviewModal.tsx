@@ -1225,6 +1225,11 @@ export function PrescriptionReviewModal({
           setStep('details');
           return;
         }
+        // Close this modal outright rather than leaving it mounted
+        // underneath the navigation — Convert to bill hands off to the
+        // Bills page's own editor for this exact order, not something to
+        // come back to here.
+        onClose();
         navigate(`/bills?open=${prescription.orderId}`);
       } else {
         setStep('details');
