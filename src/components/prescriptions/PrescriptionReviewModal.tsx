@@ -1395,18 +1395,12 @@ export function PrescriptionReviewModal({
           // normally inside it, a single page with a single scrollbar,
           // not its own further-nested fixed/scrolling sub-regions.
           <>
-          <div
-            className={
-              step === 'intake'
-                ? 'grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'
-                : ''
-            }
-          >
-            {/* The intake card sits against the uploaded script, held in
-                view alongside it; the prescription's own details come
-                after, as a plain form -- the script is no longer needed on
-                screen by then. */}
-            <div className={step === 'intake' ? 'order-2 md:order-1' : 'mx-auto max-w-lg'}>
+          <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            {/* Left: the intake card against the uploaded script on the
+                intake step; the medicines-to-bill checkbox table against
+                the member/order details form on the Details step — same
+                left-table/right-context shape both times. */}
+            <div className={step === 'intake' ? 'order-2 md:order-1' : ''}>
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Badge tone={toneForStatus(prescription.status)}>
@@ -1464,6 +1458,83 @@ export function PrescriptionReviewModal({
                 </div>
               </div>
               ) : (
+                <>
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Medicines to bill
+                  </p>
+                  <p className="mb-2 text-xs text-slate-400">
+                    Uncheck anything that shouldn't go on this bill — the
+                    same as marking it "Not possible" on the intake card.
+                    Pricing and payment collection themselves still happen
+                    on the Bills page once you convert.
+                  </p>
+                  <div className="overflow-x-auto overflow-y-visible rounded-lg border border-slate-200">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                        <tr>
+                          <th className="px-3 py-2" />
+                          <th className="px-3 py-2">Name</th>
+                          <th className="px-3 py-2">Type</th>
+                          <th className="px-3 py-2">Qty</th>
+                          <th className="px-3 py-2">Stock status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {draftHasRows ? (
+                          draft.map((row, i) => {
+                            if (!row.name.trim()) return null;
+                            const checked = row.status !== 'not_possible';
+                            return (
+                              <tr key={i} className="align-top">
+                                <td className="px-3 py-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={(e) =>
+                                      patchRow(i, {
+                                        status: e.target.checked
+                                          ? 'available'
+                                          : 'not_possible',
+                                      })
+                                    }
+                                    className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                                  />
+                                </td>
+                                <td className="px-3 py-2">{row.name}</td>
+                                <td className="px-3 py-2">{row.pack || '—'}</td>
+                                <td className="px-3 py-2">{row.totalUnits || '—'}</td>
+                                <td className="px-3 py-2">
+                                  <Badge tone={STOCK_STATUS_TONE[row.status]}>
+                                    {STOCK_STATUS_LABEL[row.status]}
+                                  </Badge>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="px-3 py-3 text-center text-slate-400"
+                            >
+                              No medicines on this script yet.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Right on the Details step — the member/order context the
+                checkbox table on the left needs: who this is for, which
+                branch, the fulfilment/upload facts, doctor and duration.
+                Was the only column here before the checkbox table moved
+                in on its left; unchanged otherwise, just relocated. */}
+            {step === 'details' && (
+              <div>
                 <>
                   <DetailList
                     rows={[
@@ -1730,8 +1801,9 @@ export function PrescriptionReviewModal({
                     </p>
                   )}
                 </>
-              )}
-            </div>
+              </div>
+            )}
+
 
             {/* Right — the uploaded script, kept in view against the intake
                 card; no longer needed once it's just the details form. A
