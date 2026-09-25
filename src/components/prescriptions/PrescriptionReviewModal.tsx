@@ -60,12 +60,12 @@ import type {
 
 const inputClass =
   'w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
-// The open entry card's own fields, a touch tighter — the card sits next
-// to the script image at 50/50 now, and this is what actually shrinks it,
-// not just a narrower column: less vertical room per field, not smaller
-// text (nothing here gets harder to read).
+// The open entry card's own fields, tighter still — this is what actually
+// shrinks the card's own height, not just a narrower column: less
+// vertical room per field, not smaller text (nothing here gets harder to
+// read, just closer together).
 const compactInputClass =
-  'w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+  'w-full rounded-md border border-slate-300 bg-white px-2 py-0.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
 
 const DURATION_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'Not set' },
@@ -575,9 +575,9 @@ export function PrescriptionReviewModal({
     };
     return (
                     <div
-                      className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-slate-800"
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-800"
                     >
-                      <div className="mb-1 flex items-center justify-between">
+                      <div className="mb-0.5 flex items-center justify-between">
                         <span className="text-xs font-medium text-slate-500">
                           Medicine {i + 1}
                         </span>
@@ -599,7 +599,7 @@ export function PrescriptionReviewModal({
                         placeholder="e.g. Paracetamol 500mg"
                         className={compactInputClass}
                       />
-                      <p className="mb-0.5 mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 mt-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Type
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -656,7 +656,7 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
-                      <p className="mb-0.5 mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 mt-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Quantity
                       </p>
                       <input
@@ -671,7 +671,7 @@ export function PrescriptionReviewModal({
                         inputMode="numeric"
                         className={compactInputClass}
                       />
-                      <p className="mb-0.5 mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 mt-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Intake preset
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -747,7 +747,7 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
-                      <p className="mb-0.5 mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 mt-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Route &amp; time
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -825,7 +825,7 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
-                      <p className="mb-0.5 mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 mt-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Stock status
                       </p>
                       <div className="flex items-center gap-1.5">
