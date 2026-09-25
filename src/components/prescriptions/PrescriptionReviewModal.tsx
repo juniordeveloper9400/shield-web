@@ -1344,7 +1344,7 @@ export function PrescriptionReviewModal({
           <div
             className={
               step === 'intake'
-                ? 'grid gap-6 md:grid-cols-[minmax(0,380px)_minmax(400px,1fr)]'
+                ? 'grid gap-6 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]'
                 : 'mx-auto max-w-lg'
             }
           >
