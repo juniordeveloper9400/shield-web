@@ -1267,7 +1267,7 @@ export function PrescriptionReviewModal({
           <div
             className={
               step === 'intake'
-                ? 'grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(260px,360px)]'
+                ? 'grid gap-6 md:grid-cols-[minmax(0,380px)_minmax(400px,1fr)]'
                 : 'mx-auto max-w-lg'
             }
           >
@@ -1331,15 +1331,27 @@ export function PrescriptionReviewModal({
                           obvious action rather than one more thing
                           competing for attention inside it. Same
                           commitTopRow as Enter in the card's Name/
-                          Quantity fields above. */}
-                      <Button
-                        variant="secondary"
-                        disabled={!draft[0].name.trim()}
-                        onClick={commitTopRow}
-                        className="w-full"
-                      >
-                        + Add to list
-                      </Button>
+                          Quantity fields above. Remove sits right next
+                          to it too — the card's own top-corner Remove
+                          still works the same, this is just within
+                          reach without scrolling back up to it. */}
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          disabled={!draft[0].name.trim()}
+                          onClick={commitTopRow}
+                        >
+                          + Add to list
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => removeRow(0)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
                     </>
                   )}
                   {draft.length === 0 && (
