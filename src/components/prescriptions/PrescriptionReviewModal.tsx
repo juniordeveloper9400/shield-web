@@ -460,7 +460,18 @@ export function PrescriptionReviewModal({
     setDropCount(drops);
     setRotations(Object.fromEntries(prescription.images.map((img) => [img.id, img.rotation])));
     setSelectedImageIndex(0);
-    setStep('intake');
+    // Straight to Details (Convert to bill's own step) on reopening a
+    // prescription that's already past awaiting_review — its intake card
+    // was already sent, in this session or an earlier one, so the
+    // reviewer's next real job here is billing it, not re-reviewing
+    // medicines. Only starts on the intake card itself for one still
+    // awaiting that first review. intakeSent mirrors the same real
+    // status rather than staying false from a fresh mount — otherwise
+    // canBill && intakeSent's "Convert to bill" button wouldn't show
+    // until *this* visit sent something, even for a prescription sent
+    // in an earlier session entirely.
+    setStep(prescription.status === 'awaiting_review' ? 'intake' : 'details');
+    setIntakeSent(prescription.status !== 'awaiting_review');
     setOpenRowMenu(null);
     setDoctor(prescription.doctor);
     setDurationToken(prescription.durationToken);
@@ -1140,6 +1151,28 @@ export function PrescriptionReviewModal({
     }
   }
 
+  /** The intake step's own primary action now — Save, not a plain "Next"
+   *  that only navigates. Validates and saves everything in one go (the
+   *  medicines here plus the Details fields, already prefilled from the
+   *  member's own order so this passes without ever having to visit that
+   *  step separately), sends the intake card to the member, and closes
+   *  the modal — reviewing this script is done. Falls back to actually
+   *  showing the Details step, same as {@link convertToBill}, only when
+   *  something there genuinely needs a reviewer's attention first (a
+   *  blank contact field, no patient picked) rather than closing on top
+   *  of an error. */
+  async function saveIntakeAndClose() {
+    if (!validateDetails()) {
+      setStep('details');
+      return;
+    }
+    if (await saveDetailsAndIntake()) {
+      setIntakeSent(true);
+      onSaved();
+      onClose();
+    }
+  }
+
   /** "Convert to bill →" — the Details step's primary action once
    *  {@link sendIntake} has run at least once (`canBill`), replacing it in
    *  the footer rather than sitting alongside it. Re-saves everything (a
@@ -1295,10 +1328,10 @@ export function PrescriptionReviewModal({
               )}
               <Button
                 variant="primary"
-                disabled={!draftHasRows}
-                onClick={() => setStep('details')}
+                disabled={!draftHasRows || sending}
+                onClick={() => void saveIntakeAndClose()}
               >
-                Next: Details →
+                {sending ? 'Saving…' : 'Save'}
               </Button>
             </>
           ) : (
