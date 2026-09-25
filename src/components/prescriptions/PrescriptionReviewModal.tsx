@@ -1242,7 +1242,15 @@ export function PrescriptionReviewModal({
         onClose();
         navigate(`/bills?open=${prescription.orderId}`);
       } else {
-        setStep('details');
+        // Was a silent no-op before — setStep('details') when we're
+        // already on that step changes nothing on screen, so clicking
+        // "Convert to bill" with no linked order looked exactly like the
+        // button did nothing at all, with no way to tell why. This is the
+        // one real reason conversion can't proceed here (everything else
+        // that can block it already sets its own detailsError above).
+        setDetailsError(
+          'This prescription has no linked order yet, so there is nothing to convert to a bill.',
+        );
       }
     } else {
       setStep('details');
