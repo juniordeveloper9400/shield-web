@@ -43,18 +43,36 @@ export function Modal({
         : size === 'lg'
           ? 'max-w-2xl'
           : 'max-w-lg';
-  const bodyMaxHeight =
-    size === 'full' ? 'max-h-[86vh]' : size === 'md' ? 'max-h-[60vh]' : 'max-h-[74vh]';
-  // 'full' hands its own scrolling to its content instead of scrolling the
-  // whole body as one block — the prescription intake screen keeps its card
-  // and script image fixed in place and only scrolls the table under them,
-  // which position: sticky can't guarantee once the fixed part is taller
-  // than the viewport. flex + overflow-hidden here, and the content itself
-  // marks which of its own sections scrolls (see PrescriptionReviewModal).
+  const bodyMaxHeight = size === 'md' ? 'max-h-[60vh]' : 'max-h-[74vh]';
+  // 'full' caps the WHOLE dialog (header + body + footer together) at
+  // 92vh and makes it a flex column, instead of only capping the body at
+  // 86vh on its own — capping just the body left the header and footer's
+  // own height added on top of that 86vh with nothing accounting for the
+  // total, so the dialog as a whole could still end up taller than the
+  // viewport with no way to reach whatever that pushed off the bottom
+  // (the footer, or the last of the body). Header and footer are shrink-0
+  // (their natural size, never shrunk); the body is the one flex-1 item,
+  // so it always gets exactly "whatever's left" after their real heights
+  // are subtracted — never a fixed guess. The prescription intake screen
+  // then does the same thing one level deeper inside that body (see
+  // PrescriptionReviewModal) to keep its card and script image fixed and
+  // scroll only the table under them.
+  const dialogClass =
+    size === 'full'
+      ? `relative z-10 flex max-h-[92vh] w-full ${widthClass} flex-col overflow-hidden rounded-xl bg-white shadow-xl`
+      : `relative z-10 w-full ${widthClass} overflow-hidden rounded-xl bg-white shadow-xl`;
+  const headerClass =
+    size === 'full'
+      ? 'flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4'
+      : 'flex items-center justify-between border-b border-slate-200 px-5 py-4';
   const bodyClass =
     size === 'full'
-      ? `flex ${bodyMaxHeight} flex-col overflow-hidden px-5 py-4`
+      ? 'flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4'
       : `${bodyMaxHeight} overflow-y-auto px-5 py-4`;
+  const footerClass =
+    size === 'full'
+      ? 'flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4'
+      : 'flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -62,12 +80,8 @@ export function Modal({
         className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div
-        role="dialog"
-        aria-modal="true"
-        className={`relative z-10 w-full ${widthClass} overflow-hidden rounded-xl bg-white shadow-xl`}
-      >
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <div role="dialog" aria-modal="true" className={dialogClass}>
+        <div className={headerClass}>
           <h3 className="text-base font-semibold text-slate-900">{title}</h3>
           <button
             onClick={onClose}
@@ -80,11 +94,7 @@ export function Modal({
         <div className={bodyClass}>
           {children}
         </div>
-        {footer && (
-          <div className="flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4">
-            {footer}
-          </div>
-        )}
+        {footer && <div className={footerClass}>{footer}</div>}
       </div>
     </div>
   );
