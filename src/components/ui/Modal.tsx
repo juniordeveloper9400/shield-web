@@ -59,7 +59,7 @@ export function Modal({
   // under them.
   const dialogClass =
     size === 'full'
-      ? `relative z-10 flex h-[92vh] w-full ${widthClass} flex-col overflow-hidden rounded-xl bg-white shadow-xl`
+      ? `relative z-10 flex h-[97vh] w-full ${widthClass} flex-col overflow-hidden rounded-xl bg-white shadow-xl`
       : `relative z-10 w-full ${widthClass} overflow-hidden rounded-xl bg-white shadow-xl`;
   const headerClass =
     size === 'full'
@@ -75,7 +75,9 @@ export function Modal({
       : 'flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className={`fixed inset-0 z-50 flex items-center justify-center ${size === 'full' ? 'p-1.5' : 'p-4'}`}
+    >
       <div
         className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
         onClick={onClose}

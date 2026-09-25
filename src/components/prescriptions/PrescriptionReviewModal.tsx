@@ -1357,7 +1357,16 @@ export function PrescriptionReviewModal({
           <div
             className={
               step === 'intake'
-                ? 'grid shrink-0 gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'
+                ? // Capped, not just shrink-0 — a card with every field
+                  // filled plus its hint text can genuinely be taller than
+                  // half the dialog on a shorter screen. Uncapped, that
+                  // fixed-size row ate 100% of the available height and
+                  // the table's own flex-1 sibling was squeezed to zero —
+                  // rendered, but with no visible space at all. Capped at
+                  // 58vh with its own scroll as a fallback, the table
+                  // below it is guaranteed a real, non-zero share every
+                  // time, not just when the card happens to be short.
+                  'grid max-h-[58vh] shrink-0 gap-6 overflow-y-auto md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'
                 : 'min-h-0 flex-1 overflow-y-auto'
             }
           >
