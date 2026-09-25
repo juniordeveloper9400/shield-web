@@ -1423,36 +1423,7 @@ export function PrescriptionReviewModal({
                   code the customer's app expands when you send this.
                 </p>
                 <div className="space-y-2">
-                  {draft.length > 0 && (
-                    <>
-                      {renderMedicineCard()}
-                      {/* Outside the card on purpose — a separate,
-                          obvious action rather than one more thing
-                          competing for attention inside it. Same
-                          commitTopRow as Enter in the card's Name/
-                          Quantity fields above. Remove sits right next
-                          to it too — the card's own top-corner Remove
-                          still works the same, this is just within
-                          reach without scrolling back up to it. */}
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          disabled={!draft[0].name.trim()}
-                          onClick={commitTopRow}
-                        >
-                          + Add to list
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => removeRow(0)}
-                        >
-                          Remove
-                        </Button>
-                      </div>
-                    </>
-                  )}
+                  {draft.length > 0 && renderMedicineCard()}
                   {draft.length === 0 && (
                     <p className="text-sm text-slate-400">
                       No lines yet — add the medicines from the script.
@@ -1830,6 +1801,28 @@ export function PrescriptionReviewModal({
               );
             })()}
           </div>
+          {/* Outside the card's own scrolling area on purpose, and outside
+              the card itself too — a separate, static action row that
+              never scrolls away with the card's fields, whichever of
+              Name through Stock status you're currently looking at. Same
+              commitTopRow as Enter in the card's Name/Quantity fields.
+              Remove sits right next to it too — the card's own top-corner
+              Remove still works the same, this is just always in reach. */}
+          {step === 'intake' && draft.length > 0 && (
+            <div className="mt-3 flex shrink-0 items-center gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                disabled={!draft[0].name.trim()}
+                onClick={commitTopRow}
+              >
+                + Add to list
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => removeRow(0)}>
+                Remove
+              </Button>
+            </div>
+          )}
           {/* Full width, under the card and the script image both — not
               squeezed into the card's own column; the one part of this
               whole step that actually scrolls. */}
