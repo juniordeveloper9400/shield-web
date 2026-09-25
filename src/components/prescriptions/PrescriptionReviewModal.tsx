@@ -1347,7 +1347,7 @@ export function PrescriptionReviewModal({
           // (shrink-0) and the table under it gets the remaining space, on
           // the intake step; the details step's single form scrolls in the
           // space this whole thing has instead.
-          <div className="flex h-full min-h-0 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col">
           <div
             className={
               step === 'intake'
