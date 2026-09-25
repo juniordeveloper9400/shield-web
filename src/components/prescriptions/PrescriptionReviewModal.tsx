@@ -1341,18 +1341,25 @@ export function PrescriptionReviewModal({
         }
       >
         {prescription && (
+          // 'full'-size Modal no longer scrolls its whole body as one block
+          // (see Modal.tsx) — this flex column decides for itself which of
+          // its two children scrolls: the card+image row stays fixed
+          // (shrink-0) and the table under it gets the remaining space, on
+          // the intake step; the details step's single form scrolls in the
+          // space this whole thing has instead.
+          <div className="flex h-full min-h-0 flex-col">
           <div
             className={
               step === 'intake'
-                ? 'sticky top-0 z-10 -mx-5 -mt-4 grid gap-6 bg-white px-5 pb-4 pt-4 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]'
-                : 'mx-auto max-w-lg'
+                ? 'grid shrink-0 gap-6 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]'
+                : 'min-h-0 flex-1 overflow-y-auto'
             }
           >
             {/* The intake card sits against the uploaded script, held in
                 view alongside it; the prescription's own details come
                 after, as a plain form -- the script is no longer needed on
                 screen by then. */}
-            <div className={step === 'intake' ? 'order-2 md:order-1' : ''}>
+            <div className={step === 'intake' ? 'order-2 md:order-1' : 'mx-auto max-w-lg'}>
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <Badge tone={toneForStatus(prescription.status)}>
@@ -1808,11 +1815,15 @@ export function PrescriptionReviewModal({
               );
             })()}
           </div>
-        )}
-        {/* Full width, under the card and the script image both — not
-            squeezed into the card's own column. */}
-        {prescription && step === 'intake' && (
-          <div className="mt-4">{renderMedicineTable()}</div>
+          {/* Full width, under the card and the script image both — not
+              squeezed into the card's own column; the one part of this
+              whole step that actually scrolls. */}
+          {step === 'intake' && (
+            <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
+              {renderMedicineTable()}
+            </div>
+          )}
+          </div>
         )}
       </Modal>
 

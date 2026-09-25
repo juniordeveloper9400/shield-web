@@ -45,6 +45,16 @@ export function Modal({
           : 'max-w-lg';
   const bodyMaxHeight =
     size === 'full' ? 'max-h-[86vh]' : size === 'md' ? 'max-h-[60vh]' : 'max-h-[74vh]';
+  // 'full' hands its own scrolling to its content instead of scrolling the
+  // whole body as one block — the prescription intake screen keeps its card
+  // and script image fixed in place and only scrolls the table under them,
+  // which position: sticky can't guarantee once the fixed part is taller
+  // than the viewport. flex + overflow-hidden here, and the content itself
+  // marks which of its own sections scrolls (see PrescriptionReviewModal).
+  const bodyClass =
+    size === 'full'
+      ? `flex ${bodyMaxHeight} flex-col overflow-hidden px-5 py-4`
+      : `${bodyMaxHeight} overflow-y-auto px-5 py-4`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -67,7 +77,7 @@ export function Modal({
             <Icon name="close" className="h-5 w-5" />
           </button>
         </div>
-        <div className={`${bodyMaxHeight} overflow-y-auto px-5 py-4`}>
+        <div className={bodyClass}>
           {children}
         </div>
         {footer && (
