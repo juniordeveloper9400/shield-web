@@ -209,7 +209,17 @@ export function PrescriptionReviewModal({
     [prescription?.orderId, prescription?.billStatus, prescription?.billAmount],
   );
   const [addedPatients, setAddedPatients] = useState<MemberPatient[]>([]);
-  const patients = [...(patientRows ?? []), ...addedPatients];
+  // confirmNewPatient both appends the freshly-created patient here (so the
+  // picker shows it selected immediately, without waiting on a refetch) and
+  // kicks off reloadPatients() in the same breath — once that reload lands,
+  // the same patient is in patientRows too, and this list showed it twice.
+  // Only keep an addedPatients entry whose id patientRows doesn't already
+  // have.
+  const knownPatientIds = new Set((patientRows ?? []).map((p) => p.id));
+  const patients = [
+    ...(patientRows ?? []),
+    ...addedPatients.filter((p) => !knownPatientIds.has(p.id)),
+  ];
 
   // The inline "add a new patient" form under the Patient picker's "+".
   const [addingPatient, setAddingPatient] = useState(false);
