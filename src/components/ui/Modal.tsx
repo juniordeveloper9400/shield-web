@@ -44,22 +44,22 @@ export function Modal({
           ? 'max-w-2xl'
           : 'max-w-lg';
   const bodyMaxHeight = size === 'md' ? 'max-h-[60vh]' : 'max-h-[74vh]';
-  // 'full' caps the WHOLE dialog (header + body + footer together) at
-  // 92vh and makes it a flex column, instead of only capping the body at
-  // 86vh on its own — capping just the body left the header and footer's
-  // own height added on top of that 86vh with nothing accounting for the
-  // total, so the dialog as a whole could still end up taller than the
-  // viewport with no way to reach whatever that pushed off the bottom
-  // (the footer, or the last of the body). Header and footer are shrink-0
-  // (their natural size, never shrunk); the body is the one flex-1 item,
-  // so it always gets exactly "whatever's left" after their real heights
-  // are subtracted — never a fixed guess. The prescription intake screen
-  // then does the same thing one level deeper inside that body (see
-  // PrescriptionReviewModal) to keep its card and script image fixed and
-  // scroll only the table under them.
+  // 'full' fixes the WHOLE dialog (header + body + footer together) at
+  // 92vh tall and makes it a flex column — a fixed height (h-), not a
+  // max-height, since a max only caps how tall it's allowed to grow: with
+  // content that doesn't happen to need the full 92vh, the dialog would
+  // just shrink to fit that content instead of actually filling the page
+  // the way a full-screen review screen should read. Header and footer
+  // are shrink-0 (their natural size, never shrunk); the body is the one
+  // flex-1 item, so it always gets exactly "92vh minus however tall they
+  // really are" — never a fixed guess that could overflow past the
+  // viewport either. The prescription intake screen then does the same
+  // thing one level deeper inside that body (see PrescriptionReviewModal)
+  // to keep its card and script image fixed and scroll only the table
+  // under them.
   const dialogClass =
     size === 'full'
-      ? `relative z-10 flex max-h-[92vh] w-full ${widthClass} flex-col overflow-hidden rounded-xl bg-white shadow-xl`
+      ? `relative z-10 flex h-[92vh] w-full ${widthClass} flex-col overflow-hidden rounded-xl bg-white shadow-xl`
       : `relative z-10 w-full ${widthClass} overflow-hidden rounded-xl bg-white shadow-xl`;
   const headerClass =
     size === 'full'

@@ -60,6 +60,12 @@ import type {
 
 const inputClass =
   'w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+// The open entry card's own fields, a touch tighter — the card sits next
+// to the script image at 50/50 now, and this is what actually shrinks it,
+// not just a narrower column: less vertical room per field, not smaller
+// text (nothing here gets harder to read).
+const compactInputClass =
+  'w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
 
 const DURATION_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'Not set' },
@@ -569,9 +575,9 @@ export function PrescriptionReviewModal({
     };
     return (
                     <div
-                      className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-800"
+                      className="rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-slate-800"
                     >
-                      <div className="mb-1.5 flex items-center justify-between">
+                      <div className="mb-1 flex items-center justify-between">
                         <span className="text-xs font-medium text-slate-500">
                           Medicine {i + 1}
                         </span>
@@ -583,7 +589,7 @@ export function PrescriptionReviewModal({
                           Remove
                         </button>
                       </div>
-                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Name
                       </p>
                       <input
@@ -591,9 +597,9 @@ export function PrescriptionReviewModal({
                         onChange={(e) => patchRow(i, { name: e.target.value })}
                         onKeyDown={handleEnterToAdd}
                         placeholder="e.g. Paracetamol 500mg"
-                        className={inputClass}
+                        className={compactInputClass}
                       />
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Type
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -650,7 +656,7 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Quantity
                       </p>
                       <input
@@ -663,9 +669,9 @@ export function PrescriptionReviewModal({
                         onKeyDown={handleEnterToAdd}
                         placeholder="Number of units"
                         inputMode="numeric"
-                        className={inputClass}
+                        className={compactInputClass}
                       />
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Intake preset
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -741,7 +747,7 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Route &amp; time
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -765,7 +771,7 @@ export function PrescriptionReviewModal({
                               applyDropCount(i, Number(e.target.value))
                             }
                             title="Number of drops"
-                            className={`${inputClass} w-[92px] shrink-0`}
+                            className={`${compactInputClass} w-[92px] shrink-0`}
                           >
                             {[1, 2, 3, 4, 5, 6].map((n) => (
                               <option key={n} value={n}>
@@ -819,7 +825,7 @@ export function PrescriptionReviewModal({
                           </Button>
                         </div>
                       )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                      <p className="mb-0.5 mt-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
                         Stock status
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -830,7 +836,7 @@ export function PrescriptionReviewModal({
                               status: e.target.value as PrescriptionMedicineStatus,
                             })
                           }
-                          className={`${inputClass} flex-1`}
+                          className={`${compactInputClass} flex-1`}
                         >
                           {STOCK_STATUS_OPTIONS.map((o) => (
                             <option key={o.value} value={o.value}>
@@ -1351,7 +1357,7 @@ export function PrescriptionReviewModal({
           <div
             className={
               step === 'intake'
-                ? 'grid shrink-0 gap-6 md:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]'
+                ? 'grid shrink-0 gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'
                 : 'min-h-0 flex-1 overflow-y-auto'
             }
           >
