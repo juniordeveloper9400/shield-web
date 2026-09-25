@@ -45,18 +45,23 @@ export function Modal({
           : 'max-w-lg';
   const bodyMaxHeight = size === 'md' ? 'max-h-[60vh]' : 'max-h-[74vh]';
   // 'full' fixes the WHOLE dialog (header + body + footer together) at
-  // 92vh tall and makes it a flex column — a fixed height (h-), not a
-  // max-height, since a max only caps how tall it's allowed to grow: with
-  // content that doesn't happen to need the full 92vh, the dialog would
-  // just shrink to fit that content instead of actually filling the page
-  // the way a full-screen review screen should read. Header and footer
-  // are shrink-0 (their natural size, never shrunk); the body is the one
-  // flex-1 item, so it always gets exactly "92vh minus however tall they
-  // really are" — never a fixed guess that could overflow past the
-  // viewport either. The prescription intake screen then does the same
-  // thing one level deeper inside that body (see PrescriptionReviewModal)
-  // to keep its card and script image fixed and scroll only the table
-  // under them.
+  // 97vh tall — a fixed height (h-), not a max-height, since a max only
+  // caps how tall it's allowed to grow: with content that doesn't happen
+  // to need the full 97vh, the dialog would just shrink to fit instead of
+  // actually filling the page the way a full-screen review screen should
+  // read. Header and footer are shrink-0 (their natural size, never
+  // shrunk); the body is the one flex-1 item, so it always gets exactly
+  // "97vh minus however tall they really are".
+  //
+  // The body itself is ONE scrolling region (overflow-y-auto), same as
+  // every other Modal size — not further split into its own nested
+  // fixed/scrolling sub-regions. An earlier version of this tried keeping
+  // the prescription intake card and script image fixed with only the
+  // medicine table scrolling under them, which meant two independent
+  // scrollbars on screen at once; simpler and what was actually wanted is
+  // this whole screen reading as one continuous page with a single
+  // scrollbar, so PrescriptionReviewModal's own content just flows
+  // normally in here now.
   const dialogClass =
     size === 'full'
       ? `relative z-10 flex h-[97vh] w-full ${widthClass} flex-col overflow-hidden rounded-xl bg-white shadow-xl`
@@ -67,7 +72,7 @@ export function Modal({
       : 'flex items-center justify-between border-b border-slate-200 px-5 py-4';
   const bodyClass =
     size === 'full'
-      ? 'flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4'
+      ? 'min-h-0 flex-1 overflow-y-auto px-5 py-4'
       : `${bodyMaxHeight} overflow-y-auto px-5 py-4`;
   const footerClass =
     size === 'full'

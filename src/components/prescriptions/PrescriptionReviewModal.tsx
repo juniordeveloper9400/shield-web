@@ -1347,27 +1347,16 @@ export function PrescriptionReviewModal({
         }
       >
         {prescription && (
-          // 'full'-size Modal no longer scrolls its whole body as one block
-          // (see Modal.tsx) — this flex column decides for itself which of
-          // its two children scrolls: the card+image row stays fixed
-          // (shrink-0) and the table under it gets the remaining space, on
-          // the intake step; the details step's single form scrolls in the
-          // space this whole thing has instead.
-          <div className="flex min-h-0 flex-1 flex-col">
+          // The Modal's own body (see Modal.tsx) is the one scrolling
+          // region for this whole screen — everything below just flows
+          // normally inside it, a single page with a single scrollbar,
+          // not its own further-nested fixed/scrolling sub-regions.
+          <>
           <div
             className={
               step === 'intake'
-                ? // Capped, not just shrink-0 — a card with every field
-                  // filled plus its hint text can genuinely be taller than
-                  // half the dialog on a shorter screen. Uncapped, that
-                  // fixed-size row ate 100% of the available height and
-                  // the table's own flex-1 sibling was squeezed to zero —
-                  // rendered, but with no visible space at all. Capped at
-                  // 58vh with its own scroll as a fallback, the table
-                  // below it is guaranteed a real, non-zero share every
-                  // time, not just when the card happens to be short.
-                  'grid max-h-[58vh] shrink-0 gap-6 overflow-y-auto md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'
-                : 'min-h-0 flex-1 overflow-y-auto'
+                ? 'grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]'
+                : ''
             }
           >
             {/* The intake card sits against the uploaded script, held in
@@ -1801,15 +1790,14 @@ export function PrescriptionReviewModal({
               );
             })()}
           </div>
-          {/* Outside the card's own scrolling area on purpose, and outside
-              the card itself too — a separate, static action row that
-              never scrolls away with the card's fields, whichever of
-              Name through Stock status you're currently looking at. Same
-              commitTopRow as Enter in the card's Name/Quantity fields.
-              Remove sits right next to it too — the card's own top-corner
-              Remove still works the same, this is just always in reach. */}
+          {/* Outside the card itself on purpose — a separate, static
+              action row, not one more thing competing for attention
+              inside the card. Same commitTopRow as Enter in the card's
+              Name/Quantity fields. Remove sits right next to it too — the
+              card's own top-corner Remove still works the same, this is
+              just always in reach without scrolling back up to it. */}
           {step === 'intake' && draft.length > 0 && (
-            <div className="mt-3 flex shrink-0 items-center gap-2">
+            <div className="mt-3 flex items-center gap-2">
               <Button
                 variant="primary"
                 size="sm"
@@ -1824,14 +1812,11 @@ export function PrescriptionReviewModal({
             </div>
           )}
           {/* Full width, under the card and the script image both — not
-              squeezed into the card's own column; the one part of this
-              whole step that actually scrolls. */}
+              squeezed into the card's own column. */}
           {step === 'intake' && (
-            <div className="mt-4 min-h-0 flex-1 overflow-y-auto">
-              {renderMedicineTable()}
-            </div>
+            <div className="mt-4">{renderMedicineTable()}</div>
           )}
-          </div>
+          </>
         )}
       </Modal>
 
