@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -503,6 +503,334 @@ export function PrescriptionReviewModal({
     setDropCount(reindex);
   }
 
+  /** The plain (not "Process"-grouped) intake view keeps exactly one row
+   *  open for editing at a time — index [displayOrder[0]], the top of the
+   *  list — and shows every earlier line already filled in as a compact
+   *  table row below it. Confirming the open row (the "Add" button on its
+   *  card, or Enter in its Name/Quantity field) calls the existing
+   *  [addRow] unchanged: it prepends a fresh blank row, which both opens a
+   *  new entry card and pushes the just-filled row down into the table,
+   *  in one step. A blank name is refused rather than committed as an
+   *  empty table line. */
+  function commitTopRow() {
+    const top = draft[displayOrder[0]];
+    if (!top || !top.name.trim()) return;
+    addRow();
+  }
+
+  /** The full editable card for draft row [i] — every field a medicine
+   *  line carries, unchanged from before this card/table split. When
+   *  [isTopEntry] is true (the one open entry in the plain, un-"Process"d
+   *  view) it also gets an explicit "Add to list" button and Enter-to-add
+   *  on its Name and Quantity fields, both calling [commitTopRow] — never
+   *  wired for a row already sitting in the table below, or in the
+   *  "Process"-grouped view, where every row stays a full card and Enter
+   *  has no special meaning. */
+  function renderMedicineCard(i: number, isTopEntry: boolean) {
+    const row = draft[i];
+    const handleEnterToAdd = (e: KeyboardEvent<HTMLInputElement>) => {
+      if (isTopEntry && e.key === 'Enter') {
+        e.preventDefault();
+        commitTopRow();
+      }
+    };
+    return (
+                    <div
+                      className="rounded-lg border border-blue-700 bg-blue-600 p-3 text-white"
+                    >
+                      <div className="mb-1.5 flex items-center justify-between">
+                        <span className="text-xs font-medium text-blue-100">
+                          Medicine {i + 1}
+                        </span>
+                        <div className="flex items-center gap-3">
+                          {isTopEntry && (
+                            <button
+                              type="button"
+                              disabled={!row.name.trim()}
+                              className="text-xs font-medium text-white disabled:cursor-not-allowed disabled:text-blue-200"
+                              onClick={commitTopRow}
+                            >
+                              + Add to list
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-rose-200 hover:text-rose-100"
+                            onClick={() => removeRow(i)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                        Name
+                      </p>
+                      <input
+                        value={row.name}
+                        onChange={(e) => patchRow(i, { name: e.target.value })}
+                        onKeyDown={handleEnterToAdd}
+                        placeholder="e.g. Paracetamol 500mg"
+                        className={inputClass}
+                      />
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                        Type
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <Combobox
+                          value={row.pack}
+                          onChange={(v) => patchRow(i, { pack: v })}
+                          options={typeOptions.map((t) => ({ value: t, label: t }))}
+                          placeholder="Choose a type"
+                          searchPlaceholder="Search types…"
+                          className="flex-1"
+                        />
+                        <button
+                          type="button"
+                          title="Add a new type"
+                          onClick={() => {
+                            setAddingTypeFor(i);
+                            setNewTypeValue('');
+                          }}
+                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <Icon name="plus" className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {addingTypeFor === i && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <input
+                            autoFocus
+                            value={newTypeValue}
+                            onChange={(e) => setNewTypeValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                confirmNewType(i);
+                              } else if (e.key === 'Escape') {
+                                setAddingTypeFor(null);
+                              }
+                            }}
+                            placeholder="New type name"
+                            className={inputClass}
+                          />
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => confirmNewType(i)}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-white hover:bg-white/10"
+                            onClick={() => setAddingTypeFor(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                        Quantity
+                      </p>
+                      <input
+                        value={row.totalUnits || ''}
+                        onChange={(e) =>
+                          patchRow(i, {
+                            totalUnits: Number(e.target.value) || 0,
+                          })
+                        }
+                        onKeyDown={handleEnterToAdd}
+                        placeholder="Number of units"
+                        inputMode="numeric"
+                        className={inputClass}
+                      />
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                        Intake preset
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <Combobox
+                          value={selectedFrequency[i] ?? ''}
+                          onChange={(v) => {
+                            setSelectedFrequency((m) => ({ ...m, [i]: v }));
+                            const preset = frequencyOptions.find(
+                              (f) => f.code === v,
+                            );
+                            if (preset) applyFrequency(i, preset);
+                          }}
+                          options={frequencyOptions.map((f) => ({
+                            value: f.code,
+                            label: f.description
+                              ? `${f.code} — ${f.description}`
+                              : f.code,
+                          }))}
+                          placeholder="OD, BD, TDS, …"
+                          searchPlaceholder="Search intake presets…"
+                          className="flex-1"
+                        />
+                        <button
+                          type="button"
+                          title="Add a new intake preset"
+                          onClick={() => {
+                            setAddingFrequencyFor(i);
+                            setNewFrequencyValue('');
+                          }}
+                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <Icon name="plus" className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {row.intake && (
+                        <p className="mt-1 text-xs text-blue-100">
+                          Intake set to {row.intake.split('').join('-')} — pick
+                          a different preset to change it.
+                        </p>
+                      )}
+                      {addingFrequencyFor === i && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <input
+                            autoFocus
+                            value={newFrequencyValue}
+                            onChange={(e) =>
+                              setNewFrequencyValue(e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                confirmNewFrequency(i);
+                              } else if (e.key === 'Escape') {
+                                setAddingFrequencyFor(null);
+                              }
+                            }}
+                            placeholder="New Intake code, e.g. 1-1-1"
+                            className={inputClass}
+                          />
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => confirmNewFrequency(i)}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-white hover:bg-white/10"
+                            onClick={() => setAddingFrequencyFor(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                        Route &amp; time
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <Combobox
+                          value={selectedRouteCode[i] ?? row.routeTime}
+                          onChange={(v) => applyRouteTime(i, v)}
+                          options={routeTimeOptions.map((r) => ({
+                            value: r.code,
+                            label: r.description
+                              ? `${r.code} — ${r.description}`
+                              : r.code,
+                          }))}
+                          placeholder="Choose route & time"
+                          searchPlaceholder="Search route & time…"
+                          className="flex-1"
+                        />
+                        {isDropRouteCode(selectedRouteCode[i] ?? '') && (
+                          <select
+                            value={dropCount[i] ?? 1}
+                            onChange={(e) =>
+                              applyDropCount(i, Number(e.target.value))
+                            }
+                            title="Number of drops"
+                            className={`${inputClass} w-[92px] shrink-0`}
+                          >
+                            {[1, 2, 3, 4, 5, 6].map((n) => (
+                              <option key={n} value={n}>
+                                {n} drop{n === 1 ? '' : 's'}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                        <button
+                          type="button"
+                          title="Add a new route / time"
+                          onClick={() => {
+                            setAddingRouteTimeFor(i);
+                            setNewRouteTimeValue('');
+                          }}
+                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                        >
+                          <Icon name="plus" className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                      {addingRouteTimeFor === i && (
+                        <div className="mt-1.5 flex items-center gap-1.5">
+                          <input
+                            autoFocus
+                            value={newRouteTimeValue}
+                            onChange={(e) => setNewRouteTimeValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                confirmNewRouteTime(i);
+                              } else if (e.key === 'Escape') {
+                                setAddingRouteTimeFor(null);
+                              }
+                            }}
+                            placeholder="New route/time (e.g. Oral, after food)"
+                            className={inputClass}
+                          />
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => confirmNewRouteTime(i)}
+                          >
+                            Add
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-white hover:bg-white/10"
+                            onClick={() => setAddingRouteTimeFor(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
+                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
+                        Stock status
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <select
+                          value={row.status}
+                          onChange={(e) =>
+                            patchRow(i, {
+                              status: e.target.value as PrescriptionMedicineStatus,
+                            })
+                          }
+                          className={`${inputClass} flex-1`}
+                        >
+                          {STOCK_STATUS_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                        <Badge tone={STOCK_STATUS_TONE[row.status]}>
+                          {STOCK_STATUS_LABEL[row.status]}
+                        </Badge>
+                      </div>
+                      <p className="mt-1 text-xs text-blue-100">
+                        For the counter only — never shown in the member's app.
+                      </p>
+                    </div>
+    );
+  }
+
   /** Rotates the selected image by [delta] degrees and saves it immediately
    *  — a reviewer rotating a sideways script fixes it for good, not just
    *  for this look, so there is no separate "save rotation" step to
@@ -910,318 +1238,203 @@ export function PrescriptionReviewModal({
                   code the customer's app expands when you send this.
                 </p>
                 <div className="space-y-2">
-                  {displayOrder.map((i, pos) => {
-                    const row = draft[i];
-                    const groupStart =
-                      processed &&
-                      (pos === 0 ||
-                        draft[displayOrder[pos - 1]].status !== row.status);
-                    return (
-                    <div key={i}>
-                      {groupStart && (
-                        <div
-                          className={`mb-1.5 flex items-center gap-2 ${pos === 0 ? '' : 'mt-3'}`}
-                        >
-                          <Badge tone={STOCK_STATUS_TONE[row.status]}>
-                            {STOCK_STATUS_LABEL[row.status]}
-                          </Badge>
-                          <span className="text-xs font-medium text-slate-400">
-                            {
-                              displayOrder.filter(
-                                (j) => draft[j].status === row.status,
-                              ).length
-                            }{' '}
-                            medicine
-                            {displayOrder.filter(
-                              (j) => draft[j].status === row.status,
-                            ).length === 1
-                              ? ''
-                              : 's'}
-                          </span>
+                  {processed ? (
+                    displayOrder.map((i, pos) => {
+                      const row = draft[i];
+                      const groupStart =
+                        pos === 0 ||
+                        draft[displayOrder[pos - 1]].status !== row.status;
+                      return (
+                        <div key={i}>
+                          {groupStart && (
+                            <div
+                              className={`mb-1.5 flex items-center gap-2 ${pos === 0 ? '' : 'mt-3'}`}
+                            >
+                              <Badge tone={STOCK_STATUS_TONE[row.status]}>
+                                {STOCK_STATUS_LABEL[row.status]}
+                              </Badge>
+                              <span className="text-xs font-medium text-slate-400">
+                                {
+                                  displayOrder.filter(
+                                    (j) => draft[j].status === row.status,
+                                  ).length
+                                }{' '}
+                                medicine
+                                {displayOrder.filter(
+                                  (j) => draft[j].status === row.status,
+                                ).length === 1
+                                  ? ''
+                                  : 's'}
+                              </span>
+                            </div>
+                          )}
+                          {renderMedicineCard(i, false)}
+                        </div>
+                      );
+                    })
+                  ) : (
+                    <>
+                      {draft.length > 0 && renderMedicineCard(displayOrder[0], true)}
+                      {/* Every earlier line, already filled in, as a compact
+                          table — the one open entry card above stays the
+                          only place still being typed into. Name/Type/Qty
+                          stay lightly editable in place; the "add a new
+                          type/intake/route" mini-forms only exist on the
+                          open card above, so introducing something brand
+                          new naturally happens before a line is committed,
+                          not after. */}
+                      {displayOrder.length > 1 && (
+                        <div className="overflow-x-auto rounded-lg border border-slate-200">
+                          <table className="w-full text-left text-xs">
+                            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                              <tr>
+                                <th className="px-3 py-2">Name</th>
+                                <th className="px-3 py-2">Type</th>
+                                <th className="px-3 py-2">Qty</th>
+                                <th className="px-3 py-2">Intake</th>
+                                <th className="px-3 py-2">Route &amp; time</th>
+                                <th className="px-3 py-2">Stock status</th>
+                                <th className="px-3 py-2" />
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {displayOrder.slice(1).map((i) => {
+                                const row = draft[i];
+                                return (
+                                  <tr key={i} className="align-top">
+                                    <td className="min-w-[140px] px-3 py-2">
+                                      <input
+                                        value={row.name}
+                                        onChange={(e) =>
+                                          patchRow(i, { name: e.target.value })
+                                        }
+                                        placeholder="e.g. Paracetamol 500mg"
+                                        className={inputClass}
+                                      />
+                                    </td>
+                                    <td className="min-w-[120px] px-3 py-2">
+                                      <Combobox
+                                        value={row.pack}
+                                        onChange={(v) => patchRow(i, { pack: v })}
+                                        options={typeOptions.map((t) => ({
+                                          value: t,
+                                          label: t,
+                                        }))}
+                                        placeholder="Type"
+                                        searchPlaceholder="Search types…"
+                                      />
+                                    </td>
+                                    <td className="w-20 px-3 py-2">
+                                      <input
+                                        value={row.totalUnits || ''}
+                                        onChange={(e) =>
+                                          patchRow(i, {
+                                            totalUnits: Number(e.target.value) || 0,
+                                          })
+                                        }
+                                        placeholder="Qty"
+                                        inputMode="numeric"
+                                        className={inputClass}
+                                      />
+                                    </td>
+                                    <td className="min-w-[140px] px-3 py-2">
+                                      <Combobox
+                                        value={selectedFrequency[i] ?? ''}
+                                        onChange={(v) => {
+                                          setSelectedFrequency((m) => ({
+                                            ...m,
+                                            [i]: v,
+                                          }));
+                                          const preset = frequencyOptions.find(
+                                            (f) => f.code === v,
+                                          );
+                                          if (preset) applyFrequency(i, preset);
+                                        }}
+                                        options={frequencyOptions.map((f) => ({
+                                          value: f.code,
+                                          label: f.description
+                                            ? `${f.code} — ${f.description}`
+                                            : f.code,
+                                        }))}
+                                        placeholder="OD, BD, TDS, …"
+                                        searchPlaceholder="Search intake presets…"
+                                      />
+                                    </td>
+                                    <td className="min-w-[160px] px-3 py-2">
+                                      <div className="flex items-center gap-1">
+                                        <Combobox
+                                          value={selectedRouteCode[i] ?? row.routeTime}
+                                          onChange={(v) => applyRouteTime(i, v)}
+                                          options={routeTimeOptions.map((r) => ({
+                                            value: r.code,
+                                            label: r.description
+                                              ? `${r.code} — ${r.description}`
+                                              : r.code,
+                                          }))}
+                                          placeholder="Route & time"
+                                          searchPlaceholder="Search route & time…"
+                                          className="flex-1"
+                                        />
+                                        {isDropRouteCode(selectedRouteCode[i] ?? '') && (
+                                          <select
+                                            value={dropCount[i] ?? 1}
+                                            onChange={(e) =>
+                                              applyDropCount(i, Number(e.target.value))
+                                            }
+                                            title="Number of drops"
+                                            className={`${inputClass} w-16 shrink-0`}
+                                          >
+                                            {[1, 2, 3, 4, 5, 6].map((n) => (
+                                              <option key={n} value={n}>
+                                                {n}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="min-w-[150px] px-3 py-2">
+                                      <div className="flex items-center gap-1.5">
+                                        <select
+                                          value={row.status}
+                                          onChange={(e) =>
+                                            patchRow(i, {
+                                              status: e.target
+                                                .value as PrescriptionMedicineStatus,
+                                            })
+                                          }
+                                          className={inputClass}
+                                        >
+                                          {STOCK_STATUS_OPTIONS.map((o) => (
+                                            <option key={o.value} value={o.value}>
+                                              {o.label}
+                                            </option>
+                                          ))}
+                                        </select>
+                                        <Badge tone={STOCK_STATUS_TONE[row.status]}>
+                                          {STOCK_STATUS_LABEL[row.status]}
+                                        </Badge>
+                                      </div>
+                                    </td>
+                                    <td className="px-3 py-2 text-right">
+                                      <button
+                                        type="button"
+                                        title="Remove"
+                                        className="font-medium text-rose-500 hover:text-rose-600"
+                                        onClick={() => removeRow(i)}
+                                      >
+                                        ✕
+                                      </button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
                       )}
-                    <div
-                      className="rounded-lg border border-blue-700 bg-blue-600 p-3 text-white"
-                    >
-                      <div className="mb-1.5 flex items-center justify-between">
-                        <span className="text-xs font-medium text-blue-100">
-                          Medicine {i + 1}
-                        </span>
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-rose-200 hover:text-rose-100"
-                          onClick={() => removeRow(i)}
-                        >
-                          Remove
-                        </button>
-                      </div>
-                      <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-blue-100">
-                        Name
-                      </p>
-                      <input
-                        value={row.name}
-                        onChange={(e) => patchRow(i, { name: e.target.value })}
-                        placeholder="e.g. Paracetamol 500mg"
-                        className={inputClass}
-                      />
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
-                        Type
-                      </p>
-                      <div className="flex items-center gap-1.5">
-                        <Combobox
-                          value={row.pack}
-                          onChange={(v) => patchRow(i, { pack: v })}
-                          options={typeOptions.map((t) => ({ value: t, label: t }))}
-                          placeholder="Choose a type"
-                          searchPlaceholder="Search types…"
-                          className="flex-1"
-                        />
-                        <button
-                          type="button"
-                          title="Add a new type"
-                          onClick={() => {
-                            setAddingTypeFor(i);
-                            setNewTypeValue('');
-                          }}
-                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                        >
-                          <Icon name="plus" className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                      {addingTypeFor === i && (
-                        <div className="mt-1.5 flex items-center gap-1.5">
-                          <input
-                            autoFocus
-                            value={newTypeValue}
-                            onChange={(e) => setNewTypeValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                confirmNewType(i);
-                              } else if (e.key === 'Escape') {
-                                setAddingTypeFor(null);
-                              }
-                            }}
-                            placeholder="New type name"
-                            className={inputClass}
-                          />
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => confirmNewType(i)}
-                          >
-                            Add
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-white hover:bg-white/10"
-                            onClick={() => setAddingTypeFor(null)}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
-                        Quantity
-                      </p>
-                      <input
-                        value={row.totalUnits || ''}
-                        onChange={(e) =>
-                          patchRow(i, {
-                            totalUnits: Number(e.target.value) || 0,
-                          })
-                        }
-                        placeholder="Number of units"
-                        inputMode="numeric"
-                        className={inputClass}
-                      />
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
-                        Intake preset
-                      </p>
-                      <div className="flex items-center gap-1.5">
-                        <Combobox
-                          value={selectedFrequency[i] ?? ''}
-                          onChange={(v) => {
-                            setSelectedFrequency((m) => ({ ...m, [i]: v }));
-                            const preset = frequencyOptions.find(
-                              (f) => f.code === v,
-                            );
-                            if (preset) applyFrequency(i, preset);
-                          }}
-                          options={frequencyOptions.map((f) => ({
-                            value: f.code,
-                            label: f.description
-                              ? `${f.code} — ${f.description}`
-                              : f.code,
-                          }))}
-                          placeholder="OD, BD, TDS, …"
-                          searchPlaceholder="Search intake presets…"
-                          className="flex-1"
-                        />
-                        <button
-                          type="button"
-                          title="Add a new intake preset"
-                          onClick={() => {
-                            setAddingFrequencyFor(i);
-                            setNewFrequencyValue('');
-                          }}
-                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                        >
-                          <Icon name="plus" className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                      {row.intake && (
-                        <p className="mt-1 text-xs text-blue-100">
-                          Intake set to {row.intake.split('').join('-')} — pick
-                          a different preset to change it.
-                        </p>
-                      )}
-                      {addingFrequencyFor === i && (
-                        <div className="mt-1.5 flex items-center gap-1.5">
-                          <input
-                            autoFocus
-                            value={newFrequencyValue}
-                            onChange={(e) =>
-                              setNewFrequencyValue(e.target.value)
-                            }
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                confirmNewFrequency(i);
-                              } else if (e.key === 'Escape') {
-                                setAddingFrequencyFor(null);
-                              }
-                            }}
-                            placeholder="New Intake code, e.g. 1-1-1"
-                            className={inputClass}
-                          />
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => confirmNewFrequency(i)}
-                          >
-                            Add
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-white hover:bg-white/10"
-                            onClick={() => setAddingFrequencyFor(null)}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
-                        Route &amp; time
-                      </p>
-                      <div className="flex items-center gap-1.5">
-                        <Combobox
-                          value={selectedRouteCode[i] ?? row.routeTime}
-                          onChange={(v) => applyRouteTime(i, v)}
-                          options={routeTimeOptions.map((r) => ({
-                            value: r.code,
-                            label: r.description
-                              ? `${r.code} — ${r.description}`
-                              : r.code,
-                          }))}
-                          placeholder="Choose route & time"
-                          searchPlaceholder="Search route & time…"
-                          className="flex-1"
-                        />
-                        {isDropRouteCode(selectedRouteCode[i] ?? '') && (
-                          <select
-                            value={dropCount[i] ?? 1}
-                            onChange={(e) =>
-                              applyDropCount(i, Number(e.target.value))
-                            }
-                            title="Number of drops"
-                            className={`${inputClass} w-[92px] shrink-0`}
-                          >
-                            {[1, 2, 3, 4, 5, 6].map((n) => (
-                              <option key={n} value={n}>
-                                {n} drop{n === 1 ? '' : 's'}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <button
-                          type="button"
-                          title="Add a new route / time"
-                          onClick={() => {
-                            setAddingRouteTimeFor(i);
-                            setNewRouteTimeValue('');
-                          }}
-                          className="shrink-0 rounded-md border border-white/40 bg-white p-[7px] text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                        >
-                          <Icon name="plus" className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                      {addingRouteTimeFor === i && (
-                        <div className="mt-1.5 flex items-center gap-1.5">
-                          <input
-                            autoFocus
-                            value={newRouteTimeValue}
-                            onChange={(e) => setNewRouteTimeValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                confirmNewRouteTime(i);
-                              } else if (e.key === 'Escape') {
-                                setAddingRouteTimeFor(null);
-                              }
-                            }}
-                            placeholder="New route/time (e.g. Oral, after food)"
-                            className={inputClass}
-                          />
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => confirmNewRouteTime(i)}
-                          >
-                            Add
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-white hover:bg-white/10"
-                            onClick={() => setAddingRouteTimeFor(null)}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      )}
-                      <p className="mb-1 mt-2 text-[11px] font-medium uppercase tracking-wide text-blue-100">
-                        Stock status
-                      </p>
-                      <div className="flex items-center gap-1.5">
-                        <select
-                          value={row.status}
-                          onChange={(e) =>
-                            patchRow(i, {
-                              status: e.target.value as PrescriptionMedicineStatus,
-                            })
-                          }
-                          className={`${inputClass} flex-1`}
-                        >
-                          {STOCK_STATUS_OPTIONS.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
-                        <Badge tone={STOCK_STATUS_TONE[row.status]}>
-                          {STOCK_STATUS_LABEL[row.status]}
-                        </Badge>
-                      </div>
-                      <p className="mt-1 text-xs text-blue-100">
-                        For the counter only — never shown in the member's app.
-                      </p>
-                    </div>
-                    </div>
-                    );
-                  })}
+                    </>
+                  )}
                   {draft.length === 0 && (
                     <p className="text-sm text-slate-400">
                       No lines yet — add the medicines from the script.
