@@ -70,11 +70,12 @@ type Tab =
   | 'transactions'
   | 'prescriptions';
 
+// Display labels only — see the identical note in PrescriptionsPage.tsx.
 const RX_STATUS_LABEL: Record<PrescriptionStatus, string> = {
-  awaiting_review: 'Awaiting review',
-  read: 'Read',
-  in_cart: 'In cart',
-  ordered: 'Ordered',
+  awaiting_review: 'Pending',
+  read: 'Processed',
+  in_cart: 'Billing',
+  ordered: 'Completed',
 };
 
 const TXN_KIND_TONE: Record<MoneyFlowKind, 'blue' | 'violet' | 'green' | 'amber' | 'red'> = {

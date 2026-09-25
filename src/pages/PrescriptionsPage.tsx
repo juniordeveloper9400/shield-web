@@ -13,19 +13,25 @@ import { useAsync } from '@/lib/useAsync';
 import { listPrescriptions } from '@/api/prescriptions';
 import type { Prescription, PrescriptionStatus } from '@/types';
 
+// Display labels only — the underlying values (`row.status`, filter
+// matching, PrescriptionStatus itself) are untouched, still
+// 'awaiting_review' | 'read' | 'in_cart' | 'ordered' end to end (DB enum,
+// backend/api's transition rules in prescription-status.ts, and every
+// other consumer of these rows). Only what the admin panel prints for
+// each one changed: Pending / Processed / Billing / Completed.
 const STATUS_LABEL: Record<PrescriptionStatus, string> = {
-  awaiting_review: 'Awaiting review',
-  read: 'Read',
-  in_cart: 'In cart',
-  ordered: 'Ordered',
+  awaiting_review: 'Pending',
+  read: 'Processed',
+  in_cart: 'Billing',
+  ordered: 'Completed',
 };
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
-  { value: 'awaiting_review', label: 'Awaiting review' },
-  { value: 'read', label: 'Read' },
-  { value: 'in_cart', label: 'In cart' },
-  { value: 'ordered', label: 'Ordered' },
+  { value: 'awaiting_review', label: 'Pending' },
+  { value: 'read', label: 'Processed' },
+  { value: 'in_cart', label: 'Billing' },
+  { value: 'ordered', label: 'Completed' },
 ];
 
 const FULFILLMENT_OPTIONS = [
@@ -162,10 +168,10 @@ export default function PrescriptionsPage() {
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Awaiting review" value={counts.awaiting} icon="alert" tone="amber" />
-        <StatCard label="Read" value={counts.read} icon="prescriptions" tone="blue" />
-        <StatCard label="In cart" value={counts.inCart} icon="orders" tone="violet" />
-        <StatCard label="Ordered" value={counts.ordered} icon="check" tone="green" />
+        <StatCard label="Pending" value={counts.awaiting} icon="alert" tone="amber" />
+        <StatCard label="Processed" value={counts.read} icon="prescriptions" tone="blue" />
+        <StatCard label="Billing" value={counts.inCart} icon="orders" tone="violet" />
+        <StatCard label="Completed" value={counts.ordered} icon="check" tone="green" />
       </div>
 
       <Card>

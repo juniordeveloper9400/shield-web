@@ -87,11 +87,14 @@ const EMPTY_ROW: PrescriptionMedicineInput = {
   status: 'available',
 };
 
+// Display labels only — see the identical note in PrescriptionsPage.tsx.
+// The underlying status values (`changeStatus('awaiting_review')` etc.
+// below) are untouched.
 const STATUS_LABEL: Record<PrescriptionStatus, string> = {
-  awaiting_review: 'Awaiting review',
-  read: 'Read',
-  in_cart: 'In cart',
-  ordered: 'Ordered',
+  awaiting_review: 'Pending',
+  read: 'Processed',
+  in_cart: 'Billing',
+  ordered: 'Completed',
 };
 
 /**
