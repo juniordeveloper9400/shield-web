@@ -461,17 +461,24 @@ export function PrescriptionReviewModal({
     setRotations(Object.fromEntries(prescription.images.map((img) => [img.id, img.rotation])));
     setSelectedImageIndex(0);
     // Straight to Details (Convert to bill's own step) on reopening a
-    // prescription that's already past awaiting_review — its intake card
-    // was already sent, in this session or an earlier one, so the
+    // prescription that actually has saved medicines already — its intake
+    // card was genuinely sent, in this session or an earlier one, so the
     // reviewer's next real job here is billing it, not re-reviewing
-    // medicines. Only starts on the intake card itself for one still
-    // awaiting that first review. intakeSent mirrors the same real
-    // status rather than staying false from a fresh mount — otherwise
-    // canBill && intakeSent's "Convert to bill" button wouldn't show
-    // until *this* visit sent something, even for a prescription sent
-    // in an earlier session entirely.
-    setStep(prescription.status === 'awaiting_review' ? 'intake' : 'details');
-    setIntakeSent(prescription.status !== 'awaiting_review');
+    // medicines. Keyed on medicines.length, not `status` — savePrescriptionIntake
+    // only ever moves status off 'awaiting_review' when it wrote at least
+    // one real row (see its own `if (rows.length > 0)` guard), so this
+    // reads the same signal more directly and stays correct even in the
+    // edge case where a prescription's status advanced but its medicines
+    // were since cleared back to none — that one still needs the intake
+    // card shown first, not an empty Convert-to-bill screen. Only starts
+    // on the intake card itself for one genuinely still unsaved.
+    // intakeSent mirrors the same real data rather than staying false
+    // from a fresh mount — otherwise canBill && intakeSent's "Convert to
+    // bill" button wouldn't show until *this* visit sent something, even
+    // for a prescription sent in an earlier session entirely.
+    const alreadySaved = prescription.medicines.length > 0;
+    setStep(alreadySaved ? 'details' : 'intake');
+    setIntakeSent(alreadySaved);
     setOpenRowMenu(null);
     setDoctor(prescription.doctor);
     setDurationToken(prescription.durationToken);
