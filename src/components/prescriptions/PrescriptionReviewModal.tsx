@@ -865,7 +865,17 @@ export function PrescriptionReviewModal({
    *  row is what makes "+ Add to list" legible as "goes here". */
   function renderMedicineTable() {
     return (
-      <div className="overflow-x-auto rounded-lg border border-slate-200">
+      // overflow-x-auto alone (with no overflow-y set) makes the browser
+      // implicitly compute overflow-y as auto too — the CSS spec doesn't
+      // allow "scrollable on x, visible on y" — which was quietly giving
+      // this its own second vertical scroll region (on top of the Modal
+      // body's single one) and clipping the row-actions dropdown menu
+      // (absolutely positioned inside a <td> here) whenever it extended
+      // past that accidental scroll boundary. overflow-y-visible overrides
+      // it back to normal — horizontal scroll for a wide table stays,
+      // nothing about vertical sizing or scrolling is affected by this
+      // element any more.
+      <div className="overflow-x-auto overflow-y-visible rounded-lg border border-slate-200">
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
             <tr>
