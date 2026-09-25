@@ -27,7 +27,8 @@ export type IconName =
   | 'phone'
   | 'whatsapp'
   | 'receipt'
-  | 'deliveries';
+  | 'deliveries'
+  | 'more-vertical';
 
 const ICONS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -178,6 +179,14 @@ const ICONS: Record<IconName, ReactNode> = {
       <path d="M14 10h4l3 3v4h-7z" />
       <circle cx="7.5" cy="18" r="1.5" />
       <circle cx="17.5" cy="18" r="1.5" />
+    </>
+  ),
+  // Three stacked dots -- a row's own "more actions" trigger.
+  'more-vertical': (
+    <>
+      <circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none" />
     </>
   ),
 };

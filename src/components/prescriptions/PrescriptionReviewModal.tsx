@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -119,6 +119,20 @@ export function PrescriptionReviewModal({
 }) {
   const navigate = useNavigate();
   const [draft, setDraft] = useState<PrescriptionMedicineInput[]>([]);
+  // Which table row's "⋮" menu (Edit / Delete) is open, if any — at most
+  // one at a time, closed by picking an action or clicking anywhere else.
+  const [openRowMenu, setOpenRowMenu] = useState<number | null>(null);
+  const rowMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (openRowMenu === null) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (rowMenuRef.current && !rowMenuRef.current.contains(e.target as Node)) {
+        setOpenRowMenu(null);
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [openRowMenu]);
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [intakeSent, setIntakeSent] = useState(false);
@@ -396,6 +410,7 @@ export function PrescriptionReviewModal({
       setSelectedRouteCode({});
       setDropCount({});
       setDraft([]);
+      setOpenRowMenu(null);
       setImageOpen(false);
       setRotations({});
       setSelectedImageIndex(0);
@@ -440,6 +455,7 @@ export function PrescriptionReviewModal({
     setRotations(Object.fromEntries(prescription.images.map((img) => [img.id, img.rotation])));
     setSelectedImageIndex(0);
     setStep('intake');
+    setOpenRowMenu(null);
     setDoctor(prescription.doctor);
     setDurationToken(prescription.durationToken);
     setCustomDays(prescription.customDays);
@@ -473,6 +489,36 @@ export function PrescriptionReviewModal({
     setSelectedFrequency(reindex);
     setSelectedRouteCode(reindex);
     setDropCount(reindex);
+  }
+
+  /** Swaps row [i] up into the open entry card (index 0) for full-size
+   *  editing — the table's own cells stay usable for a quick tweak, but a
+   *  bigger change (working through Route & time's drop-count picker, say)
+   *  is easier in the card. Whatever was open in the card — usually still
+   *  blank — swaps down into [i]'s old spot rather than being dropped, so
+   *  a half-typed row already being drafted is never silently lost. Swaps
+   *  the preset-dropdown selections the same way, so neither row's picks
+   *  follow the wrong data after the swap. */
+  function editRow(i: number) {
+    if (i === 0) return;
+    setDraft((d) => {
+      const next = [...d];
+      [next[0], next[i]] = [next[i], next[0]];
+      return next;
+    });
+    function swap<T>(m: Record<number, T>): Record<number, T> {
+      const next = { ...m };
+      const a = next[0];
+      const b = next[i];
+      if (b === undefined) delete next[0];
+      else next[0] = b;
+      if (a === undefined) delete next[i];
+      else next[i] = a;
+      return next;
+    }
+    setSelectedFrequency(swap);
+    setSelectedRouteCode(swap);
+    setDropCount(swap);
   }
 
   /** Adds a blank row at the top of the intake card rather than the bottom —
@@ -934,14 +980,45 @@ export function PrescriptionReviewModal({
                     </div>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <button
-                      type="button"
-                      title="Remove"
-                      className="font-medium text-rose-500 hover:text-rose-600"
-                      onClick={() => removeRow(i)}
+                    <div
+                      className="relative inline-block"
+                      ref={openRowMenu === i ? rowMenuRef : undefined}
                     >
-                      ✕
-                    </button>
+                      <button
+                        type="button"
+                        title="Row actions"
+                        className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                        onClick={() =>
+                          setOpenRowMenu((cur) => (cur === i ? null : i))
+                        }
+                      >
+                        <Icon name="more-vertical" className="h-4 w-4" />
+                      </button>
+                      {openRowMenu === i && (
+                        <div className="absolute right-0 z-10 mt-1 w-28 overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-left shadow-lg">
+                          <button
+                            type="button"
+                            className="block w-full px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
+                            onClick={() => {
+                              editRow(i);
+                              setOpenRowMenu(null);
+                            }}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="block w-full px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50"
+                            onClick={() => {
+                              removeRow(i);
+                              setOpenRowMenu(null);
+                            }}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
