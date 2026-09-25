@@ -422,15 +422,20 @@ export type PrescriptionStatus =
 
 /**
  * `app.prescription_medicine_status` — whether the pharmacist actually has
- * this line on hand, migration 0024 (+ 'ordered', migration 0025). Set and
- * changed from the console's intake-card editor like any other field on the
- * row; purely an internal note for the counter, never read or shown by the
- * member's own app.
+ * this line on hand, migration 0024. Migration 0025 added a fourth DB value,
+ * 'ORDERED', later dropped from here as a choosable option — Postgres enums
+ * can't have a value removed once added, so it still exists in the database
+ * type itself (see backend/api's own schema, which still lists it — it has
+ * to keep matching the real enum), it's just never offered or written by
+ * this app any more. Confirmed live: no existing row uses it, so nothing
+ * needed migrating when it was dropped here. Set and changed from the
+ * console's intake-card editor like any other field on the row; purely an
+ * internal note for the counter, never read or shown by the member's own
+ * app.
  */
 export type PrescriptionMedicineStatus =
   | 'available'
   | 'out_of_stock'
-  | 'ordered'
   | 'not_possible';
 
 /** One row of `app.prescription_medicine` (dose is morning-afternoon-night). */

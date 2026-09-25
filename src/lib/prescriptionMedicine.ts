@@ -10,14 +10,12 @@ import type { PrescriptionMedicineStatus } from '@/types';
 export const STOCK_STATUS_LABEL: Record<PrescriptionMedicineStatus, string> = {
   available: 'Stock available',
   out_of_stock: 'Out of stock',
-  ordered: 'Ordered',
   not_possible: 'Not possible',
 };
 
 export const STOCK_STATUS_TONE: Record<PrescriptionMedicineStatus, Tone> = {
   available: 'green',
   out_of_stock: 'amber',
-  ordered: 'blue',
   not_possible: 'red',
 };
 
