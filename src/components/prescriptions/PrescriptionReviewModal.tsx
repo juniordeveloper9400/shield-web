@@ -488,6 +488,21 @@ export function PrescriptionReviewModal({
     setDraft((d) => d.map((row, j) => (j === i ? { ...row, ...patch } : row)));
   }
 
+  /** The Details step's "Medicines to bill" table select-all checkbox —
+   *  every named row's own checkbox at once, in one state update instead
+   *  of one patchRow per row. Same mechanism each row's own checkbox
+   *  already uses: stock status 'available' when selected, 'not_possible'
+   *  (excluded from billing) when cleared. */
+  function setAllBillable(selected: boolean) {
+    setDraft((d) =>
+      d.map((row) =>
+        row.name.trim()
+          ? { ...row, status: selected ? 'available' : 'not_possible' }
+          : row,
+      ),
+    );
+  }
+
   /** Drops row [i] and shifts the preset-dropdown selections above it down
    *  by one index, so removing a row from the middle doesn't leave a later
    *  row's dropdown showing a preset that was actually picked for a
@@ -1371,7 +1386,12 @@ export function PrescriptionReviewModal({
               {canBill && intakeSent ? (
                 <Button
                   variant="primary"
-                  disabled={sending}
+                  disabled={sending || billableMedicineNames.length === 0}
+                  title={
+                    billableMedicineNames.length === 0
+                      ? 'Check at least one medicine in the table above first'
+                      : undefined
+                  }
                   onClick={() => void convertToBill()}
                 >
                   {sending ? 'Converting…' : 'Convert to bill →'}
@@ -1472,7 +1492,30 @@ export function PrescriptionReviewModal({
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                         <tr>
-                          <th className="px-3 py-2" />
+                          <th className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              title={
+                                billableMedicineNames.length === draft.filter((r) => r.name.trim()).length
+                                  ? 'Clear all'
+                                  : 'Select all'
+                              }
+                              checked={
+                                draftHasRows &&
+                                billableMedicineNames.length ===
+                                  draft.filter((r) => r.name.trim()).length
+                              }
+                              ref={(el) => {
+                                if (!el) return;
+                                const namedCount = draft.filter((r) => r.name.trim()).length;
+                                el.indeterminate =
+                                  billableMedicineNames.length > 0 &&
+                                  billableMedicineNames.length < namedCount;
+                              }}
+                              onChange={(e) => setAllBillable(e.target.checked)}
+                              className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                            />
+                          </th>
                           <th className="px-3 py-2">Name</th>
                           <th className="px-3 py-2">Type</th>
                           <th className="px-3 py-2">Qty</th>
