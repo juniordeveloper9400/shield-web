@@ -1027,14 +1027,16 @@ export function BillEditorModal({
     </Modal>
     <Modal
       open={showOtpPopover}
-      onClose={() => setShowOtpPopover(false)}
+      // Once collected, ANY way of dismissing this (the footer button, the
+      // X, Escape, or a backdrop click — Modal's own `onClose` covers all
+      // of them) closes the whole bill editor rather than merely hiding the
+      // popover, so a successful collection never drops back onto the
+      // summary page behind it. Before collection, it just hides itself —
+      // the admin may still be mid-verification.
+      onClose={() => (collected ? onClose() : setShowOtpPopover(false))}
       title="Verify OTP to collect payment"
       footer={
         collected ? (
-          // Once collected, "Done" closes the whole bill editor rather than
-          // dropping back to the summary page behind this popover — nothing
-          // further needs doing there for a collection that just succeeded;
-          // "Manage bill" reopens fine later for anything that does.
           <Button size="sm" onClick={onClose}>
             Done
           </Button>
@@ -1057,21 +1059,6 @@ export function BillEditorModal({
             {collected.cashAmount > 0 && `${formatCurrency(collected.cashAmount)} in cash`}
             . This bill is paid.
           </p>
-          {completed ? (
-            <p className="text-xs font-medium text-emerald-700">Order completed</p>
-          ) : order.status === 'cancelled' ? (
-            <p className="text-xs font-medium text-slate-500">Order cancelled</p>
-          ) : (
-            <Button
-              variant="success"
-              size="sm"
-              disabled={completing}
-              onClick={() => void completeOrder()}
-            >
-              {completing ? 'Completing…' : 'Complete order'}
-            </Button>
-          )}
-          {completeError && <p className="text-xs text-rose-600">{completeError}</p>}
         </div>
       ) : (
         <>
