@@ -75,8 +75,8 @@ export function BillEditorModal({
   // Whether a priced bill exists at all — true from a previous visit
   // (`hasBill`) or the moment `submit()` sends one in this session. Once
   // true, the summary below reads the bill from this component's own
-  // `lines`/`total` state rather than the `order` prop, which the parent
-  // has no reason to have refreshed yet (the modal stays open straight
+  // `subtotal`/`savedBill` state rather than the `order` prop, which the
+  // parent has no reason to have refreshed yet (the modal stays open straight
   // through sending → collecting → viewing the invoice, all one visit).
   const [billSent, setBillSent] = useState(hasBill);
   const [savedBill, setSavedBill] = useState({ amount: order.billAmount, lines: order.billLines });
@@ -254,24 +254,34 @@ export function BillEditorModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const usableLines = useMemo(
-    () => lines.filter((l) => l.name.trim() && l.unitPrice > 0 && l.qty > 0),
-    [lines],
+  // Named lines are just the itemised "what's on this bill" list now — no
+  // per-line rate. There's rarely a real catalog price to type per item
+  // (a photographed prescription bill never has one), so pricing works the
+  // same way the original picture-only bill flow always did: one number
+  // for the whole bill, typed by hand, not summed up from line items.
+  const namedLines = useMemo(() => lines.filter((l) => l.name.trim()), [lines]);
+  // The whole-bill "Subtotal" — typed directly rather than computed from
+  // `lines`, since nothing here carries a real per-line rate to sum.
+  // Starts from whatever's already known: a previously-sent bill's own
+  // gross (net amount plus its discount), or — for a fresh bill — the
+  // sum of the lines it pre-filled from (a standard order's cart lines
+  // already have real checkout prices), purely as a starting point the
+  // admin can just overwrite by hand.
+  const [subtotal, setSubtotal] = useState(() =>
+    order.billAmount > 0
+      ? order.billAmount + (order.billDiscount || 0)
+      : lines.reduce((sum, l) => sum + l.unitPrice * l.qty, 0),
   );
-  const total = useMemo(
-    () => usableLines.reduce((sum, l) => sum + l.unitPrice * l.qty, 0),
-    [usableLines],
-  );
-  // What's actually owed — the priced lines' subtotal less the whole-bill
-  // discount. This, not `total`, is what gets sent as the bill's `amount`
-  // and what the wallet/cash split below is worked out against.
-  const netTotal = Math.max(total - discount, 0);
+  // What's actually owed — the typed subtotal less the whole-bill discount.
+  // This, not `subtotal`, is what gets sent as the bill's `amount` and what
+  // the wallet/cash split below is worked out against.
+  const netTotal = Math.max(subtotal - discount, 0);
   const collectionAmount = billSent && mode === 'summary' ? savedBill.amount : netTotal;
   const walletCoverage = Math.min(walletBalance ?? 0, collectionAmount);
   const cashOwed = Math.max(collectionAmount - walletCoverage, 0);
 
-  // The bill as it actually stands right now — `total`/`usableLines` once
-  // one has been sent in this session or an earlier one (`billSent`),
+  // The bill as it actually stands right now — `savedBill`/`savedDiscount`
+  // once one has been sent in this session or an earlier one (`billSent`),
   // falling back to the order prop only for an order that has never been
   // billed at all. `collected` (set the moment `verifyAndCollect` succeeds)
   // is what flips this to paid without waiting on a parent reload.
@@ -412,7 +422,7 @@ export function BillEditorModal({
       await sendOrderInvoice(order.id, {
         image,
         amount: netTotal,
-        lines: usableLines,
+        lines: namedLines,
         discountAmount: discount,
       });
       onSaved();
@@ -429,8 +439,8 @@ export function BillEditorModal({
    *  invoice) both happen right here in the same visit, rather than closing
    *  and needing "Manage bill" reopened to reach them. */
   async function submit() {
-    if (usableLines.length === 0) {
-      setError('Add at least one priced line before sending.');
+    if (subtotal <= 0) {
+      setError('Enter the bill subtotal before sending.');
       return;
     }
     setSaving(true);
@@ -438,11 +448,11 @@ export function BillEditorModal({
     try {
       const sentAt = await sendOrderInvoice(order.id, {
         amount: netTotal,
-        lines: usableLines,
+        lines: namedLines,
         discountAmount: discount,
       });
       setBilledAt(sentAt);
-      setSavedBill({ amount: netTotal, lines: usableLines.map(line => ({ ...line })) });
+      setSavedBill({ amount: netTotal, lines: namedLines.map(line => ({ ...line })) });
       setSavedDiscount(discount);
       onSaved();
       setBillSent(true);
@@ -534,10 +544,14 @@ export function BillEditorModal({
             </p>
           )}
           {effectiveBillLines.length > 0 && (
+            // No per-line amount here — a line no longer carries its own
+            // rate (see `namedLines`/`subtotal`), just what's actually on
+            // the bill; the priced total is the Subtotal/Disc/Bill total
+            // figures above and on the pricing step, not a sum of these.
             <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
               {effectiveBillLines.map((l, i) => (
                 <li key={i}>
-                  {l.name} {l.pack && `(${l.pack})`} × {l.qty} — {formatCurrency(l.unitPrice * l.qty)}
+                  {l.name} {l.pack && `(${l.pack})`} × {l.qty}
                 </li>
               ))}
             </ul>
@@ -768,7 +782,6 @@ export function BillEditorModal({
                     <tr>
                       <th className="px-3 py-2">Product name</th>
                       <th className="px-3 py-2">Qty</th>
-                      <th className="px-3 py-2">Rate</th>
                       <th className="px-3 py-2">Category</th>
                       <th className="px-3 py-2" />
                     </tr>
@@ -776,7 +789,7 @@ export function BillEditorModal({
                   <tbody className="divide-y divide-slate-100">
                     {lines.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
+                        <td colSpan={4} className="px-3 py-6 text-center text-slate-400">
                           No lines yet — add at least one.
                         </td>
                       </tr>
@@ -797,15 +810,6 @@ export function BillEditorModal({
                               onChange={(e) => patchLine(i, { qty: Number(e.target.value) || 0 })}
                               placeholder="Qty"
                               inputMode="numeric"
-                              className={inputClass}
-                            />
-                          </td>
-                          <td className="w-28 px-3 py-2">
-                            <input
-                              value={line.unitPrice || ''}
-                              onChange={(e) => patchLine(i, { unitPrice: Number(e.target.value) || 0 })}
-                              placeholder="Rate"
-                              inputMode="decimal"
                               className={inputClass}
                             />
                           </td>
@@ -876,7 +880,7 @@ export function BillEditorModal({
 
           <div className="mt-4 border-t border-slate-200 pt-4">
             <label className="cursor-pointer text-xs font-medium text-brand-600">
-              {order.billImage ? 'Replace attached picture' : 'Attach a picture instead'}
+              {order.billImage ? 'Replace attached picture' : 'Upload bill from gallery'}
               <input
                 type="file"
                 accept="image/*"
@@ -889,10 +893,20 @@ export function BillEditorModal({
                 }}
               />
             </label>
+            {/* No per-line rate to sum here (see `namedLines`) — Subtotal
+                is typed by hand, same as the picture-only bill flow always
+                worked: upload the photo, then type the one number it adds
+                up to. */}
             <div className="mt-3 space-y-1.5 text-sm">
-              <div className="flex items-center justify-between text-slate-600">
-                <span>Subtotal</span>
-                <span>{formatCurrency(total)}</span>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Subtotal</span>
+                <input
+                  value={subtotal || ''}
+                  onChange={(e) => setSubtotal(Math.max(0, Number(e.target.value) || 0))}
+                  placeholder="0"
+                  inputMode="decimal"
+                  className="w-28 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-right text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                />
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-600">Disc amount</span>

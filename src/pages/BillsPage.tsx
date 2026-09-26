@@ -177,19 +177,29 @@ export default function BillsPage() {
       // One glance instead of three separate columns (Bill / Payment status
       // / Sent) — the same "where is this in its own lifecycle" question
       // the three stat cards above answer, just per row: not sent yet
-      // (no bill priced/sent), sent but not collected, or paid. The bill
-      // amount, its own invoice image and the exact sent date are still on
-      // "Manage bill" — this is the at-a-glance version, not the only place
-      // to find them.
+      // (no bill priced/sent), sent but not collected/paid, paid but not
+      // yet handed off, or done. The bill amount, its own invoice image and
+      // the exact sent date are still on "Manage bill" — this is the
+      // at-a-glance version, not the only place to find them.
+      //
+      // Four stages, in order: Pending (nothing priced/sent yet) -> Billed
+      // (sent, not yet paid) -> Partially completed (paid, but "Complete
+      // order" hasn't been clicked yet — the counter still has to hand the
+      // order off) -> Completed (order.status is 'delivered'). "Completed"
+      // is checked first: an admin can click "Complete order" on an unpaid
+      // bill too (BillEditorModal only warns about that, doesn't block it),
+      // so a completed order always reads as done regardless of payment.
       key: 'status',
       header: 'Status',
       render: (row) =>
-        row.billAmount <= 0 ? (
-          <Badge tone="amber">Not sent</Badge>
+        row.status === 'delivered' ? (
+          <Badge tone="green">Completed</Badge>
+        ) : row.billAmount <= 0 ? (
+          <Badge tone="amber">Pending</Badge>
         ) : row.billStatus === 'paid' ? (
-          <Badge tone="green">Paid</Badge>
+          <Badge tone="violet">Partially completed</Badge>
         ) : (
-          <Badge tone="amber">Sent · Pending</Badge>
+          <Badge tone="blue">Billed</Badge>
         ),
     },
     {
