@@ -6,10 +6,9 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
-import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
-import { formatCurrency, formatDateTime, titleCase } from '@/lib/format';
+import { formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { clearOrderBill, listOrders } from '@/api/orders';
 import { listStores } from '@/api/stores';
@@ -45,9 +44,6 @@ export default function BillsPage() {
   const [billFilter, setBillFilter] = useState('all');
   const [savingId, setSavingId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(
-    null,
-  );
-  const [viewImage, setViewImage] = useState<{ src: string; title: string } | null>(
     null,
   );
   const [editing, setEditing] = useState<Order | null>(null);
@@ -149,12 +145,7 @@ export default function BillsPage() {
     {
       key: 'code',
       header: 'Order',
-      render: (row) => (
-        <div>
-          <p className="font-medium text-slate-800">{row.code}</p>
-          <p className="text-xs text-slate-400">{formatDateTime(row.placedAt)}</p>
-        </div>
-      ),
+      render: (row) => <span className="font-medium text-slate-800">{row.code}</span>,
     },
     {
       key: 'member',
@@ -176,12 +167,6 @@ export default function BillsPage() {
           } as Column<Order>,
         ]),
     {
-      key: 'paid',
-      header: 'Paid',
-      render: (row) => formatCurrency(row.paidTotal),
-      className: 'text-right',
-    },
-    {
       key: 'fulfilment',
       header: 'Fulfilment',
       render: (row) => (
@@ -189,63 +174,32 @@ export default function BillsPage() {
       ),
     },
     {
-      key: 'paymentStatus',
-      header: 'Payment status',
+      key: 'date',
+      header: 'Date',
       render: (row) => (
-        <Badge tone={row.paymentStatus === 'paid' ? 'green' : 'amber'}>
-          {titleCase(row.paymentStatus)}
-        </Badge>
+        <span className="whitespace-nowrap text-slate-600">
+          {formatDateTime(row.placedAt)}
+        </span>
       ),
     },
     {
-      key: 'bill',
-      header: 'Bill',
+      // One glance instead of three separate columns (Bill / Payment status
+      // / Sent) — the same "where is this in its own lifecycle" question
+      // the three stat cards above answer, just per row: not sent yet
+      // (no bill priced/sent), sent but not collected, or paid. The bill
+      // amount, its own invoice image and the exact sent date are still on
+      // "Manage bill" — this is the at-a-glance version, not the only place
+      // to find them.
+      key: 'status',
+      header: 'Status',
       render: (row) =>
-        row.billAmount > 0 ? (
-          <div className="flex items-center gap-2">
-            <Badge tone={row.billStatus === 'paid' ? 'green' : 'amber'}>
-              {formatCurrency(row.billAmount)} · {titleCase(row.billStatus)}
-            </Badge>
-            {row.billImage && (
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setViewImage({ src: row.billImage, title: `${row.code} — invoice` });
-                }}
-                className="h-9 w-8 shrink-0 overflow-hidden rounded border border-slate-200 bg-slate-50"
-              >
-                <img
-                  src={row.billImage}
-                  alt="Invoice sent to the member"
-                  className="h-full w-full object-cover"
-                />
-              </button>
-            )}
-          </div>
-        ) : row.billImage ? (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setViewImage({ src: row.billImage, title: `${row.code} — invoice` });
-            }}
-            className="h-14 w-11 shrink-0 overflow-hidden rounded-md border border-slate-200 bg-slate-50"
-          >
-            <img
-              src={row.billImage}
-              alt="Invoice sent to the member"
-              className="h-full w-full object-cover"
-            />
-          </button>
-        ) : (
+        row.billAmount <= 0 ? (
           <Badge tone="amber">Not sent</Badge>
+        ) : row.billStatus === 'paid' ? (
+          <Badge tone="green">Paid</Badge>
+        ) : (
+          <Badge tone="amber">Sent · Pending</Badge>
         ),
-    },
-    {
-      key: 'sent',
-      header: 'Sent',
-      render: (row) => (row.billedAt ? formatDateTime(row.billedAt) : '—'),
     },
     {
       key: 'actions',
@@ -356,20 +310,6 @@ export default function BillsPage() {
           </p>
         )}
       </Card>
-
-      <Modal
-        open={Boolean(viewImage)}
-        onClose={() => setViewImage(null)}
-        title={viewImage?.title ?? ''}
-      >
-        {viewImage && (
-          <img
-            src={viewImage.src}
-            alt={viewImage.title}
-            className="max-h-[70vh] w-full object-contain"
-          />
-        )}
-      </Modal>
 
       {editing && (
         <BillEditorModal
