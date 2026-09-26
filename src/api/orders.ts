@@ -138,6 +138,37 @@ async function mapOrderRows(rows: Row[]): Promise<Order[]> {
     bucket.push(toBillLine(blr));
   }
 
+  // What's actually supposed to end up on this order's bill, by name — the
+  // Bills page's own Status column ("Pending" / "Billed" / "Partially
+  // completed") reads by comparing this against `billLines`' own names, the
+  // same "billable vs already billed" check `PrescriptionReviewModal`
+  // already does for one prescription at a time (`billableMedicineNames`/
+  // `billedMedicineNames`), just bulk-loaded here for every order in the
+  // list at once. A standard order's own reviewed cart lines carry this
+  // directly (`status = 'available'`); a prescription order's own
+  // `order_line` rows are never populated at checkout (there's no cart),
+  // so its billable set comes from its intake medicines instead — anything
+  // not marked "Not possible".
+  const prescriptionMedRows = await query<Row>(
+    `SELECT po.order_id, pm.name
+       FROM app.prescription_order po
+       JOIN app.prescription_medicine pm ON pm.prescription_id = po.prescription_id
+      WHERE po.order_id = ANY($1::bigint[])
+        AND pm.status <> 'NOT_POSSIBLE'::app.prescription_medicine_status`,
+    [ids],
+  );
+  const billableNamesByOrder = new Map<string, string[]>();
+  for (const pr of prescriptionMedRows) {
+    if (pr.order_id == null) continue;
+    const key = String(pr.order_id);
+    let bucket = billableNamesByOrder.get(key);
+    if (!bucket) {
+      bucket = [];
+      billableNamesByOrder.set(key, bucket);
+    }
+    bucket.push(String(pr.name));
+  }
+
   return rows.map((r) => {
     const receipt: OrderReceipt | null = r.receipt_uploaded_at
       ? {
@@ -182,6 +213,12 @@ async function mapOrderRows(rows: Row[]): Promise<Order[]> {
       billDiscount: num(r.bill_discount),
       billStatus: fromEnum<PaymentStatus>(String(r.bill_status ?? 'PENDING')),
       billLines: r.bill_id == null ? [] : billLinesByBill.get(String(r.bill_id)) ?? [],
+      billableItemNames:
+        String(r.kind) === 'PRESCRIPTION'
+          ? billableNamesByOrder.get(String(r.id)) ?? []
+          : (linesByOrder.get(String(r.id)) ?? [])
+              .filter((l) => l.status === 'available')
+              .map((l) => l.name),
     };
   });
 }

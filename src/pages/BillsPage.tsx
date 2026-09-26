@@ -16,9 +16,35 @@ import type { Order } from '@/types';
 
 const BILL_OPTIONS = [
   { value: 'all', label: 'All bills' },
-  { value: 'sent', label: 'Bill sent' },
-  { value: 'pending', label: 'Not sent yet' },
+  { value: 'billed', label: 'Billed' },
+  { value: 'partial', label: 'Partially completed' },
+  { value: 'pending', label: 'Pending' },
 ];
+
+/**
+ * Where this order's bill actually stands, by comparing what's supposed to
+ * be on it ([Order.billableItemNames] — a standard order's own reviewed
+ * cart lines, or a prescription's own intake medicines) against what's
+ * actually on it ([Order.billLines]), the same "billable vs already billed"
+ * check `PrescriptionReviewModal` already does for one prescription at a
+ * time — generalised here to every order this page lists:
+ *   - 'pending':  nothing's been billed yet.
+ *   - 'billed':   every billable item is on the bill (or there's no known
+ *     billable set to compare against — a manually-built bill still counts
+ *     as done rather than perpetually "partial").
+ *   - 'partial':  something's been billed, but not everything that should be.
+ */
+function billProgress(row: Order): 'pending' | 'partial' | 'billed' {
+  const billed = new Set(
+    row.billLines.map((l) => l.name.trim().toLowerCase()).filter(Boolean),
+  );
+  if (billed.size === 0) return 'pending';
+  const billable = row.billableItemNames
+    .map((n) => n.trim().toLowerCase())
+    .filter(Boolean);
+  if (billable.length === 0) return 'billed';
+  return billable.every((n) => billed.has(n)) ? 'billed' : 'partial';
+}
 
 /**
  * The store's invoice for every order that has been converted to a bill, in
@@ -106,9 +132,7 @@ export default function BillsPage() {
         row.memberName.toLowerCase().includes(q) ||
         row.memberPhone.includes(q);
       const matchesStore = store === 'all' || row.storeCode === store;
-      const hasBill = Boolean(row.billImage) || row.billAmount > 0;
-      const matchesBill =
-        billFilter === 'all' || (billFilter === 'sent' ? hasBill : !hasBill);
+      const matchesBill = billFilter === 'all' || billProgress(row) === billFilter;
       return matchesQuery && matchesStore && matchesBill;
     });
   }, [scoped, search, store, billFilter]);
@@ -174,33 +198,18 @@ export default function BillsPage() {
       ),
     },
     {
-      // One glance instead of three separate columns (Bill / Payment status
-      // / Sent) — the same "where is this in its own lifecycle" question
-      // the three stat cards above answer, just per row: not sent yet, sent
-      // but neither paid nor handed off, one of those two done but not the
-      // other, or both. The bill amount, its own invoice image and the
-      // exact sent date are still on "Manage bill" — this is the
-      // at-a-glance version, not the only place to find them.
-      //
-      // "Paid" and "handed off" (order.status 'delivered') are tracked
-      // completely independently — BillEditorModal's own "Complete order"
-      // explicitly allows completing an unpaid bill (it only warns:
-      // "Completing the order does not collect payment"), and a home
-      // delivery can just as easily be marked delivered before the bill is
-      // ever collected. So this is genuinely two independent yes/no facts,
-      // not one linear progression:
-      //   neither            -> Pending (nothing priced/sent) or Billed (sent)
-      //   exactly one of them -> Partially completed
-      //   both               -> Completed
+      // One glance instead of digging into "Manage bill": has this order's
+      // bill actually been built out yet, per [billProgress] above — not
+      // sent at all, some but not every billable item on it, or all of
+      // them. Payment/collection status itself is still on "Manage bill",
+      // not folded in here.
       key: 'status',
       header: 'Status',
       render: (row) => {
-        const paid = row.billStatus === 'paid';
-        const done = row.status === 'delivered';
-        if (row.billAmount <= 0) return <Badge tone="amber">Pending</Badge>;
-        if (paid && done) return <Badge tone="green">Completed</Badge>;
-        if (paid || done) return <Badge tone="violet">Partially completed</Badge>;
-        return <Badge tone="blue">Billed</Badge>;
+        const progress = billProgress(row);
+        if (progress === 'pending') return <Badge tone="amber">Pending</Badge>;
+        if (progress === 'partial') return <Badge tone="violet">Partially completed</Badge>;
+        return <Badge tone="green">Billed</Badge>;
       },
     },
     {

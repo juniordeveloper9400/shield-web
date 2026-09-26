@@ -415,6 +415,12 @@ export interface Order {
   billDiscount: number;
   billStatus: PaymentStatus;
   billLines: BillLine[];
+  /** What's actually supposed to end up on this order's bill, by name — a
+   *  standard order's own reviewed cart lines marked 'available', or a
+   *  prescription order's own intake medicines not marked "Not possible".
+   *  Compared against [billLines]' own names to say whether the bill is
+   *  fully, partially, or not yet built — see BillsPage's own Status column. */
+  billableItemNames: string[];
 }
 
 /** `app.prescription_status`. */
