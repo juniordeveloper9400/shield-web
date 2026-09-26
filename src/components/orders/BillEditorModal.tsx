@@ -886,31 +886,37 @@ export function BillEditorModal({
           </div>
 
           <div className="mt-4 border-t border-slate-200 pt-4">
-            <div className="flex items-center gap-3">
-              <label className="cursor-pointer text-xs font-medium text-brand-600">
-                {imageBusy ? 'Reading picture…' : pickedImage ? 'Change picture' : 'Upload bill from gallery'}
-                <input
-                  type="file"
-                  accept="image/*"
-                  disabled={saving || imageBusy}
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void pickImage(file);
-                    e.target.value = '';
-                  }}
-                />
-              </label>
+            <div className="flex items-start gap-3">
               {pickedImage && (
-                <>
-                  <a
-                    href={pickedImage}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-xs font-medium text-slate-500 hover:text-slate-700"
-                  >
-                    View picture
-                  </a>
+                <button
+                  type="button"
+                  onClick={() => window.open(pickedImage, '_blank', 'noopener,noreferrer')}
+                  title="Open full size"
+                  className="shrink-0 overflow-hidden rounded-md border border-slate-200"
+                >
+                  <img
+                    src={pickedImage}
+                    alt="Uploaded bill"
+                    className="h-20 w-20 object-cover"
+                  />
+                </button>
+              )}
+              <div className="flex items-center gap-3">
+                <label className="cursor-pointer text-xs font-medium text-brand-600">
+                  {imageBusy ? 'Reading picture…' : pickedImage ? 'Change picture' : 'Upload bill from gallery'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={saving || imageBusy}
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void pickImage(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+                {pickedImage && (
                   <button
                     type="button"
                     className="text-xs font-medium text-rose-600 hover:text-rose-700"
@@ -918,8 +924,8 @@ export function BillEditorModal({
                   >
                     Remove
                   </button>
-                </>
-              )}
+                )}
+              </div>
             </div>
             {/* No per-line rate to sum here (see `namedLines`) — Subtotal
                 is typed by hand, same as the picture-only bill flow always
