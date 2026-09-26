@@ -407,8 +407,12 @@ export interface Order {
   billImage: string;
   billedAt: string;
   /** What the bill says is owed — 0 until the store prices it (always known
-   *  up front for a standard order; only set after intake for a prescription). */
+   *  up front for a standard order; only set after intake for a prescription).
+   *  Already net of [billDiscount] — this is what's actually collected. */
   billAmount: number;
+  /** How much of the priced lines' subtotal was knocked off to reach
+   *  [billAmount] — 0 for a bill with no discount applied. */
+  billDiscount: number;
   billStatus: PaymentStatus;
   billLines: BillLine[];
 }

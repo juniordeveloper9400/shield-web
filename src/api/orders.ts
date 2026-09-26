@@ -54,7 +54,7 @@ const ORDER_SELECT = `
            o.payment_status::text AS payment_status,
            o.delivery_boy_id, db.name AS delivery_boy_name,
            o.placed_at, b.id AS bill_id, b.image AS bill_image, b.sent_at AS billed_at,
-           b.amount AS bill_amount, b.status::text AS bill_status,
+           b.amount AS bill_amount, b.discount_amount AS bill_discount, b.status::text AS bill_status,
            r.payer_name AS receipt_payer_name, r.reference AS receipt_reference,
            r.amount AS receipt_amount, r.file_name AS receipt_file_name,
            r.image AS receipt_image, r.uploaded_at AS receipt_uploaded_at
@@ -179,6 +179,7 @@ async function mapOrderRows(rows: Row[]): Promise<Order[]> {
       billImage: String(r.bill_image ?? ''),
       billedAt: iso(r.billed_at) ?? '',
       billAmount: num(r.bill_amount),
+      billDiscount: num(r.bill_discount),
       billStatus: fromEnum<PaymentStatus>(String(r.bill_status ?? 'PENDING')),
       billLines: r.bill_id == null ? [] : billLinesByBill.get(String(r.bill_id)) ?? [],
     };
@@ -311,8 +312,12 @@ export async function sendOrderInvoice(
   id: string,
   opts: {
     image?: string;
+    /** The net payable total — already `subtotal - discountAmount`. */
     amount: number;
     lines?: { name: string; pack?: string; unitPrice: number; qty: number }[];
+    /** How much of the lines' subtotal was knocked off to reach `amount` —
+     *  purely the audit trail; 0 when no discount was applied. */
+    discountAmount?: number;
   },
 ): Promise<string> {
   // app.bill.image is NOT NULL (it predates this priced-invoice path, which
@@ -321,15 +326,16 @@ export async function sendOrderInvoice(
   // already treats a blank/whitespace image as (see listOrders/fetchPrescriptions),
   // so a lineitem-only bill inserts cleanly instead of violating the column.
   const upserted = await query<{ id: unknown; sent_at: unknown }>(
-    `INSERT INTO app.bill (order_id, image, amount, sent_at, updated_at)
-     VALUES ($1, $2, $3, now(), now())
+    `INSERT INTO app.bill (order_id, image, amount, discount_amount, sent_at, updated_at)
+     VALUES ($1, $2, $3, $4, now(), now())
      ON CONFLICT (order_id)
      DO UPDATE SET image = CASE WHEN excluded.image = '' THEN app.bill.image ELSE excluded.image END,
                    amount = excluded.amount,
+                   discount_amount = excluded.discount_amount,
                    sent_at = now(),
                    updated_at = now()
      RETURNING id, sent_at`,
-    [id, opts.image ?? '', opts.amount],
+    [id, opts.image ?? '', opts.amount, opts.discountAmount ?? 0],
   );
 
   let billId = upserted[0]?.id == null ? null : String(upserted[0].id);

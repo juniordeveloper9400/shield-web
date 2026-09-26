@@ -17,6 +17,7 @@ import {
 } from '@/api/billPayments';
 import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
 import { listStores } from '@/api/stores';
+import { Icon } from '@/components/ui/Icon';
 import { clearDeliveryOtp, confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
 import {
   STOCK_STATUS_LABEL,
@@ -79,6 +80,26 @@ export function BillEditorModal({
   // through sending → collecting → viewing the invoice, all one visit).
   const [billSent, setBillSent] = useState(hasBill);
   const [savedBill, setSavedBill] = useState({ amount: order.billAmount, lines: order.billLines });
+  // The whole-bill "Disc amount" — one number, subtracted from the priced
+  // lines' subtotal to get what's actually owed. `discount` is the figure
+  // being typed on the 'price' step right now; `savedDiscount` is what was
+  // actually sent, same "editable draft vs what's on record" split as
+  // `lines` vs `savedBill`.
+  const [discount, setDiscount] = useState(order.billDiscount || 0);
+  const [savedDiscount, setSavedDiscount] = useState(order.billDiscount || 0);
+  // Which bill line's "⋮" menu (Remove) is open, if any.
+  const [openLineMenu, setOpenLineMenu] = useState<number | null>(null);
+  const lineMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (openLineMenu === null) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (lineMenuRef.current && !lineMenuRef.current.contains(e.target as Node)) {
+        setOpenLineMenu(null);
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [openLineMenu]);
   const [showInvoice, setShowInvoice] = useState(false);
   const [completed, setCompleted] = useState(order.status === 'delivered');
   const [billedAt, setBilledAt] = useState(order.billedAt);
@@ -241,7 +262,11 @@ export function BillEditorModal({
     () => usableLines.reduce((sum, l) => sum + l.unitPrice * l.qty, 0),
     [usableLines],
   );
-  const collectionAmount = billSent && mode === 'summary' ? savedBill.amount : total;
+  // What's actually owed — the priced lines' subtotal less the whole-bill
+  // discount. This, not `total`, is what gets sent as the bill's `amount`
+  // and what the wallet/cash split below is worked out against.
+  const netTotal = Math.max(total - discount, 0);
+  const collectionAmount = billSent && mode === 'summary' ? savedBill.amount : netTotal;
   const walletCoverage = Math.min(walletBalance ?? 0, collectionAmount);
   const cashOwed = Math.max(collectionAmount - walletCoverage, 0);
 
@@ -252,6 +277,7 @@ export function BillEditorModal({
   // is what flips this to paid without waiting on a parent reload.
   const effectiveBillAmount = savedBill.amount;
   const effectiveBillLines = savedBill.lines;
+  const effectiveBillDiscount = savedDiscount;
   // `app.bill.status` (`order.billStatus`) and `app.order.payment_status`
   // (`order.paymentStatus`) are two independently-tracked "is this paid"
   // facts, and only one of them is guaranteed to exist yet: a standard
@@ -383,7 +409,12 @@ export function BillEditorModal({
     try {
       const image = await fileToResizedDataUrl(file, 1400, 0.78);
       setSaving(true);
-      await sendOrderInvoice(order.id, { image, amount: total, lines: usableLines });
+      await sendOrderInvoice(order.id, {
+        image,
+        amount: netTotal,
+        lines: usableLines,
+        discountAmount: discount,
+      });
       onSaved();
       onClose();
     } catch (err) {
@@ -405,9 +436,14 @@ export function BillEditorModal({
     setSaving(true);
     setError(null);
     try {
-      const sentAt = await sendOrderInvoice(order.id, { amount: total, lines: usableLines });
+      const sentAt = await sendOrderInvoice(order.id, {
+        amount: netTotal,
+        lines: usableLines,
+        discountAmount: discount,
+      });
       setBilledAt(sentAt);
-      setSavedBill({ amount: total, lines: usableLines.map(line => ({ ...line })) });
+      setSavedBill({ amount: netTotal, lines: usableLines.map(line => ({ ...line })) });
+      setSavedDiscount(discount);
       onSaved();
       setBillSent(true);
       setMode('summary');
@@ -468,10 +504,10 @@ export function BillEditorModal({
                 ← Items
               </Button>
               <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>
-                Cancel
+                Close
               </Button>
               <Button size="sm" onClick={() => void submit()} disabled={saving}>
-                {billSent ? 'Resend bill' : 'Send bill'}
+                {billSent ? 'Resend cash redemption request' : 'Send cash redemption request'}
               </Button>
             </>
           )
@@ -492,6 +528,11 @@ export function BillEditorModal({
             Bill sent — {formatCurrency(effectiveBillAmount)} (
             {effectiveBillStatus === 'paid' ? 'Paid' : 'Pending'})
           </p>
+          {effectiveBillDiscount > 0 && (
+            <p className="mt-0.5 text-xs text-slate-500">
+              Includes a {formatCurrency(effectiveBillDiscount)} discount off the priced lines.
+            </p>
+          )}
           {effectiveBillLines.length > 0 && (
             <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
               {effectiveBillLines.map((l, i) => (
@@ -704,73 +745,123 @@ export function BillEditorModal({
 
       {mode === 'edit' && editStep === 'price' && (
         <div>
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Bill lines
-            </p>
-            <button
-              type="button"
-              className="text-xs font-medium text-brand-600"
-              onClick={() =>
-                setLines((rows) => [...rows, { name: '', pack: '', unitPrice: 0, qty: 1 }])
-              }
-            >
-              + Add line
-            </button>
-          </div>
-          <div className="space-y-2">
-            {lines.map((line, i) => (
-              <div key={i} className="rounded-lg border border-slate-200 p-3">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-500">Line {i + 1}</span>
-                  <button
-                    type="button"
-                    className="text-xs font-medium text-rose-600 hover:text-rose-700"
-                    onClick={() => removeLine(i)}
-                  >
-                    Remove
-                  </button>
-                </div>
-                <input
-                  value={line.name}
-                  onChange={(e) => patchLine(i, { name: e.target.value })}
-                  placeholder="Item name"
-                  className={inputClass}
-                />
-                <div className="mt-2 grid grid-cols-3 gap-1.5">
-                  <input
-                    value={line.pack}
-                    onChange={(e) => patchLine(i, { pack: e.target.value })}
-                    placeholder="Pack"
-                    className={inputClass}
-                  />
-                  <input
-                    value={line.unitPrice || ''}
-                    onChange={(e) => patchLine(i, { unitPrice: Number(e.target.value) || 0 })}
-                    placeholder="Unit price"
-                    inputMode="decimal"
-                    className={inputClass}
-                  />
-                  <input
-                    value={line.qty || ''}
-                    onChange={(e) => patchLine(i, { qty: Number(e.target.value) || 0 })}
-                    placeholder="Qty"
-                    inputMode="numeric"
-                    className={inputClass}
-                  />
-                </div>
+          <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_320px]">
+            {/* Left: the priced lines themselves, editable inline. */}
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Bill lines
+                </p>
+                <button
+                  type="button"
+                  className="text-xs font-medium text-brand-600"
+                  onClick={() =>
+                    setLines((rows) => [...rows, { name: '', pack: '', unitPrice: 0, qty: 1 }])
+                  }
+                >
+                  + Add line
+                </button>
               </div>
-            ))}
-            {lines.length === 0 && (
-              <p className="text-sm text-slate-400">No lines yet — add at least one.</p>
-            )}
-          </div>
-          <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-sm font-semibold text-slate-800">
-            <span>Total</span>
-            <span>{formatCurrency(total)}</span>
-          </div>
-          {total > 0 && (
-            <div className="mt-2">
+              <div className="overflow-x-auto overflow-y-visible rounded-lg border border-slate-200">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="px-3 py-2">Product name</th>
+                      <th className="px-3 py-2">Qty</th>
+                      <th className="px-3 py-2">Rate</th>
+                      <th className="px-3 py-2">Category</th>
+                      <th className="px-3 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {lines.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
+                          No lines yet — add at least one.
+                        </td>
+                      </tr>
+                    ) : (
+                      lines.map((line, i) => (
+                        <tr key={i} className="align-top">
+                          <td className="min-w-[160px] px-3 py-2">
+                            <input
+                              value={line.name}
+                              onChange={(e) => patchLine(i, { name: e.target.value })}
+                              placeholder="Item name"
+                              className={inputClass}
+                            />
+                          </td>
+                          <td className="w-20 px-3 py-2">
+                            <input
+                              value={line.qty || ''}
+                              onChange={(e) => patchLine(i, { qty: Number(e.target.value) || 0 })}
+                              placeholder="Qty"
+                              inputMode="numeric"
+                              className={inputClass}
+                            />
+                          </td>
+                          <td className="w-28 px-3 py-2">
+                            <input
+                              value={line.unitPrice || ''}
+                              onChange={(e) => patchLine(i, { unitPrice: Number(e.target.value) || 0 })}
+                              placeholder="Rate"
+                              inputMode="decimal"
+                              className={inputClass}
+                            />
+                          </td>
+                          <td className="min-w-[120px] px-3 py-2">
+                            <input
+                              value={line.pack}
+                              onChange={(e) => patchLine(i, { pack: e.target.value })}
+                              placeholder="Category"
+                              className={inputClass}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <div
+                              className="relative inline-block"
+                              ref={openLineMenu === i ? lineMenuRef : undefined}
+                            >
+                              <button
+                                type="button"
+                                title="Row actions"
+                                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                                onClick={() =>
+                                  setOpenLineMenu((cur) => (cur === i ? null : i))
+                                }
+                              >
+                                <Icon name="more-vertical" className="h-4 w-4" />
+                              </button>
+                              {openLineMenu === i && (
+                                <div className="absolute right-0 z-10 mt-1 w-28 overflow-hidden rounded-md border border-slate-200 bg-white py-1 text-left shadow-lg">
+                                  <button
+                                    type="button"
+                                    className="block w-full px-3 py-1.5 text-xs text-rose-600 hover:bg-rose-50"
+                                    onClick={() => {
+                                      removeLine(i);
+                                      setOpenLineMenu(null);
+                                    }}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Right: the member's wallet against this bill, same figures
+                shown again once collecting it in summary mode below. */}
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Member wallet
+              </p>
               <WalletBreakdown
                 walletBalance={walletBalance ?? 0}
                 monthlyRedeemable={monthlyRedeemable}
@@ -781,8 +872,9 @@ export function BillEditorModal({
                 format={formatCurrency}
               />
             </div>
-          )}
-          <div className="mt-3 flex items-center justify-between">
+          </div>
+
+          <div className="mt-4 border-t border-slate-200 pt-4">
             <label className="cursor-pointer text-xs font-medium text-brand-600">
               {order.billImage ? 'Replace attached picture' : 'Attach a picture instead'}
               <input
@@ -797,6 +889,26 @@ export function BillEditorModal({
                 }}
               />
             </label>
+            <div className="mt-3 space-y-1.5 text-sm">
+              <div className="flex items-center justify-between text-slate-600">
+                <span>Subtotal</span>
+                <span>{formatCurrency(total)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Disc amount</span>
+                <input
+                  value={discount || ''}
+                  onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))}
+                  placeholder="0"
+                  inputMode="decimal"
+                  className="w-28 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-right text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                />
+              </div>
+              <div className="flex items-center justify-between border-t border-slate-200 pt-1.5 font-semibold text-slate-800">
+                <span>Bill total</span>
+                <span>{formatCurrency(netTotal)}</span>
+              </div>
+            </div>
           </div>
           {error && <p className="mt-2 text-xs text-rose-600">{error}</p>}
         </div>
@@ -806,6 +918,7 @@ export function BillEditorModal({
       order={{
         ...order,
         billAmount: effectiveBillAmount,
+        billDiscount: effectiveBillDiscount,
         billLines: effectiveBillLines,
         billStatus: effectiveBillStatus,
         billedAt,
