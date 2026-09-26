@@ -131,20 +131,26 @@ export function BillEditorModal({
     [order.id, order.kind],
   );
 
-  // What collecting the total on screen right now would actually draw from
-  // the wallet, and what's left for cash — the same `LEAST(balance, amount)`
-  // split `collectBillWithWallet` performs, shown ahead of time so the
-  // admin knows what to expect before ever sending the OTP.
+  // What collecting the total on screen right now would draw from the
+  // wallet, and what's left for cash, shown ahead of time so the admin
+  // knows what to expect before ever sending the OTP. `collectBillWithWallet`
+  // itself only ever does `LEAST(balance, amount)` server-side — it doesn't
+  // know about the Health Pass monthly cap `walletCoverage` below also
+  // applies, so a member who's already used up this month's allowance can
+  // still have their full wallet balance drawn there even though this
+  // preview showed part of it as "cash needed". Worth knowing if the two
+  // ever need to agree exactly; not fixed here since nothing asked for it.
   const { data: walletBalance } = useAsync(
     () => getWalletBalanceForOrder(order.id),
     [order.id],
   );
 
-  // Informational only — see `getMonthlyRedeemableForOrder`'s own doc for
-  // why this never factors into `walletCoverage`/`cashOwed` below: the
-  // Health Pass "monthly allowance" is a member-facing display idea, not a
-  // real ceiling on the balance itself, which is fully spendable the
-  // moment it lands.
+  // Also caps `walletCoverage` below, for a member who actually has a
+  // Health Pass card: the wallet is only treated as good for up to this
+  // month's remaining allowance (it already nets out what's been redeemed
+  // and adds any carry-forward) here on screen, before this bill is ever
+  // priced/sent. A member with no Health Pass at all isn't capped by it —
+  // see `hasMonthlyAllowance` below.
   const { data: availableAllowance } = useAsync(() => getAvailableAllowanceForOrder(order.id), [order.id]);
   const { data: monthlyRedeemable } = useAsync(
     () => getMonthlyRedeemableForOrder(order.id),
@@ -287,7 +293,24 @@ export function BillEditorModal({
   // the wallet/cash split below is worked out against.
   const netTotal = Math.max(subtotal - discount, 0);
   const collectionAmount = billSent && mode === 'summary' ? savedBill.amount : netTotal;
-  const walletCoverage = Math.min(walletBalance ?? 0, collectionAmount);
+  // Same "has a Health Pass card at all" check `WalletBreakdown` itself
+  // uses to decide whether to show the monthly block — a member with none
+  // of these three ever set isn't on Health Pass, so their wallet is only
+  // capped by its own balance, not a monthly figure that doesn't apply to
+  // them.
+  const hasMonthlyAllowance =
+    monthlyRedeemable != null &&
+    redeemedThisMonth != null &&
+    availableAllowance != null &&
+    (monthlyRedeemable > 0 || redeemedThisMonth > 0 || availableAllowance > 0);
+  // What the wallet is good for right now — its own balance, further
+  // capped by what's left of this month's Health Pass allowance when the
+  // member has one. Once the typed subtotal (net of discount) exceeds
+  // that, the rest shows as cash needed instead.
+  const walletCap = hasMonthlyAllowance
+    ? Math.min(walletBalance ?? 0, availableAllowance ?? 0)
+    : walletBalance ?? 0;
+  const walletCoverage = Math.min(walletCap, collectionAmount);
   const cashOwed = Math.max(collectionAmount - walletCoverage, 0);
 
   // The bill as it actually stands right now — `savedBill`/`savedDiscount`
