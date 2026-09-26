@@ -1030,19 +1030,49 @@ export function BillEditorModal({
       onClose={() => setShowOtpPopover(false)}
       title="Verify OTP to collect payment"
       footer={
-        <Button variant="secondary" size="sm" onClick={() => setShowOtpPopover(false)}>
-          Close
-        </Button>
+        collected ? (
+          // Once collected, "Done" closes the whole bill editor rather than
+          // dropping back to the summary page behind this popover — nothing
+          // further needs doing there for a collection that just succeeded;
+          // "Manage bill" reopens fine later for anything that does.
+          <Button size="sm" onClick={onClose}>
+            Done
+          </Button>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={() => setShowOtpPopover(false)}>
+            Close
+          </Button>
+        )
       }
     >
       {collected ? (
-        <p className="text-sm font-medium text-emerald-600">
-          Collected —{' '}
-          {collected.walletAmount > 0 && `${formatCurrency(collected.walletAmount)} from wallet`}
-          {collected.walletAmount > 0 && collected.cashAmount > 0 && ' + '}
-          {collected.cashAmount > 0 && `${formatCurrency(collected.cashAmount)} in cash`}
-          . This bill is paid.
-        </p>
+        <div className="flex flex-col items-center gap-3 py-4 text-center">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
+            <Icon name="check" className="h-8 w-8 text-emerald-600" />
+          </span>
+          <p className="text-sm font-medium text-emerald-700">
+            Collected —{' '}
+            {collected.walletAmount > 0 && `${formatCurrency(collected.walletAmount)} from wallet`}
+            {collected.walletAmount > 0 && collected.cashAmount > 0 && ' + '}
+            {collected.cashAmount > 0 && `${formatCurrency(collected.cashAmount)} in cash`}
+            . This bill is paid.
+          </p>
+          {completed ? (
+            <p className="text-xs font-medium text-emerald-700">Order completed</p>
+          ) : order.status === 'cancelled' ? (
+            <p className="text-xs font-medium text-slate-500">Order cancelled</p>
+          ) : (
+            <Button
+              variant="success"
+              size="sm"
+              disabled={completing}
+              onClick={() => void completeOrder()}
+            >
+              {completing ? 'Completing…' : 'Complete order'}
+            </Button>
+          )}
+          {completeError && <p className="text-xs text-rose-600">{completeError}</p>}
+        </div>
       ) : (
         <>
           <p className="mb-3 text-xs text-slate-500">
