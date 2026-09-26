@@ -16,7 +16,6 @@ import {
   getWalletBalanceForOrder,
 } from '@/api/billPayments';
 import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
-import { listStores } from '@/api/stores';
 import { Icon } from '@/components/ui/Icon';
 import { clearDeliveryOtp, confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
 import {
@@ -24,7 +23,6 @@ import {
   STOCK_STATUS_TONE,
 } from '@/lib/prescriptionMedicine';
 import { ORDER_LINE_STATUS_LABEL, ORDER_LINE_STATUS_TONE } from '@/lib/orderLineStatus';
-import { InvoiceModal } from './InvoiceModal';
 import { WalletBreakdown } from './WalletBreakdown';
 import type { Tone } from '@/components/ui/Badge';
 import type { Order, PaymentStatus } from '@/types';
@@ -75,19 +73,13 @@ export function BillEditorModal({
   // different screen to switch to.
   const [editStep, setEditStep] = useState<'select' | 'price'>(hasBill ? 'price' : 'select');
   // Whether a priced bill exists at all — true from a previous visit
-  // (`hasBill`) or the moment `submit()` sends one in this session. Once
-  // true, the pricing step's own top bar reads the bill from this
-  // component's own `subtotal`/`savedBill` state rather than the `order`
-  // prop, which the parent has no reason to have refreshed yet (the modal
-  // stays open straight through sending → collecting → viewing the
-  // invoice, all one visit).
+  // (`hasBill`) or the moment `submit()` sends one in this session.
   const [billSent, setBillSent] = useState(hasBill);
-  const [savedBill, setSavedBill] = useState({ amount: order.billAmount, lines: order.billLines });
   // The whole-bill "Disc amount" — one number, subtracted from the priced
   // lines' subtotal to get what's actually owed. `discount` is the figure
   // being typed on the 'price' step right now; `savedDiscount` is what was
   // actually sent, same "editable draft vs what's on record" split as
-  // `lines` vs `savedBill`.
+  // `lines` vs `subtotal`.
   const [discount, setDiscount] = useState(order.billDiscount || 0);
   const [savedDiscount, setSavedDiscount] = useState(order.billDiscount || 0);
   // Which bill line's "⋮" menu (Remove) is open, if any.
@@ -117,9 +109,7 @@ export function BillEditorModal({
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [showAddMenu]);
-  const [showInvoice, setShowInvoice] = useState(false);
   const [completed, setCompleted] = useState(order.status === 'delivered');
-  const [billedAt, setBilledAt] = useState(order.billedAt);
   const completingRequest = useRef(false);
   // "Complete order" — the order's own tracked status (`Order placed →
   // Store will contact → Billed → Completed`, see the member app's own
@@ -130,12 +120,7 @@ export function BillEditorModal({
   const [completing, setCompleting] = useState(false);
   const [completeError, setCompleteError] = useState<string | null>(null);
 
-  // For the invoice's letterhead — resolved by the order's own branch code
-  // rather than passed in, so this modal (shared by BillsPage and
-  // OrdersPage) doesn't need a store prop threaded through both call sites.
   const { accessToken } = useAuth();
-  const { data: stores } = useAsync(() => listStores(accessToken), [accessToken]);
-  const store = stores?.find((s) => s.code === order.storeCode);
 
   // This order's own intake medicines, when it has any (a prescription
   // order only) — the picker below offers them by stock status instead of
@@ -265,12 +250,9 @@ export function BillEditorModal({
       setOtpConfirmation(null);
       setOtpCode('');
       onSaved();
-      // Verifying the code IS the order being done — no separate "Complete
-      // order" click needed any more. Skipped only for a cancelled order,
-      // same guard `completeOrder` itself already enforces server-side.
-      if (order.status !== 'cancelled') {
-        void completeOrder();
-      }
+      // Completing itself now happens from the effect below, the moment
+      // `effectiveBillStatus` turns 'paid' — this just needed to make that
+      // happen; see that effect for why it's not called directly here too.
     } catch (err) {
       setOtpError(describeOtpError(err));
     } finally {
@@ -348,13 +330,10 @@ export function BillEditorModal({
   const walletCoverage = Math.min(walletCap, netTotal);
   const cashOwed = Math.max(netTotal - walletCoverage, 0);
 
-  // The bill as it actually stands right now — `savedBill`/`savedDiscount`
-  // once one has been sent in this session or an earlier one (`billSent`),
-  // falling back to the order prop only for an order that has never been
-  // billed at all. `collected` (set the moment `verifyAndCollect` succeeds)
-  // is what flips this to paid without waiting on a parent reload.
-  const effectiveBillAmount = savedBill.amount;
-  const effectiveBillLines = savedBill.lines;
+  // `savedDiscount` once one has been sent in this session or an earlier
+  // one (`billSent`), falling back to the order prop otherwise. `collected`
+  // (set the moment `verifyAndCollect` succeeds) is what flips
+  // `effectiveBillStatus` below to paid without waiting on a parent reload.
   const effectiveBillDiscount = savedDiscount;
   // `app.bill.status` (`order.billStatus`) and `app.order.payment_status`
   // (`order.paymentStatus`) are two independently-tracked "is this paid"
@@ -523,14 +502,12 @@ export function BillEditorModal({
     setSaving(true);
     setError(null);
     try {
-      const sentAt = await sendOrderInvoice(order.id, {
+      await sendOrderInvoice(order.id, {
         image: pickedImage,
         amount: netTotal,
         lines: namedLines,
         discountAmount: discount,
       });
-      setBilledAt(sentAt);
-      setSavedBill({ amount: netTotal, lines: namedLines.map(line => ({ ...line })) });
       setSavedDiscount(discount);
       onSaved();
       setBillSent(true);
@@ -558,7 +535,6 @@ export function BillEditorModal({
       await completeBilledOrder(order.id);
       setCompleted(true);
       onSaved();
-      setShowInvoice(true);
     } catch (err) {
       setCompleteError(
         err instanceof Error ? err.message : 'Could not complete this order.',
@@ -568,6 +544,24 @@ export function BillEditorModal({
       setCompleting(false);
     }
   }
+
+  // Completes the order the moment it's paid but not yet marked done —
+  // whether that's this visit's own OTP verification just landing, or
+  // reopening a bill that was already paid earlier (from before this
+  // auto-complete existed, or from a visit where the popover was closed
+  // before this had a chance to run). `completingRequest`'s own guard
+  // inside `completeOrder` keeps this from double-firing.
+  useEffect(() => {
+    if (
+      effectiveBillStatus === 'paid' &&
+      !completed &&
+      !completing &&
+      order.status !== 'cancelled'
+    ) {
+      void completeOrder();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveBillStatus, completed, completing]);
 
   return (
     <>
@@ -713,13 +707,6 @@ export function BillEditorModal({
                   ` Includes a ${formatCurrency(effectiveBillDiscount)} discount.`}
               </span>
               <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  className="font-medium text-brand-600"
-                  onClick={() => setShowInvoice(true)}
-                >
-                  View invoice
-                </button>
                 {completing ? (
                   <span className="font-medium text-slate-500">Completing…</span>
                 ) : completed ? (
@@ -1035,21 +1022,6 @@ export function BillEditorModal({
         </>
       )}
     </Modal>
-    <InvoiceModal
-      order={{
-        ...order,
-        billAmount: effectiveBillAmount,
-        billDiscount: effectiveBillDiscount,
-        billLines: effectiveBillLines,
-        billStatus: effectiveBillStatus,
-        billedAt,
-        status: completed ? 'delivered' : order.status,
-      }}
-      store={store}
-      open={showInvoice}
-      onClose={() => setShowInvoice(false)}
-      onCompleted={() => { setCompleted(true); onSaved(); }}
-    />
     </>
   );
 }
