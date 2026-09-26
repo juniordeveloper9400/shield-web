@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/Icon';
@@ -124,7 +123,6 @@ export function PrescriptionReviewModal({
   /** Called after a successful save, so the caller's list re-reads the row. */
   onSaved: () => void;
 }) {
-  const navigate = useNavigate();
   const [draft, setDraft] = useState<PrescriptionMedicineInput[]>([]);
   // Which table row's "⋮" menu (Edit / Delete) is open, if any — at most
   // one at a time, closed by picking an action or clicking anywhere else.
@@ -1252,12 +1250,11 @@ export function PrescriptionReviewModal({
           setStep('details');
           return;
         }
-        // Close this modal outright rather than leaving it mounted
-        // underneath the navigation — Convert to bill hands off to the
-        // Bills page's own editor for this exact order, not something to
-        // come back to here.
+        // Saved and stamped converted — it's on the Bills page's own list
+        // now. Just close this modal rather than also navigating there;
+        // an admin who wants to open it picks it from Bills themselves,
+        // on their own terms, instead of being taken there automatically.
         onClose();
-        navigate(`/bills?open=${orderId}`);
       }
     } else {
       setStep('details');
