@@ -265,6 +265,12 @@ export function BillEditorModal({
       setOtpConfirmation(null);
       setOtpCode('');
       onSaved();
+      // Verifying the code IS the order being done — no separate "Complete
+      // order" click needed any more. Skipped only for a cancelled order,
+      // same guard `completeOrder` itself already enforces server-side.
+      if (order.status !== 'cancelled') {
+        void completeOrder();
+      }
     } catch (err) {
       setOtpError(describeOtpError(err));
     } finally {
@@ -364,6 +370,10 @@ export function BillEditorModal({
   // being able to say "paid" is exactly what closes that gap.
   const effectiveBillStatus: PaymentStatus =
     collected || order.paymentStatus === 'paid' ? 'paid' : order.billStatus;
+  // Fully done in every sense — paid AND handed off. Once true, there's
+  // nothing left for "Send/Resend cash redemption request" to do, so the
+  // footer locks it instead of offering to resend an already-settled bill.
+  const verifiedAndCompleted = effectiveBillStatus === 'paid' && completed;
 
   function patchLine(i: number, patch: Partial<BillLineDraft>) {
     setLines((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -589,8 +599,17 @@ export function BillEditorModal({
             <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>
               Close
             </Button>
-            <Button size="sm" onClick={() => void submit()} disabled={saving}>
-              {billSent ? 'Resend cash redemption request' : 'Send cash redemption request'}
+            <Button
+              size="sm"
+              onClick={() => void submit()}
+              disabled={saving || verifiedAndCompleted}
+              title={verifiedAndCompleted ? 'This bill is already verified and completed' : undefined}
+            >
+              {verifiedAndCompleted
+                ? 'Verified & completed'
+                : billSent
+                  ? 'Resend cash redemption request'
+                  : 'Send cash redemption request'}
             </Button>
           </>
         )
@@ -701,19 +720,12 @@ export function BillEditorModal({
                 >
                   View invoice
                 </button>
-                {completed ? (
+                {completing ? (
+                  <span className="font-medium text-slate-500">Completing…</span>
+                ) : completed ? (
                   <span className="font-medium text-emerald-700">Order completed</span>
                 ) : order.status === 'cancelled' ? (
                   <span className="font-medium text-slate-500">Order cancelled</span>
-                ) : effectiveBillStatus === 'paid' ? (
-                  <Button
-                    variant="success"
-                    size="sm"
-                    disabled={completing}
-                    onClick={() => void completeOrder()}
-                  >
-                    {completing ? 'Completing…' : 'Complete order'}
-                  </Button>
                 ) : null}
               </div>
             </div>
