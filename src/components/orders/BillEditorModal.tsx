@@ -100,6 +100,20 @@ export function BillEditorModal({
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [openLineMenu]);
+  // "+ Add line"'s own picker — which not-yet-included candidate to add,
+  // rather than a blank typed row.
+  const [showAddMenu, setShowAddMenu] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!showAddMenu) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) {
+        setShowAddMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', onDocMouseDown);
+    return () => document.removeEventListener('mousedown', onDocMouseDown);
+  }, [showAddMenu]);
   const [showInvoice, setShowInvoice] = useState(false);
   const [completed, setCompleted] = useState(order.status === 'delivered');
   const [billedAt, setBilledAt] = useState(order.billedAt);
@@ -423,6 +437,15 @@ export function BillEditorModal({
   }, [order.lines, prescriptionMedicines, lines, linesByName]);
 
   const includedCount = candidateRows.filter((r) => r.included).length;
+  // What "+ Add line" on the pricing step actually offers — every
+  // candidate from the selection page that isn't on the bill yet, so
+  // adding a line means picking one of those rather than typing a blank
+  // one from scratch. Empty once everything's already included, which is
+  // exactly when that button goes disabled below.
+  const remainingCandidates = useMemo(
+    () => candidateRows.filter((r) => !r.included),
+    [candidateRows],
+  );
 
   function toggleCandidate(row: CandidateRow) {
     const key = row.name.trim().toLowerCase();
@@ -520,7 +543,7 @@ export function BillEditorModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={`${order.code} — invoice`}
+      title={order.code}
       size="full"
       footer={
         mode === 'edit' ? (
@@ -796,15 +819,43 @@ export function BillEditorModal({
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                   Bill lines
                 </p>
-                <button
-                  type="button"
-                  className="text-xs font-medium text-brand-600"
-                  onClick={() =>
-                    setLines((rows) => [...rows, { name: '', pack: '', unitPrice: 0, qty: 1 }])
-                  }
-                >
-                  + Add line
-                </button>
+                <div className="relative inline-block" ref={addMenuRef}>
+                  <button
+                    type="button"
+                    disabled={remainingCandidates.length === 0}
+                    title={
+                      remainingCandidates.length === 0
+                        ? 'Every item from the selection page is already on this bill'
+                        : undefined
+                    }
+                    className={
+                      remainingCandidates.length === 0
+                        ? 'text-xs font-medium text-slate-300'
+                        : 'text-xs font-medium text-brand-600'
+                    }
+                    onClick={() => setShowAddMenu((v) => !v)}
+                  >
+                    + Add line
+                  </button>
+                  {showAddMenu && remainingCandidates.length > 0 && (
+                    <div className="absolute right-0 z-10 mt-1 max-h-64 w-56 overflow-y-auto rounded-md border border-slate-200 bg-white py-1 text-left shadow-lg">
+                      {remainingCandidates.map((row) => (
+                        <button
+                          key={row.name.trim().toLowerCase()}
+                          type="button"
+                          className="block w-full px-3 py-1.5 text-left text-xs text-slate-700 hover:bg-slate-50"
+                          onClick={() => {
+                            toggleCandidate(row);
+                            setShowAddMenu(false);
+                          }}
+                        >
+                          {row.name}
+                          {row.pack && <span className="text-slate-400"> · {row.pack}</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="overflow-x-auto overflow-y-visible rounded-lg border border-slate-200">
                 <table className="w-full text-left text-xs">
