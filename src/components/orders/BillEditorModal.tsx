@@ -62,22 +62,25 @@ export function BillEditorModal({
   onSaved: () => void;
 }) {
   const hasBill = order.billAmount > 0;
-  const [mode, setMode] = useState<'summary' | 'edit'>(hasBill ? 'summary' : 'edit');
-  // 'edit' mode is itself two steps: 'select' — a full-page checkbox table
-  // of every candidate item (the order's own cart lines, plus a
-  // prescription's intake medicines), Rate shown read-only since nothing's
-  // priced yet — then 'price', the existing per-line Name/Pack/Rate/Qty
-  // form, once "Proceed →" carries the checked items forward. Reopening an
-  // already-sent bill ("Edit bill") skips straight to 'price' — its
-  // composition was already decided the first time; a "← Items" link gets
-  // back to 'select' if it needs to change.
+  // Two steps: 'select' — a full-page checkbox table of every candidate
+  // item (the order's own cart lines, plus a prescription's intake
+  // medicines), Rate shown read-only since nothing's priced yet — then
+  // 'price', the per-line Name/Qty/Category form plus Subtotal/Disc/Bill
+  // total, where the bill actually gets sent. Reopening an already-sent
+  // bill skips straight to 'price' — its composition was already decided
+  // the first time; a "← Items" link gets back to 'select' if it needs to
+  // change. There's no separate "summary" page any more — an already-sent
+  // bill's status, its invoice and "Complete order" all show inline at the
+  // top of 'price' instead (see `billSent` below), rather than a whole
+  // different screen to switch to.
   const [editStep, setEditStep] = useState<'select' | 'price'>(hasBill ? 'price' : 'select');
   // Whether a priced bill exists at all — true from a previous visit
   // (`hasBill`) or the moment `submit()` sends one in this session. Once
-  // true, the summary below reads the bill from this component's own
-  // `subtotal`/`savedBill` state rather than the `order` prop, which the
-  // parent has no reason to have refreshed yet (the modal stays open straight
-  // through sending → collecting → viewing the invoice, all one visit).
+  // true, the pricing step's own top bar reads the bill from this
+  // component's own `subtotal`/`savedBill` state rather than the `order`
+  // prop, which the parent has no reason to have refreshed yet (the modal
+  // stays open straight through sending → collecting → viewing the
+  // invoice, all one visit).
   const [billSent, setBillSent] = useState(hasBill);
   const [savedBill, setSavedBill] = useState({ amount: order.billAmount, lines: order.billLines });
   // The whole-bill "Disc amount" — one number, subtracted from the priced
@@ -319,7 +322,6 @@ export function BillEditorModal({
   // This, not `subtotal`, is what gets sent as the bill's `amount` and what
   // the wallet/cash split below is worked out against.
   const netTotal = Math.max(subtotal - discount, 0);
-  const collectionAmount = billSent && mode === 'summary' ? savedBill.amount : netTotal;
   // Same "has a Health Pass card at all" check `WalletBreakdown` itself
   // uses to decide whether to show the monthly block — a member with none
   // of these three ever set isn't on Health Pass, so their wallet is only
@@ -337,8 +339,8 @@ export function BillEditorModal({
   const walletCap = hasMonthlyAllowance
     ? Math.min(walletBalance ?? 0, availableAllowance ?? 0)
     : walletBalance ?? 0;
-  const walletCoverage = Math.min(walletCap, collectionAmount);
-  const cashOwed = Math.max(collectionAmount - walletCoverage, 0);
+  const walletCoverage = Math.min(walletCap, netTotal);
+  const cashOwed = Math.max(netTotal - walletCoverage, 0);
 
   // The bill as it actually stands right now — `savedBill`/`savedDiscount`
   // once one has been sent in this session or an earlier one (`billSent`),
@@ -499,10 +501,10 @@ export function BillEditorModal({
     }
   }
 
-  /** Sends the priced bill and stays open, switching to the summary — the
-   *  admin's own next moves (collecting payment, then viewing/printing the
-   *  invoice) both happen right here in the same visit, rather than closing
-   *  and needing "Manage bill" reopened to reach them. */
+  /** Sends the priced bill and stays open, right here on the pricing step —
+   *  the admin's own next moves (collecting payment via the OTP popover,
+   *  then viewing/printing the invoice) all happen without closing and
+   *  needing "Manage bill" reopened to reach them. */
   async function submit() {
     if (subtotal <= 0) {
       setError('Enter the bill subtotal before sending.');
@@ -522,7 +524,6 @@ export function BillEditorModal({
       setSavedDiscount(discount);
       onSaved();
       setBillSent(true);
-      setMode('summary');
       // Straight into OTP collection — no separate "now go find the Send
       // OTP button" step — unless this bill was already paid before this
       // send (a rare re-edit of a settled bill), where collecting again
@@ -566,170 +567,45 @@ export function BillEditorModal({
       title={order.code}
       size="full"
       footer={
-        mode === 'edit' ? (
-          editStep === 'select' ? (
-            <>
-              <Button variant="secondary" size="sm" onClick={onClose}>
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                disabled={includedCount === 0}
-                title={includedCount === 0 ? 'Check at least one item first' : undefined}
-                onClick={() => setEditStep('price')}
-              >
-                Proceed →
-              </Button>
-            </>
-          ) : (
-            <>
-              <Button variant="secondary" size="sm" onClick={() => setEditStep('select')} disabled={saving}>
-                ← Items
-              </Button>
-              <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>
-                Close
-              </Button>
-              <Button size="sm" onClick={() => void submit()} disabled={saving}>
-                {billSent ? 'Resend cash redemption request' : 'Send cash redemption request'}
-              </Button>
-            </>
-          )
+        editStep === 'select' ? (
+          <>
+            <Button variant="secondary" size="sm" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              disabled={includedCount === 0}
+              title={includedCount === 0 ? 'Check at least one item first' : undefined}
+              onClick={() => setEditStep('price')}
+            >
+              Proceed →
+            </Button>
+          </>
         ) : (
-          <Button variant="secondary" size="sm" onClick={onClose}>
-            Close
-          </Button>
+          <>
+            <Button variant="secondary" size="sm" onClick={() => setEditStep('select')} disabled={saving}>
+              ← Items
+            </Button>
+            <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>
+              Close
+            </Button>
+            <Button size="sm" onClick={() => void submit()} disabled={saving}>
+              {billSent ? 'Resend cash redemption request' : 'Send cash redemption request'}
+            </Button>
+          </>
         )
       }
     >
       <p className="mb-3 text-xs text-slate-400">
         {order.memberName} · {order.memberPhone}
       </p>
-      {/* Always mounted (not just once summary/collect mode renders) —
-          `sendDeliveryOtp` binds its invisible reCAPTCHA to this exact node
-          the moment "Send/Resend cash redemption request" fires
-          `startCollection`, which can happen the same tick `submit()`
-          switches into summary mode; the node has to already exist. */}
+      {/* Always mounted — `sendDeliveryOtp` binds its invisible reCAPTCHA to
+          this exact node the moment "Send/Resend cash redemption request"
+          fires `startCollection`, right in the same `submit()` call; the
+          node has to already exist at that point. */}
       <div id={recaptchaContainerId} />
 
-      {mode === 'summary' ? (
-        <div className="rounded-lg border border-slate-200 p-4">
-          <p className="text-sm text-slate-800">
-            Bill sent — {formatCurrency(effectiveBillAmount)} (
-            {effectiveBillStatus === 'paid' ? 'Paid' : 'Pending'})
-          </p>
-          {effectiveBillDiscount > 0 && (
-            <p className="mt-0.5 text-xs text-slate-500">
-              Includes a {formatCurrency(effectiveBillDiscount)} discount off the priced lines.
-            </p>
-          )}
-          {effectiveBillLines.length > 0 && (
-            // No per-line amount here — a line no longer carries its own
-            // rate (see `namedLines`/`subtotal`), just what's actually on
-            // the bill; the priced total is the Subtotal/Disc/Bill total
-            // figures above and on the pricing step, not a sum of these.
-            <ul className="mt-2 space-y-0.5 text-xs text-slate-500">
-              {effectiveBillLines.map((l, i) => (
-                <li key={i}>
-                  {l.name} {l.pack && `(${l.pack})`} × {l.qty}
-                </li>
-              ))}
-            </ul>
-          )}
-          <div className="mt-3 flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={completed || completing}
-              onClick={() => {
-                setMode('edit');
-                setEditStep('price');
-              }}
-            >
-              Edit bill
-            </Button>
-            {order.billImage && (
-              <a
-                href={order.billImage}
-                target="_blank"
-                rel="noreferrer"
-                className="text-xs font-medium text-brand-600"
-              >
-                View attached picture
-              </a>
-            )}
-          </div>
-        </div>
-      ) : null}
-
-      {mode === 'summary' && billSent && effectiveBillAmount > 0 && (
-        <div className="mt-3 rounded-lg border border-slate-200 p-4">
-          {collected ? (
-            <p className="text-sm font-medium text-emerald-600">
-              Collected —{' '}
-              {collected.walletAmount > 0 && `${formatCurrency(collected.walletAmount)} from wallet`}
-              {collected.walletAmount > 0 && collected.cashAmount > 0 && ' + '}
-              {collected.cashAmount > 0 && `${formatCurrency(collected.cashAmount)} in cash`}
-              . This bill is paid.
-            </p>
-          ) : effectiveBillStatus === 'paid' ? (
-            <p className="text-sm font-medium text-emerald-600">This bill is paid.</p>
-          ) : (
-            <p className="text-sm text-amber-700">Payment pending. Completing the order does not collect payment.</p>
-          )}
-          <div className="mt-3 flex items-center gap-2">
-            {completed ? (
-              <>
-                <span className="text-xs font-medium text-emerald-700">Order completed</span>
-                <Button size="sm" onClick={() => setShowInvoice(true)}>Print / share invoice</Button>
-              </>
-            ) : order.status === 'cancelled' ? (
-              <span className="text-xs font-medium text-slate-500">Order cancelled</span>
-            ) : (
-              <Button
-                variant="success"
-                size="sm"
-                disabled={completing}
-                onClick={() => void completeOrder()}
-              >
-                {completing ? 'Completing…' : 'Complete order'}
-              </Button>
-            )}
-          </div>
-          {completeError && (
-            <p className="mt-2 text-xs text-rose-600">{completeError}</p>
-          )}
-        </div>
-      )}
-
-      {mode === 'summary' && effectiveBillStatus !== 'paid' && (
-        <div className="mt-3 rounded-lg border border-slate-200 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Collect bill
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            A one-time code went to the member's phone the moment this bill was
-            sent. Verify it in the popover to actually debit the wallet (up to
-            the bill amount) and collect any shortfall in cash — never before
-            the code checks out.
-          </p>
-          <div className="mt-3">
-            <WalletBreakdown
-              walletBalance={walletBalance ?? 0}
-              monthlyRedeemable={monthlyRedeemable}
-              redeemedThisMonth={redeemedThisMonth} availableAllowance={availableAllowance}
-              walletShare={walletCoverage}
-              walletShareLabel="Will draw from wallet"
-              cashOwed={cashOwed}
-              format={formatCurrency}
-            />
-          </div>
-          <Button size="sm" className="mt-3" onClick={() => void startCollection()}>
-            Collect payment
-          </Button>
-        </div>
-      )}
-
-      {mode === 'edit' && editStep === 'select' && (
+      {editStep === 'select' && (
         <div>
           <p className="mb-1 text-sm font-semibold text-slate-800">Choose what's on this bill</p>
           <p className="mb-3 text-xs text-slate-400">
@@ -799,8 +675,50 @@ export function BillEditorModal({
         </div>
       )}
 
-      {mode === 'edit' && editStep === 'price' && (
+      {editStep === 'price' && (
         <div>
+          {/* Everything an already-sent bill still needs — its paid/pending
+              status, viewing the invoice, completing the order — inline
+              here rather than a separate summary page/mode to switch to. */}
+          {billSent && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
+              <span
+                className={
+                  effectiveBillStatus === 'paid'
+                    ? 'font-medium text-emerald-700'
+                    : 'font-medium text-amber-700'
+                }
+              >
+                {effectiveBillStatus === 'paid' ? 'This bill is paid.' : 'Bill sent — payment pending.'}
+                {effectiveBillDiscount > 0 &&
+                  ` Includes a ${formatCurrency(effectiveBillDiscount)} discount.`}
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="font-medium text-brand-600"
+                  onClick={() => setShowInvoice(true)}
+                >
+                  View invoice
+                </button>
+                {completed ? (
+                  <span className="font-medium text-emerald-700">Order completed</span>
+                ) : order.status === 'cancelled' ? (
+                  <span className="font-medium text-slate-500">Order cancelled</span>
+                ) : effectiveBillStatus === 'paid' ? (
+                  <Button
+                    variant="success"
+                    size="sm"
+                    disabled={completing}
+                    onClick={() => void completeOrder()}
+                  >
+                    {completing ? 'Completing…' : 'Complete order'}
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          )}
+          {completeError && <p className="mb-3 text-xs text-rose-600">{completeError}</p>}
           <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_320px]">
             {/* Left: the priced lines themselves, editable inline. */}
             <div>
@@ -930,8 +848,9 @@ export function BillEditorModal({
               </div>
             </div>
 
-            {/* Right: the member's wallet against this bill, same figures
-                shown again once collecting it in summary mode below. */}
+            {/* Right: the member's wallet against this bill — the same
+                figures the OTP popover's own text uses once collection
+                actually starts. */}
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Member wallet
