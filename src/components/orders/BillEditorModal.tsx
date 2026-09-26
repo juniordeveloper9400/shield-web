@@ -253,6 +253,16 @@ export function BillEditorModal({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The bill's picture, staged locally until "Send cash redemption
+  // request" actually sends everything together — picking a file used to
+  // submit and close the whole modal immediately (a leftover from the old
+  // picture-only bill flow), which read as the page randomly closing
+  // itself the moment a photo was chosen. Now it just resizes the file and
+  // holds it here for a preview; nothing is saved until Send is clicked.
+  // Starts from whatever picture the bill already has, so re-opening an
+  // already-sent bill doesn't look like its picture vanished.
+  const [pickedImage, setPickedImage] = useState(order.billImage);
+  const [imageBusy, setImageBusy] = useState(false);
 
   // Named lines are just the itemised "what's on this bill" list now — no
   // per-line rate. There's rarely a real catalog price to type per item
@@ -414,23 +424,19 @@ export function BillEditorModal({
     });
   }
 
-  async function attachImage(file: File) {
+  /** Resizes the chosen file and holds it for preview — does not save or
+   *  close anything. The actual save happens in `submit()`, alongside the
+   *  subtotal/discount/lines, whenever the admin clicks "Send". */
+  async function pickImage(file: File) {
     setError(null);
+    setImageBusy(true);
     try {
       const image = await fileToResizedDataUrl(file, 1400, 0.78);
-      setSaving(true);
-      await sendOrderInvoice(order.id, {
-        image,
-        amount: netTotal,
-        lines: namedLines,
-        discountAmount: discount,
-      });
-      onSaved();
-      onClose();
+      setPickedImage(image);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not attach the invoice.');
+      setError(err instanceof Error ? err.message : 'Could not read that picture.');
     } finally {
-      setSaving(false);
+      setImageBusy(false);
     }
   }
 
@@ -447,6 +453,7 @@ export function BillEditorModal({
     setError(null);
     try {
       const sentAt = await sendOrderInvoice(order.id, {
+        image: pickedImage,
         amount: netTotal,
         lines: namedLines,
         discountAmount: discount,
@@ -879,20 +886,41 @@ export function BillEditorModal({
           </div>
 
           <div className="mt-4 border-t border-slate-200 pt-4">
-            <label className="cursor-pointer text-xs font-medium text-brand-600">
-              {order.billImage ? 'Replace attached picture' : 'Upload bill from gallery'}
-              <input
-                type="file"
-                accept="image/*"
-                disabled={saving}
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void attachImage(file);
-                  e.target.value = '';
-                }}
-              />
-            </label>
+            <div className="flex items-center gap-3">
+              <label className="cursor-pointer text-xs font-medium text-brand-600">
+                {imageBusy ? 'Reading picture…' : pickedImage ? 'Change picture' : 'Upload bill from gallery'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={saving || imageBusy}
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void pickImage(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+              {pickedImage && (
+                <>
+                  <a
+                    href={pickedImage}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs font-medium text-slate-500 hover:text-slate-700"
+                  >
+                    View picture
+                  </a>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-rose-600 hover:text-rose-700"
+                    onClick={() => setPickedImage('')}
+                  >
+                    Remove
+                  </button>
+                </>
+              )}
+            </div>
             {/* No per-line rate to sum here (see `namedLines`) — Subtotal
                 is typed by hand, same as the picture-only bill flow always
                 worked: upload the photo, then type the one number it adds
