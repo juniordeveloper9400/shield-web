@@ -192,6 +192,10 @@ export function BillEditorModal({
   const [collected, setCollected] = useState<{ walletAmount: number; cashAmount: number } | null>(
     null,
   );
+  // Whether the OTP-verification popover is open — shown automatically the
+  // moment a bill actually gets sent (see `submit()`), or reopened by hand
+  // from "Collect payment" if the admin closed it before finishing.
+  const [showOtpPopover, setShowOtpPopover] = useState(false);
   const recaptchaContainerId = `bill-otp-recaptcha-${order.id}`;
   const otpInFlight = useRef(false);
   const otpSession = useRef(0);
@@ -226,6 +230,15 @@ export function BillEditorModal({
       otpInFlight.current = false;
       setOtpBusy(false);
     }
+  }
+
+  /** Opens the OTP popover and fires the code off in the same action —
+   *  what "Send/Resend cash redemption request" now does right after the
+   *  bill itself is saved, and what "Collect payment" re-does by hand if
+   *  the admin closed the popover before finishing. */
+  async function startCollection() {
+    setShowOtpPopover(true);
+    await sendOtp();
   }
 
   async function verifyAndCollect() {
@@ -510,6 +523,13 @@ export function BillEditorModal({
       onSaved();
       setBillSent(true);
       setMode('summary');
+      // Straight into OTP collection — no separate "now go find the Send
+      // OTP button" step — unless this bill was already paid before this
+      // send (a rare re-edit of a settled bill), where collecting again
+      // would be nonsensical.
+      if (effectiveBillStatus !== 'paid') {
+        void startCollection();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send this bill.');
     } finally {
@@ -584,6 +604,12 @@ export function BillEditorModal({
       <p className="mb-3 text-xs text-slate-400">
         {order.memberName} · {order.memberPhone}
       </p>
+      {/* Always mounted (not just once summary/collect mode renders) —
+          `sendDeliveryOtp` binds its invisible reCAPTCHA to this exact node
+          the moment "Send/Resend cash redemption request" fires
+          `startCollection`, which can happen the same tick `submit()`
+          switches into summary mode; the node has to already exist. */}
+      <div id={recaptchaContainerId} />
 
       {mode === 'summary' ? (
         <div className="rounded-lg border border-slate-200 p-4">
@@ -681,10 +707,10 @@ export function BillEditorModal({
             Collect bill
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Send a one-time code to the member's phone, then enter what they read out to
-            you. Only once that code checks out: the member's wallet balance is used
-            automatically (up to the bill amount), and any shortfall is collected in cash
-            at the counter — never before the code is verified.
+            A one-time code went to the member's phone the moment this bill was
+            sent. Verify it in the popover to actually debit the wallet (up to
+            the bill amount) and collect any shortfall in cash — never before
+            the code checks out.
           </p>
           <div className="mt-3">
             <WalletBreakdown
@@ -697,46 +723,9 @@ export function BillEditorModal({
               format={formatCurrency}
             />
           </div>
-          <div id={recaptchaContainerId} />
-          {!otpConfirmation ? (
-            <Button
-              size="sm"
-              className="mt-3"
-              disabled={otpBusy}
-              onClick={() => void sendOtp()}
-            >
-              {otpBusy ? 'Sending…' : 'Send OTP to member'}
-            </Button>
-          ) : (
-            <div className="mt-3 flex items-center gap-2">
-              <input
-                value={otpCode}
-                onChange={(e) => setOtpCode(e.target.value)}
-                placeholder="6-digit code"
-                inputMode="numeric"
-                maxLength={6}
-                autoComplete="one-time-code"
-                autoFocus
-                className={inputClass}
-              />
-              <Button
-                size="sm"
-                disabled={otpBusy || !/^\d{6}$/.test(otpCode.trim())}
-                onClick={() => void verifyAndCollect()}
-              >
-                {otpBusy ? 'Verifying…' : 'Verify & collect'}
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={otpBusy}
-                onClick={() => void sendOtp()}
-              >
-                Resend
-              </Button>
-            </div>
-          )}
-          {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
+          <Button size="sm" className="mt-3" onClick={() => void startCollection()}>
+            Collect payment
+          </Button>
         </div>
       )}
 
@@ -1034,6 +1023,68 @@ export function BillEditorModal({
           </div>
           {error && <p className="mt-2 text-xs text-rose-600">{error}</p>}
         </div>
+      )}
+    </Modal>
+    <Modal
+      open={showOtpPopover}
+      onClose={() => setShowOtpPopover(false)}
+      title="Verify OTP to collect payment"
+      footer={
+        <Button variant="secondary" size="sm" onClick={() => setShowOtpPopover(false)}>
+          Close
+        </Button>
+      }
+    >
+      {collected ? (
+        <p className="text-sm font-medium text-emerald-600">
+          Collected —{' '}
+          {collected.walletAmount > 0 && `${formatCurrency(collected.walletAmount)} from wallet`}
+          {collected.walletAmount > 0 && collected.cashAmount > 0 && ' + '}
+          {collected.cashAmount > 0 && `${formatCurrency(collected.cashAmount)} in cash`}
+          . This bill is paid.
+        </p>
+      ) : (
+        <>
+          <p className="mb-3 text-xs text-slate-500">
+            A one-time code was sent to {order.memberPhone}. Enter what the
+            member reads out to you — once it checks out,{' '}
+            {formatCurrency(walletCoverage)} is debited from their wallet
+            automatically and {formatCurrency(cashOwed)} is collected in cash.
+          </p>
+          {otpBusy && !otpConfirmation ? (
+            <p className="text-sm text-slate-500">Sending code…</p>
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value)}
+                placeholder="6-digit code"
+                inputMode="numeric"
+                maxLength={6}
+                autoComplete="one-time-code"
+                autoFocus
+                disabled={!otpConfirmation || otpBusy}
+                className={inputClass}
+              />
+              <Button
+                size="sm"
+                disabled={otpBusy || !otpConfirmation || !/^\d{6}$/.test(otpCode.trim())}
+                onClick={() => void verifyAndCollect()}
+              >
+                {otpBusy ? 'Verifying…' : 'Verify & collect'}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={otpBusy}
+                onClick={() => void sendOtp()}
+              >
+                Resend
+              </Button>
+            </div>
+          )}
+          {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
+        </>
       )}
     </Modal>
     <InvoiceModal
