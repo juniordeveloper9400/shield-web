@@ -11,10 +11,8 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { clearOrderBill, listOrders } from '@/api/orders';
-import { listStores } from '@/api/stores';
 import { BillEditorModal } from '@/components/orders/BillEditorModal';
-import { InvoiceModal } from '@/components/orders/InvoiceModal';
-import type { Order, Store } from '@/types';
+import type { Order } from '@/types';
 
 const BILL_OPTIONS = [
   { value: 'all', label: 'All bills' },
@@ -29,15 +27,9 @@ const BILL_OPTIONS = [
  * OTP-gated payment collection all happen from this page.
  */
 export default function BillsPage() {
-  const { user, accessToken } = useAuth();
+  const { user } = useAuth();
   const { data, loading, error, reload } = useAsync(listOrders, []);
   const rows = useMemo(() => data ?? [], [data]);
-  const { data: stores } = useAsync(() => listStores(accessToken), [accessToken]);
-  const storesByCode = useMemo(() => {
-    const map = new Map<string, Store>();
-    for (const s of stores ?? []) map.set(s.code, s);
-    return map;
-  }, [stores]);
 
   const [search, setSearch] = useState('');
   const [store, setStore] = useState('all');
@@ -47,7 +39,6 @@ export default function BillsPage() {
     null,
   );
   const [editing, setEditing] = useState<Order | null>(null);
-  const [viewingInvoice, setViewingInvoice] = useState<Order | null>(null);
 
   // Set the moment "Convert to bill →" lands here and finds its order —
   // the banner that confirms the hand-off actually worked, since the
@@ -302,7 +293,7 @@ export default function BillsPage() {
               ? 'No orders have been converted to a bill yet. Review an order on the Orders page and choose "Convert to bill".'
               : 'No bills match your filters.'
           }
-          onRowClick={setViewingInvoice}
+          onRowClick={setEditing}
         />
         {rowError && (
           <p className="border-t border-slate-200 px-4 py-2 text-xs text-rose-600">
@@ -320,16 +311,6 @@ export default function BillsPage() {
             if (justConverted?.id === editing.id) setJustConverted(null);
           }}
           onSaved={reload}
-        />
-      )}
-
-      {viewingInvoice && (
-        <InvoiceModal
-          order={viewingInvoice}
-          store={storesByCode.get(viewingInvoice.storeCode)}
-          open={Boolean(viewingInvoice)}
-          onClose={() => setViewingInvoice(null)}
-          onCompleted={reload}
         />
       )}
     </>
