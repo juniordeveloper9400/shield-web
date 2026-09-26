@@ -176,31 +176,32 @@ export default function BillsPage() {
     {
       // One glance instead of three separate columns (Bill / Payment status
       // / Sent) — the same "where is this in its own lifecycle" question
-      // the three stat cards above answer, just per row: not sent yet
-      // (no bill priced/sent), sent but not collected/paid, paid but not
-      // yet handed off, or done. The bill amount, its own invoice image and
-      // the exact sent date are still on "Manage bill" — this is the
+      // the three stat cards above answer, just per row: not sent yet, sent
+      // but neither paid nor handed off, one of those two done but not the
+      // other, or both. The bill amount, its own invoice image and the
+      // exact sent date are still on "Manage bill" — this is the
       // at-a-glance version, not the only place to find them.
       //
-      // Four stages, in order: Pending (nothing priced/sent yet) -> Billed
-      // (sent, not yet paid) -> Partially completed (paid, but "Complete
-      // order" hasn't been clicked yet — the counter still has to hand the
-      // order off) -> Completed (order.status is 'delivered'). "Completed"
-      // is checked first: an admin can click "Complete order" on an unpaid
-      // bill too (BillEditorModal only warns about that, doesn't block it),
-      // so a completed order always reads as done regardless of payment.
+      // "Paid" and "handed off" (order.status 'delivered') are tracked
+      // completely independently — BillEditorModal's own "Complete order"
+      // explicitly allows completing an unpaid bill (it only warns:
+      // "Completing the order does not collect payment"), and a home
+      // delivery can just as easily be marked delivered before the bill is
+      // ever collected. So this is genuinely two independent yes/no facts,
+      // not one linear progression:
+      //   neither            -> Pending (nothing priced/sent) or Billed (sent)
+      //   exactly one of them -> Partially completed
+      //   both               -> Completed
       key: 'status',
       header: 'Status',
-      render: (row) =>
-        row.status === 'delivered' ? (
-          <Badge tone="green">Completed</Badge>
-        ) : row.billAmount <= 0 ? (
-          <Badge tone="amber">Pending</Badge>
-        ) : row.billStatus === 'paid' ? (
-          <Badge tone="violet">Partially completed</Badge>
-        ) : (
-          <Badge tone="blue">Billed</Badge>
-        ),
+      render: (row) => {
+        const paid = row.billStatus === 'paid';
+        const done = row.status === 'delivered';
+        if (row.billAmount <= 0) return <Badge tone="amber">Pending</Badge>;
+        if (paid && done) return <Badge tone="green">Completed</Badge>;
+        if (paid || done) return <Badge tone="violet">Partially completed</Badge>;
+        return <Badge tone="blue">Billed</Badge>;
+      },
     },
     {
       key: 'actions',
