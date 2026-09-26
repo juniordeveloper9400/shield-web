@@ -19,12 +19,14 @@ import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
 import { listStores } from '@/api/stores';
 import { clearDeliveryOtp, confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
 import {
-  STOCK_STATUS_OPTIONS,
+  STOCK_STATUS_LABEL,
   STOCK_STATUS_TONE,
 } from '@/lib/prescriptionMedicine';
+import { ORDER_LINE_STATUS_LABEL, ORDER_LINE_STATUS_TONE } from '@/lib/orderLineStatus';
 import { InvoiceModal } from './InvoiceModal';
 import { WalletBreakdown } from './WalletBreakdown';
-import type { Order, PaymentStatus, PrescriptionMedicine } from '@/types';
+import type { Tone } from '@/components/ui/Badge';
+import type { Order, PaymentStatus } from '@/types';
 
 const inputClass =
   'w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
@@ -60,6 +62,15 @@ export function BillEditorModal({
 }) {
   const hasBill = order.billAmount > 0;
   const [mode, setMode] = useState<'summary' | 'edit'>(hasBill ? 'summary' : 'edit');
+  // 'edit' mode is itself two steps: 'select' — a full-page checkbox table
+  // of every candidate item (the order's own cart lines, plus a
+  // prescription's intake medicines), Rate shown read-only since nothing's
+  // priced yet — then 'price', the existing per-line Name/Pack/Rate/Qty
+  // form, once "Proceed →" carries the checked items forward. Reopening an
+  // already-sent bill ("Edit bill") skips straight to 'price' — its
+  // composition was already decided the first time; a "← Items" link gets
+  // back to 'select' if it needs to change.
+  const [editStep, setEditStep] = useState<'select' | 'price'>(hasBill ? 'price' : 'select');
   // Whether a priced bill exists at all — true from a previous visit
   // (`hasBill`) or the moment `submit()` sends one in this session. Once
   // true, the summary below reads the bill from this component's own
@@ -269,11 +280,102 @@ export function BillEditorModal({
     [lines],
   );
 
-  function addMedicineToBill(m: PrescriptionMedicine) {
-    setLines((rows) => [
-      ...rows,
-      { name: m.name, pack: m.pack, unitPrice: 0, qty: m.totalUnits || 1 },
-    ]);
+  interface CandidateRow {
+    name: string;
+    pack: string;
+    qty: number;
+    /** Read-only here — the actual price gets typed in on the 'price' step. */
+    rate: number;
+    statusLabel: string;
+    statusTone: Tone;
+    included: boolean;
+  }
+
+  const linesByName = useMemo(() => {
+    const m = new Map<string, BillLineDraft>();
+    for (const l of lines) m.set(l.name.trim().toLowerCase(), l);
+    return m;
+  }, [lines]);
+
+  // Every item the admin could put on this bill, from both places one
+  // might come from — the order's own reviewed cart lines (a standard
+  // order's own prices already live here from checkout) and, for a
+  // prescription order, its intake medicines not already one of those
+  // lines. A line added by hand, or one already on a previously-sent
+  // bill, that matches neither source still has to show up so unchecking
+  // it stays possible. `lines` itself (not a separate selection flag) is
+  // what "included" means, same single source of truth `submit()` sends.
+  const candidateRows: CandidateRow[] = useMemo(() => {
+    const rows = new Map<string, CandidateRow>();
+    const keyOf = (n: string) => n.trim().toLowerCase();
+
+    for (const l of order.lines) {
+      const key = keyOf(l.name);
+      if (!key || rows.has(key)) continue;
+      const draft = linesByName.get(key);
+      rows.set(key, {
+        name: l.name,
+        pack: l.pack,
+        qty: draft ? draft.qty : l.qty,
+        rate: draft ? draft.unitPrice : l.unitPrice,
+        statusLabel: ORDER_LINE_STATUS_LABEL[l.status],
+        statusTone: ORDER_LINE_STATUS_TONE[l.status],
+        included: Boolean(draft),
+      });
+    }
+    for (const m of prescriptionMedicines ?? []) {
+      const key = keyOf(m.name);
+      if (!key || rows.has(key)) continue;
+      const draft = linesByName.get(key);
+      rows.set(key, {
+        name: m.name,
+        pack: m.pack,
+        qty: draft ? draft.qty : m.totalUnits || 1,
+        rate: draft ? draft.unitPrice : 0,
+        statusLabel: STOCK_STATUS_LABEL[m.status],
+        statusTone: STOCK_STATUS_TONE[m.status],
+        included: Boolean(draft),
+      });
+    }
+    for (const l of lines) {
+      const key = keyOf(l.name);
+      if (!key || rows.has(key)) continue;
+      rows.set(key, {
+        name: l.name,
+        pack: l.pack,
+        qty: l.qty,
+        rate: l.unitPrice,
+        statusLabel: 'Added manually',
+        statusTone: 'gray',
+        included: true,
+      });
+    }
+    return [...rows.values()];
+  }, [order.lines, prescriptionMedicines, lines, linesByName]);
+
+  const includedCount = candidateRows.filter((r) => r.included).length;
+
+  function toggleCandidate(row: CandidateRow) {
+    const key = row.name.trim().toLowerCase();
+    if (row.included) {
+      setLines((rows) => rows.filter((r) => r.name.trim().toLowerCase() !== key));
+    } else {
+      setLines((rows) => [...rows, { name: row.name, pack: row.pack, unitPrice: row.rate, qty: row.qty || 1 }]);
+    }
+  }
+
+  function setAllCandidates(selected: boolean) {
+    if (!selected) {
+      setLines([]);
+      return;
+    }
+    setLines((rows) => {
+      const have = new Set(rows.map((r) => r.name.trim().toLowerCase()));
+      const additions = candidateRows
+        .filter((r) => !have.has(r.name.trim().toLowerCase()))
+        .map((r) => ({ name: r.name, pack: r.pack, unitPrice: r.rate, qty: r.qty || 1 }));
+      return [...rows, ...additions];
+    });
   }
 
   async function attachImage(file: File) {
@@ -343,16 +445,36 @@ export function BillEditorModal({
       open={open}
       onClose={onClose}
       title={`${order.code} — invoice`}
+      size="full"
       footer={
         mode === 'edit' ? (
-          <>
-            <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>
-              Cancel
-            </Button>
-            <Button size="sm" onClick={() => void submit()} disabled={saving}>
-              {billSent ? 'Resend bill' : 'Send bill'}
-            </Button>
-          </>
+          editStep === 'select' ? (
+            <>
+              <Button variant="secondary" size="sm" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                disabled={includedCount === 0}
+                title={includedCount === 0 ? 'Check at least one item first' : undefined}
+                onClick={() => setEditStep('price')}
+              >
+                Proceed →
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setEditStep('select')} disabled={saving}>
+                ← Items
+              </Button>
+              <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={() => void submit()} disabled={saving}>
+                {billSent ? 'Resend bill' : 'Send bill'}
+              </Button>
+            </>
+          )
         ) : (
           <Button variant="secondary" size="sm" onClick={onClose}>
             Close
@@ -380,7 +502,15 @@ export function BillEditorModal({
             </ul>
           )}
           <div className="mt-3 flex items-center gap-2">
-            <Button variant="secondary" size="sm" disabled={completed || completing} onClick={() => setMode('edit')}>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={completed || completing}
+              onClick={() => {
+                setMode('edit');
+                setEditStep('price');
+              }}
+            >
               Edit bill
             </Button>
             {order.billImage && (
@@ -502,55 +632,77 @@ export function BillEditorModal({
         </div>
       )}
 
-      {mode === 'edit' && prescriptionMedicines && prescriptionMedicines.length > 0 && (
-        <div className="mb-4 rounded-lg border border-slate-200 p-3">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Prescription medicines
+      {mode === 'edit' && editStep === 'select' && (
+        <div>
+          <p className="mb-1 text-sm font-semibold text-slate-800">Choose what's on this bill</p>
+          <p className="mb-3 text-xs text-slate-400">
+            Check every item that belongs on this invoice — from the order's own reviewed
+            cart lines{order.kind === 'prescription' ? " and the prescription's intake medicines" : ''}.
+            Rate is shown for reference only here; it and quantity become editable on the next step.
           </p>
-          <div className="space-y-2">
-            {STOCK_STATUS_OPTIONS.map(({ value, label }) => {
-              const group = prescriptionMedicines.filter((m) => m.status === value);
-              if (group.length === 0) return null;
-              return (
-                <div key={value}>
-                  <Badge tone={STOCK_STATUS_TONE[value]}>{label}</Badge>
-                  <div className="mt-1.5 space-y-1">
-                    {group.map((m, i) => {
-                      const added = addedNames.has(m.name.trim().toLowerCase());
-                      return (
-                        <div
-                          key={i}
-                          className="flex items-center justify-between rounded-md border border-slate-100 bg-slate-50 px-2.5 py-1.5 text-xs"
-                        >
-                          <div>
-                            <span className="font-medium text-slate-700">{m.name}</span>
-                            {m.pack && <span className="text-slate-400"> · {m.pack}</span>}
-                            <span className="text-slate-400"> · Qty {m.totalUnits}</span>
-                          </div>
-                          <button
-                            type="button"
-                            disabled={added}
-                            onClick={() => addMedicineToBill(m)}
-                            className={
-                              added
-                                ? 'text-slate-300'
-                                : 'font-medium text-brand-600 hover:text-brand-700'
-                            }
-                          >
-                            {added ? 'Added' : 'Add to bill'}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+          <div className="overflow-x-auto overflow-y-visible rounded-lg border border-slate-200">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">
+                    <input
+                      type="checkbox"
+                      title={includedCount === candidateRows.length ? 'Clear all' : 'Select all'}
+                      checked={candidateRows.length > 0 && includedCount === candidateRows.length}
+                      ref={(el) => {
+                        if (!el) return;
+                        el.indeterminate = includedCount > 0 && includedCount < candidateRows.length;
+                      }}
+                      onChange={(e) => setAllCandidates(e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                    />
+                  </th>
+                  <th className="px-3 py-2">Product name</th>
+                  <th className="px-3 py-2">Qty</th>
+                  <th className="px-3 py-2">Rate</th>
+                  <th className="px-3 py-2">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {candidateRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-3 py-6 text-center text-slate-400">
+                      Nothing to bill yet — this order has no reviewed cart lines or intake
+                      medicines.
+                    </td>
+                  </tr>
+                ) : (
+                  candidateRows.map((row) => (
+                    <tr key={row.name.trim().toLowerCase()} className="align-top">
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={row.included}
+                          onChange={() => toggleCandidate(row)}
+                          className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="font-medium text-slate-700">{row.name}</span>
+                        {row.pack && <span className="text-slate-400"> · {row.pack}</span>}
+                      </td>
+                      <td className="px-3 py-2">{row.qty || '—'}</td>
+                      <td className="px-3 py-2 text-slate-500">
+                        {row.rate > 0 ? formatCurrency(row.rate) : '—'}
+                      </td>
+                      <td className="px-3 py-2">
+                        <Badge tone={row.statusTone}>{row.statusLabel}</Badge>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
 
-      {mode === 'edit' && (
+      {mode === 'edit' && editStep === 'price' && (
         <div>
           <div className="mb-2 flex items-center justify-between">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
