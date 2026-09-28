@@ -8,7 +8,13 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
-import { formatCurrency, formatDateTime, titleCase, toneForStatus } from '@/lib/format';
+import { formatCurrency, formatDateTime } from '@/lib/format';
+import {
+  ORDER_LIFECYCLE_LABEL,
+  ORDER_LIFECYCLE_OPTIONS,
+  ORDER_LIFECYCLE_TONE,
+  orderLifecycleStatus,
+} from '@/lib/orderLifecycle';
 import { useAsync } from '@/lib/useAsync';
 import { listOrders } from '@/api/orders';
 import { OrderReviewModal } from '@/components/orders/OrderReviewModal';
@@ -16,9 +22,7 @@ import type { Order } from '@/types';
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
-  { value: 'processing', label: 'Processing' },
-  { value: 'out_for_delivery', label: 'Out for delivery' },
-  { value: 'delivered', label: 'Delivered' },
+  ...ORDER_LIFECYCLE_OPTIONS,
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
@@ -69,7 +73,7 @@ export default function OrdersPage() {
         row.code.toLowerCase().includes(q) ||
         row.memberName.toLowerCase().includes(q) ||
         row.memberPhone.includes(q);
-      const matchesStatus = status === 'all' || row.status === status;
+      const matchesStatus = status === 'all' || orderLifecycleStatus(row) === status;
       const matchesFulfillment =
         fulfillment === 'all' || row.fulfillmentType === fulfillment;
       const matchesStore = store === 'all' || row.storeCode === store;
@@ -78,10 +82,10 @@ export default function OrdersPage() {
   }, [scoped, search, status, fulfillment, store]);
 
   const counts = {
-    processing: scoped.filter((r) => r.status === 'processing').length,
-    out: scoped.filter((r) => r.status === 'out_for_delivery').length,
-    delivered: scoped.filter((r) => r.status === 'delivered').length,
-    cancelled: scoped.filter((r) => r.status === 'cancelled').length,
+    pending: scoped.filter((r) => orderLifecycleStatus(r) === 'pending').length,
+    processed: scoped.filter((r) => orderLifecycleStatus(r) === 'processed').length,
+    billing: scoped.filter((r) => orderLifecycleStatus(r) === 'billing').length,
+    completed: scoped.filter((r) => orderLifecycleStatus(r) === 'completed').length,
   };
 
   const columns: Column<Order>[] = [
@@ -140,9 +144,10 @@ export default function OrdersPage() {
     {
       key: 'status',
       header: 'Status',
-      render: (row) => (
-        <Badge tone={toneForStatus(row.status)}>{titleCase(row.status)}</Badge>
-      ),
+      render: (row) => {
+        const lifecycle = orderLifecycleStatus(row);
+        return <Badge tone={ORDER_LIFECYCLE_TONE[lifecycle]}>{ORDER_LIFECYCLE_LABEL[lifecycle]}</Badge>;
+      },
     },
     {
       key: 'actions',
@@ -177,10 +182,10 @@ export default function OrdersPage() {
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Processing" value={counts.processing} icon="alert" tone="amber" />
-        <StatCard label="Out for delivery" value={counts.out} icon="orders" tone="blue" />
-        <StatCard label="Delivered" value={counts.delivered} icon="check" tone="green" />
-        <StatCard label="Cancelled" value={counts.cancelled} tone="rose" />
+        <StatCard label="Pending" value={counts.pending} icon="alert" tone="amber" />
+        <StatCard label="Processed" value={counts.processed} icon="orders" tone="blue" />
+        <StatCard label="Billing" value={counts.billing} icon="orders" tone="violet" />
+        <StatCard label="Completed" value={counts.completed} icon="check" tone="green" />
       </div>
 
       <Card>

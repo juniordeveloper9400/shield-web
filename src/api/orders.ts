@@ -23,6 +23,10 @@ function toLine(r: Row): OrderLine {
     unitPrice: num(r.unit_price),
     mrp: num(r.mrp),
     qty: num(r.qty),
+    // Real catalog category via order_line.product_id -> product.category_id
+    // -> product_category.title — '' when the line has no linked product
+    // (a manually-added line, or one placed before a product got deleted).
+    categoryTitle: String(r.category_title ?? ''),
   };
 }
 
@@ -94,11 +98,14 @@ async function mapOrderRows(rows: Row[]): Promise<Order[]> {
 
   const ids = rows.map((r) => String(r.id));
   const lineRows = (await query<Row>(
-    `SELECT id, order_id, name, pack, unit_price, mrp, qty,
-            stock_status::text AS stock_status
-       FROM app.order_line
-      WHERE order_id = ANY($1::bigint[])
-      ORDER BY id`,
+    `SELECT ol.id, ol.order_id, ol.name, ol.pack, ol.unit_price, ol.mrp, ol.qty,
+            ol.stock_status::text AS stock_status,
+            pc.title AS category_title
+       FROM app.order_line ol
+       LEFT JOIN app.product p          ON p.id = ol.product_id
+       LEFT JOIN app.product_category pc ON pc.id = p.category_id
+      WHERE ol.order_id = ANY($1::bigint[])
+      ORDER BY ol.id`,
     [ids],
   ));
 
@@ -231,25 +238,44 @@ export async function setOrderStatus(id: string, status: OrderStatus): Promise<v
 }
 
 /**
- * "Submit" on the Orders review modal's Details step: saves each line's stock
- * status and the order's branch, and stamps `reviewed_at`. One statement — the
- * line updates ride in a data-modifying CTE — so a failure can't leave the
- * statuses saved but the order un-stamped (or the reverse).
+ * "Save"/"Convert to bill" on the Orders review page: saves each existing
+ * line's stock status, inserts any brand-new lines the admin added by hand
+ * (`input.newLines` — never an edit to what the member actually checked out,
+ * only ever a fresh row; see `OrderReviewModal`'s own "+ Add new item"), and
+ * saves the order's branch, stamping `reviewed_at`. One statement — the line
+ * writes ride in data-modifying CTEs — so a failure can't leave some of this
+ * saved and the rest not.
  */
 export async function saveOrderReview(
   id: string,
-  input: { lines: { id: string; status: OrderLineStatus }[]; storeId: string | null },
+  input: {
+    lines: { id: string; status: OrderLineStatus }[];
+    newLines: { name: string; pack: string; unitPrice: number; qty: number; status: OrderLineStatus }[];
+    storeId: string | null;
+  },
 ): Promise<void> {
   const rows = await query<{ id: unknown }>(
-    `WITH lines AS (
+    `WITH updated AS (
        UPDATE app.order_line l
           SET stock_status = v.status::app.order_line_status
          FROM unnest($1::bigint[], $2::text[]) AS v(id, status)
         WHERE l.id = v.id AND l.order_id = $3::bigint
        RETURNING l.id
+     ),
+     inserted AS (
+       INSERT INTO app.order_line (order_id, name, pack, unit_price, qty, stock_status)
+       SELECT $3::bigint, v.name, v.pack, v.unit_price, v.qty, v.status::app.order_line_status
+         FROM unnest($5::text[], $6::text[], $7::numeric[], $8::int[], $9::text[])
+           AS v(name, pack, unit_price, qty, status)
+       RETURNING id
      )
      UPDATE app."order"
         SET store_id = $4::bigint,
+            -- Reflects any lines just added; never touches mrp_total/paid_total —
+            -- those are what the member actually checked out with and paid,
+            -- and stay exactly that regardless of what gets added here.
+            item_count = (SELECT count(*) FROM app.order_line WHERE order_id = $3::bigint)
+                         + (SELECT count(*) FROM inserted),
             reviewed_at = now(),
             updated_at = now()
       WHERE id = $3::bigint
@@ -259,6 +285,11 @@ export async function saveOrderReview(
       input.lines.map((l) => l.status.toUpperCase()),
       id,
       input.storeId,
+      input.newLines.map((l) => l.name),
+      input.newLines.map((l) => l.pack),
+      input.newLines.map((l) => l.unitPrice),
+      input.newLines.map((l) => l.qty),
+      input.newLines.map((l) => l.status.toUpperCase()),
     ],
   );
   if (!rows.length) throw new Error('This order no longer exists.');

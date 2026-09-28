@@ -341,6 +341,10 @@ export interface OrderLine {
   unitPrice: number;
   mrp: number;
   qty: number;
+  /** `app.product_category.title` via this line's own linked product — ''
+   *  for a line with no product link (added by hand, or its product since
+   *  deleted). Read-only; there's nowhere to write it back to. */
+  categoryTitle: string;
 }
 
 /** The payment receipt a member attached at checkout — `app.order_receipt`. */
