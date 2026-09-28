@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
@@ -11,10 +11,11 @@ import { useAsync } from '@/lib/useAsync';
 import {
   getMoneyFlowSummary,
   getMonthlyMoneyFlow,
+  listMemberMoneyFlowSummaries,
   listMoneyFlowEntries,
   moneyFlowKindLabel,
 } from '@/api/accounts';
-import type { MoneyFlowEntry, MoneyFlowKind } from '@/types';
+import type { MemberMoneyFlowSummary, MoneyFlowEntry, MoneyFlowKind } from '@/types';
 
 const KIND_OPTIONS: { value: string; label: string }[] = [
   { value: 'all', label: 'All types' },
@@ -75,17 +76,97 @@ const KIND_TONE: Record<MoneyFlowKind, Tone> = {
 };
 
 export default function AccountsPage() {
+  const navigate = useNavigate();
   const summary = useAsync(getMoneyFlowSummary, []);
   const monthly = useAsync(() => getMonthlyMoneyFlow(6), []);
   const ledger = useAsync(() => listMoneyFlowEntries(200), []);
+  const members = useAsync(listMemberMoneyFlowSummaries, []);
 
   const [search, setSearch] = useState('');
   const [kind, setKind] = useState('all');
   const [direction, setDirection] = useState('all');
+  const [memberSearch, setMemberSearch] = useState('');
 
   const entries = useMemo(() => ledger.data ?? [], [ledger.data]);
   const months = monthly.data ?? [];
   const chartMax = Math.max(1, ...months.flatMap((m) => [m.in, m.out]));
+
+  const memberRows = useMemo(() => members.data ?? [], [members.data]);
+  const filteredMembers = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    if (!q) return memberRows;
+    return memberRows.filter(
+      (row) =>
+        row.name.toLowerCase().includes(q) ||
+        row.phone.includes(q) ||
+        row.email.toLowerCase().includes(q),
+    );
+  }, [memberRows, memberSearch]);
+
+  const memberColumns: Column<MemberMoneyFlowSummary>[] = [
+    {
+      key: 'member',
+      header: 'Member',
+      render: (row) => (
+        <div>
+          <p className="font-medium text-slate-800">{row.name}</p>
+          <p className="text-xs text-slate-400">
+            {row.phone}
+            {row.email ? ` · ${row.email}` : ''}
+          </p>
+        </div>
+      ),
+    },
+    {
+      key: 'in',
+      header: 'Money in',
+      render: (row) => (
+        <div>
+          <span className="font-semibold text-emerald-600">
+            +{formatCurrency(row.moneyIn)}
+          </span>
+          <p className="text-xs text-slate-400">
+            {row.moneyInCount} {row.moneyInCount === 1 ? 'entry' : 'entries'}
+          </p>
+        </div>
+      ),
+      className: 'text-right',
+    },
+    {
+      key: 'out',
+      header: 'Money out',
+      render: (row) =>
+        row.moneyOut > 0 ? (
+          <div>
+            <span className="font-semibold text-rose-600">
+              −{formatCurrency(row.moneyOut)}
+            </span>
+            <p className="text-xs text-slate-400">
+              {row.moneyOutCount} {row.moneyOutCount === 1 ? 'entry' : 'entries'}
+            </p>
+          </div>
+        ) : (
+          <span className="text-slate-300">—</span>
+        ),
+      className: 'text-right',
+    },
+    {
+      key: 'wallet',
+      header: 'Wallet balance',
+      render: (row) => (
+        <span className="font-semibold text-slate-800">
+          {formatCurrency(row.walletBalance)}
+        </span>
+      ),
+      className: 'text-right',
+    },
+    {
+      key: 'go',
+      header: '',
+      render: () => <span className="text-xs font-medium text-brand-600">Open →</span>,
+      className: 'text-right',
+    },
+  ];
 
   const filteredEntries = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -303,6 +384,31 @@ export default function AccountsPage() {
             </div>
           )}
         </div>
+      </Card>
+
+      <Card className="mb-6">
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">All members</h3>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Every member with money in, money out, or a wallet balance — money in and out
+              are lifetime totals; open one for their full, row-by-row transaction history.
+            </p>
+          </div>
+          <SearchInput
+            value={memberSearch}
+            onChange={setMemberSearch}
+            placeholder="Search name, phone, email…"
+          />
+        </div>
+        <DataTable
+          columns={memberColumns}
+          rows={filteredMembers}
+          loading={members.loading}
+          error={members.error}
+          empty="No member has any money movement yet."
+          onRowClick={(row) => navigate(`/users/${row.id}`)}
+        />
       </Card>
 
       <Card>

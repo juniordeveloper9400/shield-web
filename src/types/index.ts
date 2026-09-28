@@ -1206,3 +1206,25 @@ export interface MoneyFlowEntry {
   detail: string;
   occurredAt: string;
 }
+
+/**
+ * One member's own money-flow totals — the same five sources
+ * {@link MoneyFlowEntry}/{@link listMemberTransactions} cover, added up per
+ * person instead of listed event by event. The Accounts page's "All
+ * members" table; opening one still goes to their own "Transaction
+ * history" tab for the full, row-by-row detail.
+ */
+export interface MemberMoneyFlowSummary {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  /** Orders + lab tests + appointments + approved Health Pass loads. */
+  moneyIn: number;
+  moneyInCount: number;
+  /** Paid agent-commission withdrawals — 0 for a member who isn't an agent. */
+  moneyOut: number;
+  moneyOutCount: number;
+  /** `app.wallet.balance` right now — still spendable, not a historical total. */
+  walletBalance: number;
+}

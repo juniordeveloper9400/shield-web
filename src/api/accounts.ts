@@ -1,6 +1,12 @@
 import { sql, query } from '@/lib/db';
 import { iso, num } from '@/lib/mappers';
-import type { MoneyFlowEntry, MoneyFlowKind, MoneyFlowSummary, MonthlyMoneyFlow } from '@/types';
+import type {
+  MemberMoneyFlowSummary,
+  MoneyFlowEntry,
+  MoneyFlowKind,
+  MoneyFlowSummary,
+  MonthlyMoneyFlow,
+} from '@/types';
 
 type Row = Record<string, unknown>;
 
@@ -276,4 +282,74 @@ export async function getMonthlyMoneyFlow(months = 6): Promise<MonthlyMoneyFlow[
   }
 
   return order.map(({ key, label }) => ({ month: label, ...buckets.get(key)! }));
+}
+
+/**
+ * Every member's own money-flow totals in one round trip — the same five
+ * sources {@link listMoneyFlowEntries} covers (orders, lab tests,
+ * appointments, approved Health Pass loads for money in; paid agent
+ * withdrawals for money out), summed per member instead of listed event by
+ * event, alongside their current wallet balance. Backs the Accounts page's
+ * "All members" table; a row's own full history is
+ * {@link listMemberTransactions}, on that member's own detail page.
+ *
+ * Only a member with at least one of these three ever non-zero is
+ * returned — someone who has never transacted and never held a wallet
+ * balance has nothing to show here.
+ */
+export async function listMemberMoneyFlowSummaries(): Promise<MemberMoneyFlowSummary[]> {
+  const rows = await query<Row>(
+    `
+    WITH money_in AS (
+      SELECT member_id, SUM(amt) AS total, COUNT(*) AS cnt
+        FROM (
+          SELECT member_id, paid_total AS amt
+            FROM app."order" WHERE status <> 'CANCELLED'
+          UNION ALL
+          SELECT member_id, total_price
+            FROM app.lab_booking WHERE status <> 'CANCELLED' AND total_price > 0
+          UNION ALL
+          SELECT member_id, fee
+            FROM app.appointment WHERE status <> 'CANCELLED' AND fee IS NOT NULL AND fee > 0
+          UNION ALL
+          SELECT w.member_id, wc.amount
+            FROM app.wallet_card wc
+            JOIN app.wallet w ON w.id = wc.wallet_id
+           WHERE wc.status = 'APPROVED'
+        ) sources
+       GROUP BY member_id
+    ),
+    money_out AS (
+      SELECT ag.member_id, SUM(aw.amount) AS total, COUNT(*) AS cnt
+        FROM app.agent_withdrawal aw
+        JOIN app.agent ag ON ag.id = aw.agent_id
+       WHERE aw.status = 'PAID'
+       GROUP BY ag.member_id
+    )
+    SELECT u.id, u.name, u.phone, u.email,
+           COALESCE(mi.total, 0) AS money_in, COALESCE(mi.cnt, 0) AS money_in_count,
+           COALESCE(mo.total, 0) AS money_out, COALESCE(mo.cnt, 0) AS money_out_count,
+           COALESCE(w.balance, 0) AS wallet_balance
+      FROM app.users u
+      LEFT JOIN money_in mi  ON mi.member_id = u.id
+      LEFT JOIN money_out mo ON mo.member_id = u.id
+      LEFT JOIN app.wallet w ON w.member_id = u.id
+     WHERE COALESCE(mi.total, 0) > 0
+        OR COALESCE(mo.total, 0) > 0
+        OR COALESCE(w.balance, 0) > 0
+     ORDER BY COALESCE(mi.total, 0) DESC
+    `,
+  );
+
+  return rows.map((r) => ({
+    id: String(r.id),
+    name: String(r.name ?? '—'),
+    phone: String(r.phone ?? ''),
+    email: String(r.email ?? ''),
+    moneyIn: num(r.money_in),
+    moneyInCount: num(r.money_in_count),
+    moneyOut: num(r.money_out),
+    moneyOutCount: num(r.money_out_count),
+    walletBalance: num(r.wallet_balance),
+  }));
 }
