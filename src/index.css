@@ -17,6 +17,7 @@
 }
 
 .invoice-print-root { display: none; }
+.ledger-print-root { display: none; }
 
 /* The print document is a direct body child, outside every modal/scroll box. */
 @media print {
@@ -27,4 +28,10 @@
   .invoice-document { font-size: 11pt; }
   .invoice-document thead { display: table-header-group; }
   .invoice-document tr, .invoice-document header, .invoice-totals { break-inside: avoid; }
+
+  body:has(.ledger-print-root) > :not(.ledger-print-root) { display: none !important; }
+  .ledger-print-root { display: block !important; position: static; width: 100%; }
+  .ledger-document { font-size: 10.5pt; }
+  .ledger-document thead { display: table-header-group; }
+  .ledger-document tr, .ledger-document header, .ledger-totals { break-inside: avoid; }
 }

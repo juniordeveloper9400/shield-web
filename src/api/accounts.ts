@@ -81,6 +81,21 @@ export function moneyFlowKindLabel(kind: MoneyFlowKind): string {
   return KIND_LABEL[kind];
 }
 
+/** The {@link Badge} tone each {@link MoneyFlowKind} renders with — shared so
+ *  the Accounts page, a member's own ledger tab, and the printable ledger
+ *  report all colour the same kind of entry the same way. */
+const KIND_TONE: Record<MoneyFlowKind, 'blue' | 'violet' | 'green' | 'amber' | 'red'> = {
+  order: 'blue',
+  lab_booking: 'violet',
+  appointment: 'green',
+  privilege_load: 'amber',
+  agent_payout: 'red',
+};
+
+export function moneyFlowKindTone(kind: MoneyFlowKind): 'blue' | 'violet' | 'green' | 'amber' | 'red' {
+  return KIND_TONE[kind];
+}
+
 /**
  * Every settled money movement — order payments, lab and appointment fees,
  * approved privilege-plan loads (all money in), and paid agent withdrawals

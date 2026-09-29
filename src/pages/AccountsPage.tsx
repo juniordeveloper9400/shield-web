@@ -15,6 +15,7 @@ import {
   listMoneyFlowEntries,
   moneyFlowKindLabel,
 } from '@/api/accounts';
+import { LedgerReportModal } from '@/components/accounts/LedgerReportModal';
 import type { MemberMoneyFlowSummary, MoneyFlowEntry, MoneyFlowKind } from '@/types';
 
 const KIND_OPTIONS: { value: string; label: string }[] = [
@@ -86,6 +87,8 @@ export default function AccountsPage() {
   const [kind, setKind] = useState('all');
   const [direction, setDirection] = useState('all');
   const [memberSearch, setMemberSearch] = useState('');
+  // The member whose printable ledger report is open — null closes the modal.
+  const [ledgerMember, setLedgerMember] = useState<MemberMoneyFlowSummary | null>(null);
 
   const entries = useMemo(() => ledger.data ?? [], [ledger.data]);
   const months = monthly.data ?? [];
@@ -157,6 +160,23 @@ export default function AccountsPage() {
         <span className="font-semibold text-slate-800">
           {formatCurrency(row.walletBalance)}
         </span>
+      ),
+      className: 'text-right',
+    },
+    {
+      key: 'report',
+      header: '',
+      render: (row) => (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setLedgerMember(row);
+          }}
+          className="text-xs font-medium text-brand-600 hover:underline"
+        >
+          Ledger report
+        </button>
       ),
       className: 'text-right',
     },
@@ -392,7 +412,8 @@ export default function AccountsPage() {
             <h3 className="text-sm font-semibold text-slate-900">All members</h3>
             <p className="mt-0.5 text-xs text-slate-500">
               Every member with money in, money out, or a wallet balance — money in and out
-              are lifetime totals; open one for their full, row-by-row transaction history.
+              are lifetime totals; open one for their full, row-by-row transaction history,
+              or pull a printable ledger report straight from this table.
             </p>
           </div>
           <SearchInput
@@ -437,6 +458,12 @@ export default function AccountsPage() {
           empty="No money movements match your filters."
         />
       </Card>
+
+      <LedgerReportModal
+        member={ledgerMember}
+        open={!!ledgerMember}
+        onClose={() => setLedgerMember(null)}
+      />
     </>
   );
 }

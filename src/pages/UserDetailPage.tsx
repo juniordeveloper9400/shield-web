@@ -31,6 +31,7 @@ import {
 } from '@/api/users';
 import { listActivationsForMember } from '@/api/activations';
 import { listMemberTransactions, moneyFlowKindLabel } from '@/api/accounts';
+import { buildLedger, type LedgerRow } from '@/lib/ledger';
 import { listPrescriptionsForMember } from '@/api/prescriptions';
 import { PrescriptionReviewModal } from '@/components/prescriptions/PrescriptionReviewModal';
 import { GeoSlotPicker } from '@/components/agents/GeoSlotPicker';
@@ -100,16 +101,6 @@ const TXN_DIRECTION_OPTIONS = [
   { value: 'in', label: 'Money in' },
   { value: 'out', label: 'Money out' },
 ];
-
-/** One {@link MoneyFlowEntry}, plus the running balance right after it —
- *  what actually makes "Transaction history" read as a ledger (Debit /
- *  Credit / Balance) instead of just a list of amounts. Computed once over
- *  every transaction on the account, oldest first, before any filter is
- *  applied — the balance at a given moment is a historical fact, not
- *  something a search box should be able to change. */
-interface LedgerRow extends MoneyFlowEntry {
-  balance: number;
-}
 
 const TXN_COLUMNS: Column<LedgerRow>[] = [
   { key: 'when', header: 'Date', render: (row) => formatDateTime(row.occurredAt) },
@@ -193,21 +184,9 @@ export default function UserDetailPage() {
   const [txnSearch, setTxnSearch] = useState('');
   const [txnKind, setTxnKind] = useState('all');
   const [txnDirection, setTxnDirection] = useState('all');
-  // The actual ledger: every transaction, oldest first, each one carrying
-  // the running balance right after it landed — then flipped back to
-  // newest-first so the top row still reads as "where the account stands
-  // right now", same order the table always showed.
-  const ledgerRows = useMemo<LedgerRow[]>(() => {
-    const chronological = [...txnRows].sort(
-      (a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime(),
-    );
-    let balance = 0;
-    const withBalance = chronological.map((row) => {
-      balance += row.direction === 'in' ? row.amount : -row.amount;
-      return { ...row, balance };
-    });
-    return withBalance.reverse();
-  }, [txnRows]);
+  // The actual ledger — see buildLedger's own doc for why the balance is
+  // worked out oldest-first before being handed back newest-first.
+  const ledgerRows = useMemo(() => buildLedger(txnRows), [txnRows]);
   const filteredTxns = useMemo(() => {
     const q = txnSearch.trim().toLowerCase();
     return ledgerRows.filter((row) => {
