@@ -101,44 +101,58 @@ const TXN_DIRECTION_OPTIONS = [
   { value: 'out', label: 'Money out' },
 ];
 
-const TXN_COLUMNS: Column<MoneyFlowEntry>[] = [
+/** One {@link MoneyFlowEntry}, plus the running balance right after it —
+ *  what actually makes "Transaction history" read as a ledger (Debit /
+ *  Credit / Balance) instead of just a list of amounts. Computed once over
+ *  every transaction on the account, oldest first, before any filter is
+ *  applied — the balance at a given moment is a historical fact, not
+ *  something a search box should be able to change. */
+interface LedgerRow extends MoneyFlowEntry {
+  balance: number;
+}
+
+const TXN_COLUMNS: Column<LedgerRow>[] = [
   { key: 'when', header: 'Date', render: (row) => formatDateTime(row.occurredAt) },
   {
-    key: 'type',
-    header: 'Type',
-    render: (row) => (
-      <Badge tone={TXN_KIND_TONE[row.kind]}>{moneyFlowKindLabel(row.kind)}</Badge>
-    ),
-  },
-  {
-    key: 'ref',
-    header: 'Reference',
+    key: 'particulars',
+    header: 'Particulars',
     render: (row) => (
       <div>
-        <p className="text-slate-800">{row.label}</p>
-        <p className="text-xs text-slate-400">{row.detail}</p>
+        <div className="flex items-center gap-1.5">
+          <Badge tone={TXN_KIND_TONE[row.kind]}>{moneyFlowKindLabel(row.kind)}</Badge>
+          <span className="text-slate-800">{row.label}</span>
+        </div>
+        <p className="mt-0.5 text-xs text-slate-400">{row.detail}</p>
       </div>
     ),
   },
   {
-    key: 'direction',
-    header: 'Flow',
-    render: (row) => (
-      <Badge tone={row.direction === 'in' ? 'green' : 'red'}>
-        {row.direction === 'in' ? 'In' : 'Out'}
-      </Badge>
-    ),
+    key: 'debit',
+    header: 'Debit',
+    render: (row) =>
+      row.direction === 'out' ? (
+        <span className="font-semibold text-rose-600">{formatCurrency(row.amount)}</span>
+      ) : (
+        <span className="text-slate-300">—</span>
+      ),
+    className: 'text-right',
   },
   {
-    key: 'amount',
-    header: 'Amount',
+    key: 'credit',
+    header: 'Credit',
+    render: (row) =>
+      row.direction === 'in' ? (
+        <span className="font-semibold text-emerald-600">{formatCurrency(row.amount)}</span>
+      ) : (
+        <span className="text-slate-300">—</span>
+      ),
+    className: 'text-right',
+  },
+  {
+    key: 'balance',
+    header: 'Balance',
     render: (row) => (
-      <span
-        className={`font-semibold ${row.direction === 'in' ? 'text-emerald-600' : 'text-rose-600'}`}
-      >
-        {row.direction === 'in' ? '+' : '−'}
-        {formatCurrency(row.amount)}
-      </span>
+      <span className="font-semibold text-slate-900">{formatCurrency(row.balance)}</span>
     ),
     className: 'text-right',
   },
@@ -179,9 +193,24 @@ export default function UserDetailPage() {
   const [txnSearch, setTxnSearch] = useState('');
   const [txnKind, setTxnKind] = useState('all');
   const [txnDirection, setTxnDirection] = useState('all');
+  // The actual ledger: every transaction, oldest first, each one carrying
+  // the running balance right after it landed — then flipped back to
+  // newest-first so the top row still reads as "where the account stands
+  // right now", same order the table always showed.
+  const ledgerRows = useMemo<LedgerRow[]>(() => {
+    const chronological = [...txnRows].sort(
+      (a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime(),
+    );
+    let balance = 0;
+    const withBalance = chronological.map((row) => {
+      balance += row.direction === 'in' ? row.amount : -row.amount;
+      return { ...row, balance };
+    });
+    return withBalance.reverse();
+  }, [txnRows]);
   const filteredTxns = useMemo(() => {
     const q = txnSearch.trim().toLowerCase();
-    return txnRows.filter((row) => {
+    return ledgerRows.filter((row) => {
       const matchesQuery =
         !q ||
         row.label.toLowerCase().includes(q) ||
@@ -190,7 +219,7 @@ export default function UserDetailPage() {
       const matchesDirection = txnDirection === 'all' || row.direction === txnDirection;
       return matchesQuery && matchesKind && matchesDirection;
     });
-  }, [txnRows, txnSearch, txnKind, txnDirection]);
+  }, [ledgerRows, txnSearch, txnKind, txnDirection]);
   const txnTotals = useMemo(
     () =>
       txnRows.reduce(
@@ -546,7 +575,7 @@ export default function UserDetailPage() {
                   },
                   {
                     key: 'transactions',
-                    label: 'Transaction history',
+                    label: 'Transaction ledger',
                     count: txnRows.length,
                   },
                 ]}
@@ -881,19 +910,19 @@ export default function UserDetailPage() {
                 <div className="space-y-6">
                   <div className="grid gap-4 sm:grid-cols-3">
                     <Card className="p-4">
-                      <p className="text-xs text-slate-500">Money in</p>
+                      <p className="text-xs text-slate-500">Total credit</p>
                       <p className="mt-1 text-xl font-semibold text-emerald-600">
                         {formatCurrency(txnTotals.in)}
                       </p>
                     </Card>
                     <Card className="p-4">
-                      <p className="text-xs text-slate-500">Money out</p>
+                      <p className="text-xs text-slate-500">Total debit</p>
                       <p className="mt-1 text-xl font-semibold text-rose-600">
                         {formatCurrency(txnTotals.out)}
                       </p>
                     </Card>
                     <Card className="p-4">
-                      <p className="text-xs text-slate-500">Net</p>
+                      <p className="text-xs text-slate-500">Closing balance</p>
                       <p className="mt-1 text-xl font-semibold text-slate-900">
                         {formatCurrency(txnTotals.in - txnTotals.out)}
                       </p>
@@ -904,11 +933,13 @@ export default function UserDetailPage() {
                     <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
                       <div>
                         <h3 className="text-sm font-semibold text-slate-900">
-                          Transaction history
+                          Transaction ledger
                         </h3>
                         <p className="mt-0.5 text-xs text-slate-500">
                           Every order, lab test, appointment, plan load and agent
-                          payout on this account, one timeline.
+                          payout on this account — Debit, Credit and the running
+                          balance after each one, oldest transaction first into
+                          the total.
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -929,7 +960,7 @@ export default function UserDetailPage() {
                         />
                       </div>
                     </div>
-                    <DataTable<MoneyFlowEntry>
+                    <DataTable<LedgerRow>
                       columns={TXN_COLUMNS}
                       rows={filteredTxns}
                       loading={transactions.loading}
