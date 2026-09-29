@@ -10,6 +10,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import { clearOrderBill, listOrders } from '@/api/orders';
 import { BillEditorModal } from '@/components/orders/BillEditorModal';
 import type { Order } from '@/types';
@@ -61,6 +62,7 @@ export default function BillsPage() {
   const [store, setStore] = useState('all');
   const [billFilter, setBillFilter] = useState('all');
   const [savingId, setSavingId] = useState<string | null>(null);
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(
     null,
   );
@@ -234,7 +236,13 @@ export default function BillsPage() {
               className="text-xs font-medium text-rose-600 disabled:opacity-50"
               onClick={(e) => {
                 e.stopPropagation();
-                remove(row.id);
+                ask({
+                  title: 'Remove this bill?',
+                  message: `The saved bill for order ${row.code} will be cleared. This cannot be undone.`,
+                  confirmLabel: 'Remove bill',
+                  danger: true,
+                  onConfirm: () => remove(row.id),
+                });
               }}
             >
               Remove
@@ -333,6 +341,8 @@ export default function BillsPage() {
           onSaved={reload}
         />
       )}
+
+      {confirmDialog}
     </>
   );
 }

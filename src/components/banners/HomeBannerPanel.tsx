@@ -8,6 +8,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Icon } from '@/components/ui/Icon';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import {
   createBanner,
   deleteBanner,
@@ -42,6 +43,7 @@ export function HomeBannerPanel() {
   const [draft, setDraft] = useState<NewHomeBanner>(EMPTY);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
 
   function openAdd() {
     setDraft({ ...EMPTY, sort: rows.length });
@@ -243,7 +245,15 @@ export function HomeBannerPanel() {
               <Button
                 variant="danger"
                 disabled={saving}
-                onClick={() => remove(editingId)}
+                onClick={() =>
+                  ask({
+                    title: 'Delete this banner?',
+                    message: `"${draft.title || 'This banner'}" will be removed from the home screen. This cannot be undone.`,
+                    confirmLabel: 'Delete',
+                    danger: true,
+                    onConfirm: () => remove(editingId),
+                  })
+                }
               >
                 Delete
               </Button>
@@ -343,6 +353,8 @@ export function HomeBannerPanel() {
           )}
         </div>
       </Modal>
+
+      {confirmDialog}
     </>
   );
 }

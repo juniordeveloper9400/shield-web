@@ -14,6 +14,7 @@ import { readVideoInfo } from '@/lib/videoPoster';
 import { formatMegabytes, reviewVideoContentType, reviewVideoProblem, reviewVideoSource } from '@/lib/reviewVideo';
 import { discardReviewVideoMedia, uploadReviewVideo } from '@/lib/reviewVideoUpload';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import {
   createCustomerReviewVideo,
   deleteCustomerReviewVideo,
@@ -65,6 +66,7 @@ export default function CustomerVideosPage() {
   const [progress, setProgress] = useState<number | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
 
   const editingVideo = editingId ? rows.find((r) => r.id === editingId) ?? null : null;
   const savedSource = draft.videoUrl ? reviewVideoSource(draft.videoUrl) : null;
@@ -404,7 +406,15 @@ export default function CustomerVideosPage() {
               <Button
                 variant="danger"
                 disabled={saving}
-                onClick={() => remove(editingVideo)}
+                onClick={() =>
+                  ask({
+                    title: 'Delete this clip?',
+                    message: `"${editingVideo.name || 'This clip'}" will be removed, along with its uploaded video. This cannot be undone.`,
+                    confirmLabel: 'Delete',
+                    danger: true,
+                    onConfirm: () => remove(editingVideo),
+                  })
+                }
               >
                 Delete
               </Button>
@@ -566,6 +576,8 @@ export default function CustomerVideosPage() {
           )}
         </div>
       </Modal>
+
+      {confirmDialog}
     </>
   );
 }

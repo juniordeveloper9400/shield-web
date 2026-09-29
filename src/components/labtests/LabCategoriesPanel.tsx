@@ -7,6 +7,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Icon } from '@/components/ui/Icon';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import {
   createLabCategory,
   deleteLabCategory,
@@ -40,6 +41,7 @@ export function LabCategoriesPanel() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
 
   function openAdd() {
     setDraft(blank(rows.length));
@@ -189,7 +191,19 @@ export function LabCategoriesPanel() {
           <Button variant="secondary" size="sm" onClick={() => openEdit(row)}>
             Manage
           </Button>
-          <Button variant="danger" size="sm" onClick={() => void remove(row)}>
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() =>
+              ask({
+                title: 'Delete this category?',
+                message: `"${row.name}" will be removed, and any test or package in it will lose its category. This cannot be undone.`,
+                confirmLabel: 'Delete',
+                danger: true,
+                onConfirm: () => remove(row),
+              })
+            }
+          >
             Delete
           </Button>
         </div>
@@ -298,6 +312,8 @@ export function LabCategoriesPanel() {
           )}
         </div>
       </Modal>
+
+      {confirmDialog}
     </>
   );
 }

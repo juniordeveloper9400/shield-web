@@ -17,6 +17,7 @@ import {
   toneForStatus,
 } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import {
   approveActivation,
   getActivation,
@@ -54,6 +55,7 @@ export default function ActivationDetailPage() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
 
   // ---- The reviewer's own verification checklist ---------------------------
   // Local form state, seeded from whatever was last saved for this card, and
@@ -603,7 +605,14 @@ export default function ActivationDetailPage() {
                               ? 'Click "Save verification" above first.'
                               : undefined
                         }
-                        onClick={approve}
+                        onClick={() =>
+                          ask({
+                            title: 'Approve this activation?',
+                            message: `This credits ${formatCurrency(selected.credited)} to ${selected.memberName}'s wallet ledger right away. This cannot be undone.`,
+                            confirmLabel: 'Approve & credit',
+                            onConfirm: approve,
+                          })
+                        }
                       >
                         <Icon name="check" className="h-4 w-4" /> Approve &amp; credit
                       </Button>
@@ -642,6 +651,7 @@ export default function ActivationDetailPage() {
           </>
         )}
       </Card>
+      {confirmDialog}
     </>
   );
 }

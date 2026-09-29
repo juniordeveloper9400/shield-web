@@ -19,6 +19,7 @@ import {
   toLocalInput,
 } from '@/lib/labBooking';
 import { dbErrorMessage } from '@/lib/db';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import {
   addLabReportPages,
   listLabReportPages,
@@ -99,6 +100,7 @@ function BookingWindow({
   const [pagesLoading, setPagesLoading] = useState(booking.reportPages > 0);
   const [busy, setBusy] = useState<'status' | 'details' | 'upload' | 'remove' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
   const [preview, setPreview] = useState<LabReportPage | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -206,7 +208,17 @@ function BookingWindow({
               <Button
                 variant="danger"
                 disabled={busy !== null}
-                onClick={() => void changeStatus('cancelled')}
+                onClick={() =>
+                  ask({
+                    title: 'Cancel this booking?',
+                    message: `Booking ${booking.code} for ${booking.memberName} will be cancelled. This cannot be undone.`,
+                    confirmLabel: 'Cancel booking',
+                    danger: true,
+                    onConfirm: async () => {
+                      await changeStatus('cancelled');
+                    },
+                  })
+                }
               >
                 Cancel booking
               </Button>
@@ -418,7 +430,15 @@ function BookingWindow({
                     <button
                       type="button"
                       disabled={busy !== null}
-                      onClick={() => void removePage(page)}
+                      onClick={() =>
+                        ask({
+                          title: 'Remove this report page?',
+                          message: `Page ${i + 1} of ${booking.code}'s report will be removed. This cannot be undone.`,
+                          confirmLabel: 'Remove page',
+                          danger: true,
+                          onConfirm: () => removePage(page),
+                        })
+                      }
                       title="Remove this page"
                       className="absolute right-1 top-1 rounded bg-white/90 p-1 text-rose-600 shadow hover:bg-rose-50 disabled:opacity-50"
                     >
@@ -448,6 +468,8 @@ function BookingWindow({
           />
         </div>
       )}
+
+      {confirmDialog}
     </>
   );
 }

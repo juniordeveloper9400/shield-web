@@ -13,6 +13,7 @@ import { Icon } from '@/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import {
   listProducts,
   listCategories,
@@ -83,6 +84,7 @@ export default function ProductsPage() {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ price: '', stockQuantity: '' });
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
 
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState<NewProduct>(EMPTY_NEW);
@@ -418,7 +420,15 @@ export default function ProductsPage() {
                   <Button
                     variant="danger"
                     disabled={saving}
-                    onClick={() => removeProduct(selected.id)}
+                    onClick={() =>
+                      ask({
+                        title: 'Delete this product?',
+                        message: `"${selected.name}" will be removed from the catalogue. This cannot be undone.`,
+                        confirmLabel: 'Delete',
+                        danger: true,
+                        onConfirm: () => removeProduct(selected.id),
+                      })
+                    }
                   >
                     Delete
                   </Button>
@@ -971,6 +981,8 @@ export default function ProductsPage() {
           )}
         </div>
       </Modal>
+
+      {confirmDialog}
     </>
   );
 }

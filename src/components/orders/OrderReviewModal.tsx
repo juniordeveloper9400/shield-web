@@ -17,6 +17,7 @@ import {
   ORDER_LINE_STATUS_TONE,
 } from '@/lib/orderLineStatus';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import { useAuth } from '@/context/AuthContext';
 import {
   markOrderConvertedToBill,
@@ -83,6 +84,7 @@ export function OrderReviewModal({
   const [submitted, setSubmitted] = useState(Boolean(order.reviewedAt));
   const [busy, setBusy] = useState<'save' | 'convert' | 'cancel' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
   // When staff first used Call / WhatsApp here — the member's app shows the
   // order as "Store contact" from that moment (see noteContact below).
   const [contactedAt, setContactedAt] = useState(order.storeContactedAt);
@@ -343,7 +345,19 @@ export function OrderReviewModal({
         footer={
           <>
             {!closed && (
-              <Button variant="danger" disabled={working} onClick={() => void cancelOrder()}>
+              <Button
+                variant="danger"
+                disabled={working}
+                onClick={() =>
+                  ask({
+                    title: 'Cancel this order?',
+                    message: `Order ${order.code} will be marked cancelled. This cannot be undone.`,
+                    confirmLabel: 'Cancel order',
+                    danger: true,
+                    onConfirm: cancelOrder,
+                  })
+                }
+              >
                 {busy === 'cancel' ? 'Cancelling…' : 'Cancel order'}
               </Button>
             )}
@@ -779,6 +793,8 @@ export function OrderReviewModal({
           />
         )}
       </Modal>
+
+      {confirmDialog}
     </>
   );
 }

@@ -11,6 +11,7 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { Icon } from '@/components/ui/Icon';
 import { formatDateTime, titleCase, toneForStatus } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import { listAppointments, setAppointmentStatus } from '@/api/appointments';
 import type { Appointment, AppointmentStatus } from '@/types';
 
@@ -39,6 +40,7 @@ export default function AppointmentsPage() {
   const [type, setType] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -181,7 +183,15 @@ export default function AppointmentsPage() {
                 <Button
                   variant="danger"
                   disabled={saving}
-                  onClick={() => changeStatus(selected.id, 'cancelled')}
+                  onClick={() =>
+                    ask({
+                      title: 'Cancel this appointment?',
+                      message: `${selected.memberName}'s ${titleCase(selected.type)} appointment with ${selected.providerName} on ${formatDateTime(selected.scheduledFor)} will be cancelled. This cannot be undone.`,
+                      confirmLabel: 'Cancel appointment',
+                      danger: true,
+                      onConfirm: () => changeStatus(selected.id, 'cancelled'),
+                    })
+                  }
                 >
                   Cancel
                 </Button>
@@ -211,6 +221,7 @@ export default function AppointmentsPage() {
           </>
         )}
       </Modal>
+      {confirmDialog}
     </>
   );
 }

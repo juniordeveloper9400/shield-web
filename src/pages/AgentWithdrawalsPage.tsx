@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import { formatCurrency } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -45,6 +46,7 @@ function Review({ row, token, close, saved }: { row: Withdrawal; token: string |
   const [reference, setReference] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
   const eligible = Number(row.amount) >= 3000 && Number(row.pending_total) <= Number(row.earned) - Number(row.redeemed);
   async function resolve(status: 'APPROVED' | 'PAID' | 'REJECTED') {
     if (busy) return;
@@ -57,6 +59,29 @@ function Review({ row, token, close, saved }: { row: Withdrawal; token: string |
       saved();
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not process request. Refresh and try again.'); }
     finally { setBusy(false); }
+  }
+  function askResolve(status: 'APPROVED' | 'PAID' | 'REJECTED') {
+    const copy = {
+      APPROVED: {
+        title: 'Approve this withdrawal?',
+        message: `${row.name} (${row.code}) will be approved for ${formatCurrency(Number(row.amount))}, pending an actual bank transfer. This cannot be undone.`,
+        confirmLabel: 'Approve withdrawal',
+        danger: false,
+      },
+      PAID: {
+        title: 'Record this payment?',
+        message: `This marks ${formatCurrency(Number(row.amount))} as paid to ${row.name} (${row.code}) — only do this after the bank transfer has actually gone through. This cannot be undone.`,
+        confirmLabel: 'Record payment',
+        danger: false,
+      },
+      REJECTED: {
+        title: 'Reject this withdrawal?',
+        message: `${row.name} (${row.code}) will be told their request for ${formatCurrency(Number(row.amount))} was rejected, with the note above. This cannot be undone.`,
+        confirmLabel: 'Reject request',
+        danger: true,
+      },
+    }[status];
+    ask({ ...copy, onConfirm: () => resolve(status) });
   }
   return <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
     <section role="dialog" aria-modal="true" aria-labelledby="withdraw-title" className="max-w-lg w-full max-h-[90vh] overflow-auto rounded-xl bg-white p-6 space-y-4">
@@ -76,11 +101,12 @@ function Review({ row, token, close, saved }: { row: Withdrawal; token: string |
       <label className="block">Verification note / rejection reason<textarea className="block w-full border rounded p-2" value={note} onChange={e => setNote(e.target.value)} /></label>
       {error && <p role="alert" className="text-red-600">{error}</p>}
       <div className="flex flex-wrap gap-3">
-        {!row.approved_at ? <Button disabled={busy || !eligible || !identity || !earnings || !account.trim() || account.trim() !== row.account_number?.trim() || !note.trim()} onClick={() => resolve('APPROVED')}>Approve withdrawal</Button>
-          : <Button disabled={busy || !eligible || !reference.trim()} onClick={() => resolve('PAID')}>Record payment</Button>}
-        <Button variant="secondary" disabled={busy || !note.trim()} onClick={() => resolve('REJECTED')}>Reject request</Button>
+        {!row.approved_at ? <Button disabled={busy || !eligible || !identity || !earnings || !account.trim() || account.trim() !== row.account_number?.trim() || !note.trim()} onClick={() => askResolve('APPROVED')}>Approve withdrawal</Button>
+          : <Button disabled={busy || !eligible || !reference.trim()} onClick={() => askResolve('PAID')}>Record payment</Button>}
+        <Button variant="secondary" disabled={busy || !note.trim()} onClick={() => askResolve('REJECTED')}>Reject request</Button>
         <Button variant="secondary" disabled={busy} onClick={close}>Close</Button>
       </div>
     </section>
+    {confirmDialog}
   </div>;
 }

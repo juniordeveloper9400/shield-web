@@ -11,6 +11,7 @@ import { Icon } from '@/components/ui/Icon';
 import { GeoSlotPicker } from '@/components/agents/GeoSlotPicker';
 import { formatDate, formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import { approveAgent, getPendingAgent, rejectAgent } from '@/api/agents';
 import { listAgentOptions } from '@/api/users';
 import type { AgentLevel } from '@/types';
@@ -54,6 +55,7 @@ export default function AgentApprovalDetailPage() {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
 
   // Pre-fill the form with what the recruiter chose in the app.
   useEffect(() => {
@@ -325,7 +327,14 @@ export default function AgentApprovalDetailPage() {
                       <Button
                         variant="success"
                         disabled={saving}
-                        onClick={approve}
+                        onClick={() =>
+                          ask({
+                            title: 'Approve this agent?',
+                            message: `${selected.name} will be switched on at ${titleCase(level)} and can sign in and recruit under themselves right away.`,
+                            confirmLabel: 'Approve agent',
+                            onConfirm: approve,
+                          })
+                        }
                       >
                         <Icon name="check" className="h-4 w-4" /> Approve agent
                       </Button>
@@ -360,6 +369,7 @@ export default function AgentApprovalDetailPage() {
           </>
         )}
       </Card>
+      {confirmDialog}
     </>
   );
 }
