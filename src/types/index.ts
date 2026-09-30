@@ -782,6 +782,18 @@ export interface LabBooking {
   reportPages: number;
   reportUploadedAt: string;
   createdAt: string;
+  /** The lab's own invoice for this booking, if any — same shape as
+   *  `Order.billImage`/`billAmount`/etc., backed by `app.lab_bill` instead
+   *  of `app.bill` (see backend/db/migrations/0066_lab_bill.sql). `''`/`0`
+   *  until staff price it ("Convert to bill" on this booking's own modal). */
+  billImage: string;
+  /** What's actually owed, net of [billDiscount] — 0 until priced. */
+  billAmount: number;
+  /** How much of [totalPrice] was knocked off to reach [billAmount]. */
+  billDiscount: number;
+  billStatus: PaymentStatus;
+  billWalletCollected: number;
+  billCashCollected: number;
 }
 
 /** `app.appointment_kind`. */

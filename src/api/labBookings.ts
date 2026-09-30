@@ -1,10 +1,12 @@
 import { sql, query } from '@/lib/db';
+import { api } from '@/lib/api';
 import { fromEnum, iso, num } from '@/lib/mappers';
 import type {
   LabBooking,
   LabBookingPatient,
   LabBookingStatus,
   LabReportPage,
+  PaymentStatus,
 } from '@/types';
 
 type Row = Record<string, unknown>;
@@ -58,12 +60,17 @@ export async function listLabBookings(): Promise<LabBooking[]> {
              WHERE lbp.lab_booking_id = lb.id) AS patients,
            (SELECT count(*)::int
               FROM app.lab_booking_report r
-             WHERE r.lab_booking_id = lb.id) AS report_pages
+             WHERE r.lab_booking_id = lb.id) AS report_pages,
+           lbill.image AS bill_image, lbill.amount AS bill_amount,
+           lbill.discount_amount AS bill_discount, lbill.status AS bill_status,
+           lbill.wallet_collected AS bill_wallet_collected,
+           lbill.cash_collected AS bill_cash_collected
     FROM app.lab_booking lb
     LEFT JOIN app.users m           ON m.id  = lb.member_id
     LEFT JOIN app.lab_package lp    ON lp.id = lb.lab_package_id
     LEFT JOIN app.member_address ma ON ma.id = lb.address_id
     LEFT JOIN app.shield_store s    ON s.id  = lb.store_id
+    LEFT JOIN app.lab_bill lbill    ON lbill.lab_booking_id = lb.id
     ORDER BY lb.created_at DESC
   `) as Row[];
 
@@ -87,7 +94,63 @@ export async function listLabBookings(): Promise<LabBooking[]> {
     reportPages: num(r.report_pages),
     reportUploadedAt: iso(r.report_uploaded_at) ?? '',
     createdAt: iso(r.created_at) ?? new Date(0).toISOString(),
+    billImage: String(r.bill_image ?? ''),
+    billAmount: num(r.bill_amount),
+    billDiscount: num(r.bill_discount),
+    billStatus: fromEnum<PaymentStatus>(String(r.bill_status ?? 'PENDING')),
+    billWalletCollected: num(r.bill_wallet_collected),
+    billCashCollected: num(r.bill_cash_collected),
   }));
+}
+
+/**
+ * The member's wallet balance for the booking's own member, read-only — same
+ * shape as {@link getWalletBalanceForOrder} in `billPayments.ts`, joined
+ * through `app.lab_booking` instead of `app."order"`. Lets the bill panel
+ * show what collecting would actually draw before committing to anything.
+ */
+export async function getWalletBalanceForLabBooking(bookingId: string): Promise<number> {
+  const rows = await query<Row>(
+    `SELECT COALESCE(w.balance, 0) AS balance
+       FROM app.lab_booking lb
+       LEFT JOIN app.wallet w ON w.member_id = lb.member_id
+      WHERE lb.id = $1`,
+    [bookingId],
+  );
+  return rows.length > 0 ? num(rows[0].balance) : 0;
+}
+
+/**
+ * Prices a booking's bill — the "Convert to bill" step's own save, through
+ * `backend/api` (`PUT /v1/staff/lab-bookings/:id/bill`,
+ * `BookingService.sendLabBill`) rather than raw SQL: unlike a prescription's
+ * bill, there is no per-line picker here for a browser-side write to save
+ * time on — the backend prices the one line itself from the booking's own
+ * package/unit price, net of `discountAmount`.
+ */
+export async function sendLabBookingBill(
+  id: string,
+  opts: { image: string; discountAmount: number },
+  token: string | null,
+): Promise<void> {
+  await api.put(`/v1/staff/lab-bookings/${id}/bill`, opts, token);
+}
+
+/**
+ * Settles a sent-and-priced lab bill — the collection half of the same
+ * OTP flow `collectBillWithWallet` (orders/prescriptions) uses: the member
+ * reads back the code Firebase texted them, staff verifies it client-side
+ * (`confirmDeliveryOtp`), and only on that success does this get called.
+ * `PATCH /v1/staff/lab-bookings/:id/collect-wallet`
+ * (`BookingService.collectLabBillWithWallet`) — see that method's own doc.
+ */
+export async function collectLabBillWithWallet(
+  id: string,
+  token: string | null,
+): Promise<
+  { ok: true; walletAmount: number; cashAmount: number } | { ok: false; reason: string }
+> {
+  return api.patch(`/v1/staff/lab-bookings/${id}/collect-wallet`, undefined, token);
 }
 
 /**

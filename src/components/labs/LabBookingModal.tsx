@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+import type { ConfirmationResult } from 'firebase/auth';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DetailList } from '@/components/ui/DetailList';
 import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
+import { WalletBreakdown } from '@/components/orders/WalletBreakdown';
 import { telHref, whatsappHref } from '@/lib/contactLinks';
 import { formatCurrency, formatDateTime, toneForStatus } from '@/lib/format';
 import { fileToResizedDataUrl } from '@/lib/images';
+import { clearDeliveryOtp, confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
 import {
   MAX_REPORT_PAGES,
   canAttachReport,
@@ -19,11 +22,16 @@ import {
   toLocalInput,
 } from '@/lib/labBooking';
 import { dbErrorMessage } from '@/lib/db';
+import { useAsync } from '@/lib/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import {
   addLabReportPages,
+  collectLabBillWithWallet,
+  getWalletBalanceForLabBooking,
   listLabReportPages,
   removeLabReportPage,
+  sendLabBookingBill,
   setLabBookingStatus,
   updateLabBookingDetails,
 } from '@/api/labBookings';
@@ -103,9 +111,137 @@ function BookingWindow({
   const { ask, dialog: confirmDialog } = useConfirmDialog();
   const [preview, setPreview] = useState<LabReportPage | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const { accessToken } = useAuth();
 
   const status = booking.status;
   const closed = status === 'cancelled';
+
+  // ---- Billing: same "Convert to bill, then collect from the wallet under
+  // an OTP" flow a prescription/standard order gets (BillEditorModal), sized
+  // down to what a lab booking actually needs — its price is already fixed
+  // at booking time, so there's no line-item picker, just a discount and an
+  // optional photo of the paper invoice. See labBookings.ts's own doc on
+  // sendLabBookingBill/collectLabBillWithWallet.
+  const billed = booking.billAmount > 0;
+  const [billDiscount, setBillDiscount] = useState(booking.billDiscount || 0);
+  const [billImage, setBillImage] = useState(booking.billImage);
+  const [billBusy, setBillBusy] = useState(false);
+  const [billError, setBillError] = useState<string | null>(null);
+  const [billImageBusy, setBillImageBusy] = useState(false);
+  const billFileInput = useRef<HTMLInputElement>(null);
+  const netTotal = Math.max(booking.totalPrice - billDiscount, 0);
+
+  const { data: walletBalance } = useAsync(
+    () => getWalletBalanceForLabBooking(booking.id),
+    [booking.id],
+  );
+
+  async function onPickBillImage(file: File | null) {
+    if (billFileInput.current) billFileInput.current.value = '';
+    if (!file) return;
+    setBillImageBusy(true);
+    try {
+      setBillImage(await fileToResizedDataUrl(file, 1600, 0.8));
+    } catch (err) {
+      setBillError(err instanceof Error ? err.message : 'Could not read that photo.');
+    } finally {
+      setBillImageBusy(false);
+    }
+  }
+
+  async function sendBill() {
+    setBillBusy(true);
+    setBillError(null);
+    try {
+      await sendLabBookingBill(booking.id, { image: billImage, discountAmount: billDiscount }, accessToken);
+      onChanged();
+      void startCollection();
+    } catch (err) {
+      setBillError(dbErrorMessage(err));
+    } finally {
+      setBillBusy(false);
+    }
+  }
+
+  // ---- OTP-gated wallet collection — identical mechanics to
+  // BillEditorModal's own (see that file's doc): sendOtp only asks Firebase
+  // to text the member's phone a code; verifyAndCollect is the one place
+  // that actually calls collectLabBillWithWallet, and only once Firebase has
+  // confirmed the code staff typed in matches.
+  const [otpConfirmation, setOtpConfirmation] = useState<ConfirmationResult | null>(null);
+  const [otpCode, setOtpCode] = useState('');
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [collected, setCollected] = useState<{ walletAmount: number; cashAmount: number } | null>(
+    null,
+  );
+  const [showOtpPopover, setShowOtpPopover] = useState(false);
+  const recaptchaContainerId = `lab-bill-otp-recaptcha-${booking.id}`;
+  const otpInFlight = useRef(false);
+  const otpSession = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      otpSession.current += 1;
+      clearDeliveryOtp(recaptchaContainerId);
+    };
+  }, [recaptchaContainerId]);
+
+  async function sendOtp() {
+    if (otpInFlight.current) return;
+    otpInFlight.current = true;
+    const session = otpSession.current;
+    setOtpBusy(true);
+    setOtpError(null);
+    setOtpConfirmation(null);
+    setOtpCode('');
+    try {
+      const confirmation = await sendDeliveryOtp(booking.memberPhone, recaptchaContainerId);
+      if (session !== otpSession.current) return;
+      setOtpConfirmation(confirmation);
+    } catch (err) {
+      if (session !== otpSession.current) return;
+      setOtpError(describeOtpError(err));
+    } finally {
+      otpInFlight.current = false;
+      setOtpBusy(false);
+    }
+  }
+
+  async function startCollection() {
+    setShowOtpPopover(true);
+    await sendOtp();
+  }
+
+  async function verifyAndCollect() {
+    if (otpInFlight.current || !otpConfirmation || !/^\d{6}$/.test(otpCode.trim())) return;
+    otpInFlight.current = true;
+    const session = otpSession.current;
+    setOtpBusy(true);
+    setOtpError(null);
+    try {
+      await confirmDeliveryOtp(otpConfirmation, otpCode);
+      if (session !== otpSession.current) return;
+      setOtpConfirmation(null);
+      setOtpCode('');
+      const result = await collectLabBillWithWallet(booking.id, accessToken);
+      if (!result.ok) {
+        setOtpError(result.reason);
+        return;
+      }
+      setCollected({ walletAmount: result.walletAmount, cashAmount: result.cashAmount });
+      onChanged();
+    } catch (err) {
+      setOtpError(describeOtpError(err));
+    } finally {
+      otpInFlight.current = false;
+      setOtpBusy(false);
+    }
+  }
+
+  const effectivePaid = collected !== null || booking.billStatus === 'paid';
+  const walletCoverage = Math.min(walletBalance ?? 0, billed ? booking.billAmount : netTotal);
+  const cashOwed = Math.max((billed ? booking.billAmount : netTotal) - walletCoverage, 0);
 
   async function loadPages() {
     setPagesLoading(true);
@@ -453,6 +589,132 @@ function BookingWindow({
           {blocker && canAttachReport(status) && (
             <p className="mt-3 text-xs text-amber-600">{blocker}</p>
           )}
+        </section>
+
+        {/* ---- Billing ---- */}
+        <section className="mt-4 rounded-lg border border-slate-200 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-slate-800">Billing</h3>
+            {billed && (
+              <Badge tone={effectivePaid ? 'green' : 'amber'}>
+                {effectivePaid ? 'Paid' : 'Awaiting payment'}
+              </Badge>
+            )}
+          </div>
+
+          {closed ? (
+            <p className="mt-2 text-xs text-slate-400">This booking was cancelled.</p>
+          ) : effectivePaid ? (
+            <div className="mt-3 space-y-1 text-sm text-slate-700">
+              <p>
+                Bill total <span className="font-semibold">{formatCurrency(booking.billAmount)}</span>
+              </p>
+              <p className="text-xs text-slate-500">
+                {formatCurrency(collected?.walletAmount ?? booking.billWalletCollected)} from wallet
+                {(collected?.cashAmount ?? booking.billCashCollected) > 0 && (
+                  <> · {formatCurrency(collected?.cashAmount ?? booking.billCashCollected)} in cash</>
+                )}
+              </p>
+            </div>
+          ) : (
+            <>
+              {billError && (
+                <p className="mt-2 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{billError}</p>
+              )}
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-medium text-slate-600">
+                  Disc. amount
+                  <input
+                    type="number"
+                    min={0}
+                    value={billDiscount || ''}
+                    disabled={billBusy}
+                    onChange={(e) => setBillDiscount(Number(e.target.value) || 0)}
+                    className={`${inputClass} mt-1`}
+                  />
+                </label>
+                <div className="text-xs font-medium text-slate-600">
+                  Bill total
+                  <p className="mt-1 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm font-semibold text-slate-800">
+                    {formatCurrency(netTotal)}
+                  </p>
+                </div>
+                <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
+                  Invoice photo (optional)
+                  <input
+                    ref={billFileInput}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => void onPickBillImage(e.target.files?.[0] ?? null)}
+                  />
+                  <div className="mt-1 flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={billImageBusy || billBusy}
+                      onClick={() => billFileInput.current?.click()}
+                    >
+                      {billImageBusy ? 'Reading…' : billImage ? 'Replace photo' : 'Add photo'}
+                    </Button>
+                    {billImage && (
+                      <img src={billImage} alt="Invoice" className="h-10 w-10 rounded object-cover" />
+                    )}
+                  </div>
+                </label>
+              </div>
+              {!showOtpPopover ? (
+                <div className="mt-3 flex justify-end">
+                  <Button size="sm" disabled={billBusy} onClick={() => void sendBill()}>
+                    {billBusy ? 'Converting…' : billed ? 'Update bill' : 'Convert to bill →'}
+                  </Button>
+                </div>
+              ) : (
+                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
+                  <WalletBreakdown
+                    walletBalance={walletBalance ?? 0}
+                    monthlyRedeemable={null}
+                    redeemedThisMonth={null}
+                    availableAllowance={null}
+                    walletShare={walletCoverage}
+                    walletShareLabel="Will draw from wallet"
+                    cashOwed={cashOwed}
+                    format={formatCurrency}
+                  />
+                  {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
+                  {otpBusy && !otpConfirmation ? (
+                    <p className="mt-2 text-xs text-slate-500">Sending the code to {booking.memberPhone}…</p>
+                  ) : otpConfirmation ? (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="6-digit code"
+                        inputMode="numeric"
+                        disabled={otpBusy}
+                        className={`${inputClass} w-32`}
+                      />
+                      <Button
+                        size="sm"
+                        disabled={otpBusy || !/^\d{6}$/.test(otpCode.trim())}
+                        onClick={() => void verifyAndCollect()}
+                      >
+                        {otpBusy ? 'Verifying…' : 'Verify & collect'}
+                      </Button>
+                      <Button size="sm" variant="ghost" disabled={otpBusy} onClick={() => void sendOtp()}>
+                        Resend
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button size="sm" disabled={otpBusy} onClick={() => void sendOtp()}>
+                      Send code
+                    </Button>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+          <div id={recaptchaContainerId} />
         </section>
       </Modal>
 
