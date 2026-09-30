@@ -10,6 +10,12 @@
  *   it applies.
  * - `delivery` — a delivery boy's own login. Branch-scoped like `pharmacy`;
  *   only sees orders assigned to them or open for pickup at their branch.
+ * - `lab_technician` — a store's own lab technician login. Branch-scoped
+ *   like `pharmacy`/`delivery`; sees the full patient/test/report detail of
+ *   only their own branch's lab bookings on the Lab Orders page — unlike
+ *   `lab` (one login working every branch's bookings, unscoped), and unlike
+ *   `pharmacy` (which sees those same bookings listed, redacted, alongside
+ *   its regular orders, not this module).
  */
 export type Role =
   | 'superadmin'
@@ -17,7 +23,8 @@ export type Role =
   | 'pharmacy'
   | 'lab'
   | 'appointments'
-  | 'delivery';
+  | 'delivery'
+  | 'lab_technician';
 
 export type ModuleKey =
   | 'dashboard'

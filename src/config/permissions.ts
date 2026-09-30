@@ -178,10 +178,16 @@ export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   // split, not something an Admin reviewing activations needs to see.
   superadmin: [...APP_MODULES, 'admins', 'commission_reserve'],
   admin: [...APP_MODULES],
-  pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries'],
+  // 'lab_orders' added so a branch's own admin can see that lab bookings
+  // exist for their store, the same as any other order — LabOrdersPage
+  // itself redacts the patient/test detail for this role; see its own doc.
+  pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries', 'lab_orders'],
   lab: ['dashboard', 'stores', 'lab_orders', 'lab_tests'],
   appointments: ['dashboard', 'appointments'],
   delivery: ['dashboard', 'deliveries'],
+  // No 'stores'/'lab_tests' — a technician works their one already-assigned
+  // branch's bookings, not the branch list or the package catalogue.
+  lab_technician: ['dashboard', 'lab_orders'],
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -191,6 +197,7 @@ export const ROLE_LABELS: Record<Role, string> = {
   lab: 'Lab Admin',
   appointments: 'Appointments Admin',
   delivery: 'Delivery',
+  lab_technician: 'Lab Technician',
 };
 
 export const ROLE_SUMMARY: Record<Role, string> = {
@@ -202,6 +209,8 @@ export const ROLE_SUMMARY: Record<Role, string> = {
   lab: 'Works member lab-test bookings — schedule, notes and reports — the test master and package catalogue, and the branch list.',
   appointments: 'Handles the clinic, tele and dietitian appointment queue.',
   delivery: "Delivers and collects cash for their branch's cash orders.",
+  lab_technician:
+    "Works their own branch's lab bookings only — full patient, test and report detail, the same as Lab Admin but for one store.",
 };
 
 export function canAccess(role: Role, moduleKey: ModuleKey): boolean {
@@ -236,16 +245,27 @@ export function landingPath(role: Role): string {
   return allowedModules(role)[0]?.path ?? '/dashboard';
 }
 
+/** Roles whose account is tied to one branch — the "add staff" form's
+ *  store-picker gate (AdminsPage). Wider than {@link scopeToStore}'s own
+ *  list below: DELIVERY carries a store but isn't touched here, to keep
+ *  this change to exactly the new LAB_TECHNICIAN role and not risk
+ *  changing DELIVERY's existing behaviour on pages (the Dashboard among
+ *  them) this feature never asked to revisit. */
+export const STORE_BOUND_ROLES: Role[] = ['pharmacy', 'delivery', 'lab_technician'];
+
+/** Roles {@link scopeToStore} actually narrows by. */
+const SCOPED_BY_STORE: Role[] = ['pharmacy', 'lab_technician'];
+
 /**
  * Narrows branch-bound rows to the signed-in admin's store. A Pharmacy Admin
- * carries a `storeCode` and only ever sees that branch; every other role
- * (Super Admin included) sees all rows.
+ * or Lab Technician carries a `storeCode` and only ever sees that branch;
+ * every other role (Super Admin included) sees all rows.
  */
 export function scopeToStore<T extends { storeCode: string }>(
   rows: T[],
   user: Pick<AuthUser, 'role' | 'storeCode'> | null,
 ): T[] {
-  if (user?.role === 'pharmacy' && user.storeCode) {
+  if (user && SCOPED_BY_STORE.includes(user.role) && user.storeCode) {
     return rows.filter((row) => row.storeCode === user.storeCode);
   }
   return rows;

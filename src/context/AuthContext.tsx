@@ -21,6 +21,7 @@ const ROLE_COLOR: Record<Role, string> = {
   lab: '#8a5b1f',
   appointments: '#6b3fa0',
   delivery: '#c2410c',
+  lab_technician: '#a1650d',
 };
 
 interface StaffSessionResponse {
@@ -33,7 +34,7 @@ interface StaffProfileResponse {
   id: number;
   loginId: string;
   name: string;
-  role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS' | 'DELIVERY';
+  role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS' | 'DELIVERY' | 'LAB_TECHNICIAN';
   storeId: number | null;
   storeCode: string | null;
   isActive: boolean;
@@ -49,7 +50,9 @@ function toAuthUser(profile: StaffProfileResponse): AuthUser {
     avatarColor: ROLE_COLOR[role],
     status: profile.isActive ? 'active' : 'suspended',
     storeCode:
-      role === 'pharmacy' || role === 'delivery' ? (profile.storeCode ?? undefined) : undefined,
+      role === 'pharmacy' || role === 'delivery' || role === 'lab_technician'
+        ? (profile.storeCode ?? undefined)
+        : undefined,
     lastLogin: new Date().toISOString(),
   };
 }

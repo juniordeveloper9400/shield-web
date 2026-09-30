@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
@@ -30,6 +32,7 @@ const STATUS_OPTIONS = [
 ];
 
 export default function LabOrdersPage() {
+  const { user } = useAuth();
   const { data, loading, error, reload } = useAsync(listLabBookings, []);
   const rows = useMemo(() => data ?? [], [data]);
 
@@ -38,40 +41,53 @@ export default function LabOrdersPage() {
   const [store, setStore] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const selected = rows.find((r) => r.id === selectedId) ?? null;
+  // A Lab Technician only ever has their own branch's bookings to look at —
+  // Pharmacy sees this same scoping, but with the patient/test detail
+  // stripped from every column below instead of a whole branch's worth of
+  // someone else's bookings.
+  const scoped = useMemo(() => scopeToStore(rows, user), [rows, user]);
+  const branchBound = (user?.role === 'pharmacy' || user?.role === 'lab_technician') && Boolean(user.storeCode);
+  // Pharmacy sees that a lab order exists for their branch — enough to
+  // reconcile it as "an order" — but never who it was for or what test was
+  // booked, and can't manage the lab workflow itself.
+  const redacted = user?.role === 'pharmacy';
+
+  const selected = redacted ? null : (scoped.find((r) => r.id === selectedId) ?? null);
 
   const storeOptions = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const r of rows) if (r.storeCode) seen.set(r.storeCode, r.storeName);
+    for (const r of scoped) if (r.storeCode) seen.set(r.storeCode, r.storeName);
     return [
       { value: 'all', label: 'All branches' },
       { value: 'none', label: 'No branch on record' },
       ...[...seen].map(([value, label]) => ({ value, label })),
     ];
-  }, [rows]);
+  }, [scoped]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((row) => {
+    return scoped.filter((row) => {
       const matchesQuery =
         !q ||
         row.code.toLowerCase().includes(q) ||
-        row.memberName.toLowerCase().includes(q) ||
-        row.packageName.toLowerCase().includes(q) ||
-        row.memberPhone.includes(q);
+        (!redacted &&
+          (row.memberName.toLowerCase().includes(q) ||
+            row.packageName.toLowerCase().includes(q) ||
+            row.memberPhone.includes(q)));
       const matchesStatus = status === 'all' || row.status === status;
       const matchesStore =
+        branchBound ||
         store === 'all' ||
         (store === 'none' ? !row.storeCode : row.storeCode === store);
       return matchesQuery && matchesStatus && matchesStore;
     });
-  }, [rows, search, status, store]);
+  }, [scoped, search, status, store, branchBound, redacted]);
 
   const counts = {
-    requested: rows.filter((r) => r.status === 'requested').length,
-    confirmed: rows.filter((r) => r.status === 'confirmed').length,
-    collected: rows.filter((r) => r.status === 'sample_collected').length,
-    ready: rows.filter((r) => r.status === 'report_ready').length,
+    requested: scoped.filter((r) => r.status === 'requested').length,
+    confirmed: scoped.filter((r) => r.status === 'confirmed').length,
+    collected: scoped.filter((r) => r.status === 'sample_collected').length,
+    ready: scoped.filter((r) => r.status === 'report_ready').length,
   };
 
   const columns: Column<LabBooking>[] = [
@@ -85,22 +101,33 @@ export default function LabOrdersPage() {
         </div>
       ),
     },
-    {
-      key: 'member',
-      header: 'Member',
-      render: (row) => (
-        <div>
-          <p className="text-slate-800">{row.memberName}</p>
-          <p className="text-xs text-slate-400">{row.memberPhone}</p>
-        </div>
-      ),
-    },
-    { key: 'package', header: 'Package', render: (row) => row.packageName },
-    {
-      key: 'branch',
-      header: 'Branch',
-      render: (row) => row.storeName || <span className="text-slate-400">—</span>,
-    },
+    // Who it was for and what was booked — a store admin sees that the
+    // order exists, never this; a Lab Technician (own branch) or Lab Admin
+    // (every branch) needs exactly this to actually do the work.
+    ...(redacted
+      ? []
+      : ([
+          {
+            key: 'member',
+            header: 'Member',
+            render: (row) => (
+              <div>
+                <p className="text-slate-800">{row.memberName}</p>
+                <p className="text-xs text-slate-400">{row.memberPhone}</p>
+              </div>
+            ),
+          },
+          { key: 'package', header: 'Package', render: (row) => row.packageName },
+        ] as Column<LabBooking>[])),
+    ...(branchBound
+      ? []
+      : ([
+          {
+            key: 'branch',
+            header: 'Branch',
+            render: (row) => row.storeName || <span className="text-slate-400">—</span>,
+          },
+        ] as Column<LabBooking>[])),
     {
       key: 'patients',
       header: 'Patients',
@@ -118,18 +145,22 @@ export default function LabOrdersPage() {
       header: 'Scheduled',
       render: (row) => formatDateTime(row.scheduledFor),
     },
-    {
-      key: 'report',
-      header: 'Report',
-      render: (row) =>
-        row.reportPages > 0 ? (
-          <span className="text-slate-700">
-            {row.reportPages} page{row.reportPages === 1 ? '' : 's'}
-          </span>
-        ) : (
-          <span className="text-slate-400">—</span>
-        ),
-    },
+    ...(redacted
+      ? []
+      : ([
+          {
+            key: 'report',
+            header: 'Report',
+            render: (row) =>
+              row.reportPages > 0 ? (
+                <span className="text-slate-700">
+                  {row.reportPages} page{row.reportPages === 1 ? '' : 's'}
+                </span>
+              ) : (
+                <span className="text-slate-400">—</span>
+              ),
+          },
+        ] as Column<LabBooking>[])),
     {
       key: 'status',
       header: 'Status',
@@ -137,23 +168,35 @@ export default function LabOrdersPage() {
         <Badge tone={toneForStatus(row.status)}>{STATUS_LABEL[row.status]}</Badge>
       ),
     },
-    {
-      key: 'actions',
-      header: '',
-      render: (row) => (
-        <Button variant="secondary" size="sm" onClick={() => setSelectedId(row.id)}>
-          Manage
-        </Button>
-      ),
-      className: 'text-right',
-    },
+    // A store admin only ever looks — managing the lab workflow (schedule,
+    // notes, the report itself) isn't theirs to do from here.
+    ...(redacted
+      ? []
+      : ([
+          {
+            key: 'actions',
+            header: '',
+            render: (row) => (
+              <Button variant="secondary" size="sm" onClick={() => setSelectedId(row.id)}>
+                Manage
+              </Button>
+            ),
+            className: 'text-right',
+          },
+        ] as Column<LabBooking>[])),
   ];
 
   return (
     <>
       <PageHeader
         title="Lab Orders"
-        subtitle="Member lab-test bookings and where each one is in the process."
+        subtitle={
+          redacted
+            ? 'Lab-test bookings placed against your branch — patient and test detail is handled by the lab.'
+            : branchBound
+              ? 'Lab-test bookings for your branch and where each one is in the process.'
+              : 'Member lab-test bookings and where each one is in the process.'
+        }
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -168,10 +211,12 @@ export default function LabOrdersPage() {
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search booking, member, package…"
+            placeholder={redacted ? 'Search booking…' : 'Search booking, member, package…'}
           />
           <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
-          <FilterSelect value={store} onChange={setStore} options={storeOptions} />
+          {!branchBound && (
+            <FilterSelect value={store} onChange={setStore} options={storeOptions} />
+          )}
         </div>
         <DataTable
           columns={columns}
@@ -179,14 +224,17 @@ export default function LabOrdersPage() {
           loading={loading}
           error={error}
           empty="No bookings match your filters."
+          {...(redacted ? {} : { onRowClick: (row: LabBooking) => setSelectedId(row.id) })}
         />
       </Card>
 
-      <LabBookingModal
-        booking={selected}
-        onClose={() => setSelectedId(null)}
-        onChanged={reload}
-      />
+      {!redacted && (
+        <LabBookingModal
+          booking={selected}
+          onClose={() => setSelectedId(null)}
+          onChanged={reload}
+        />
+      )}
     </>
   );
 }

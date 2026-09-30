@@ -18,6 +18,7 @@ import {
   ROLE_LABELS,
   ROLE_PERMISSIONS,
   ROLE_SUMMARY,
+  STORE_BOUND_ROLES,
   canAccess,
 } from '@/config/permissions';
 import type { Role } from '@/types';
@@ -31,11 +32,8 @@ const ROLE_COLOR: Record<Role, string> = {
   lab: '#8a5b1f',
   appointments: '#6b3fa0',
   delivery: '#c2410c',
+  lab_technician: '#a1650d',
 };
-
-/** Roles whose account is tied to one branch — the "add staff" form only
- *  requires/shows a store picker for these. */
-const STORE_BOUND_ROLES: Role[] = ['pharmacy', 'delivery'];
 
 const EMPTY_FORM = {
   loginId: '',
@@ -57,7 +55,7 @@ interface StaffApiRow {
   id: number;
   loginId: string;
   name: string;
-  role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS';
+  role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS' | 'DELIVERY' | 'LAB_TECHNICIAN';
   storeId: number | null;
   storeCode: string | null;
   isActive: boolean;
@@ -70,7 +68,7 @@ function toAdminRow(r: StaffApiRow): AdminRow {
     loginId: r.loginId,
     name: r.name,
     role,
-    storeCode: role === 'pharmacy' && r.storeCode ? r.storeCode : undefined,
+    storeCode: STORE_BOUND_ROLES.includes(role) && r.storeCode ? r.storeCode : undefined,
   };
 }
 
@@ -233,7 +231,11 @@ export default function AdminsPage() {
           tone="green"
         />
         <StatCard label="Pharmacy" value={byRole('pharmacy')} tone="violet" />
-        <StatCard label="Lab / Appts" value={byRole('lab') + byRole('appointments')} tone="amber" />
+        <StatCard
+          label="Lab / Appts"
+          value={byRole('lab') + byRole('lab_technician') + byRole('appointments')}
+          tone="amber"
+        />
         <StatCard label="Delivery" value={byRole('delivery')} icon="deliveries" tone="rose" />
       </div>
 
