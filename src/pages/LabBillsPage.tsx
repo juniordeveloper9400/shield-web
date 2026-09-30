@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -37,6 +38,46 @@ export default function LabBillsPage() {
   const [store, setStore] = useState('all');
   const [billFilter, setBillFilter] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Whether the booking now open got here by "Convert to bill →" just this
+  // moment (autoCollectId) rather than a plain "Manage" click — see its own
+  // doc below and LabBookingModal's [autoCollect] prop.
+  const [autoCollectId, setAutoCollectId] = useState<string | null>(null);
+
+  // Set the moment "Convert to bill →" lands here and finds its booking —
+  // the banner that confirms the hand-off actually worked, since Lab Orders
+  // closed silently on the way over here. Cleared once the admin dismisses
+  // it or the booking it points at is closed.
+  const [justConverted, setJustConverted] = useState<{ id: string; code: string } | null>(
+    null,
+  );
+
+  // "Convert to bill →" on a Lab Orders booking lands here with
+  // `?open=<bookingId>` — opens that booking's own modal immediately, once
+  // the list has actually loaded, straight into the OTP collection step
+  // (autoCollectId) rather than back at the pricing form it was just filled
+  // in on. Clears the param right after so a later reload doesn't
+  // re-trigger it.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openId = searchParams.get('open');
+  useEffect(() => {
+    if (!openId || !data) return;
+    const match = data.find((r) => r.id === openId);
+    if (match) {
+      setSelectedId(match.id);
+      setAutoCollectId(match.id);
+      setJustConverted({ id: match.id, code: match.code });
+    }
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('open');
+        return next;
+      },
+      { replace: true },
+    );
+    // Only when the param or the list itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openId, data]);
 
   // A booking only counts as "billed" the same way LabBookingModal's own
   // `billed` flag does — see its doc on why total, not status, is the check
@@ -156,6 +197,23 @@ export default function LabBillsPage() {
         }
       />
 
+      {justConverted && (
+        <div className="mb-6 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <span>
+            <strong>{justConverted.code}</strong> converted to a bill —
+            collect payment via OTP below to finish.
+          </span>
+          <button
+            type="button"
+            onClick={() => setJustConverted(null)}
+            className="shrink-0 text-emerald-600 hover:text-emerald-800"
+            aria-label="Dismiss"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="mb-6 grid gap-4 sm:grid-cols-3">
         <StatCard label="Total billed" value={formatCurrency(totalBilled)} icon="receipt" tone="blue" />
         <StatCard label="Paid" value={paidCount} icon="check" tone="green" />
@@ -192,7 +250,12 @@ export default function LabBillsPage() {
 
       <LabBookingModal
         booking={selected}
-        onClose={() => setSelectedId(null)}
+        autoCollect={selected !== null && selected.id === autoCollectId}
+        onClose={() => {
+          setSelectedId(null);
+          setAutoCollectId(null);
+          if (justConverted?.id === selectedId) setJustConverted(null);
+        }}
         onChanged={reload}
       />
     </>

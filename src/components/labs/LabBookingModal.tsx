@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { ConfirmationResult } from 'firebase/auth';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -78,10 +79,16 @@ export function LabBookingModal({
   booking,
   onClose,
   onChanged,
+  autoCollect = false,
 }: {
   booking: LabBooking | null;
   onClose: () => void;
   onChanged: () => void;
+  /** Skip straight to the OTP collection step on open — Lab Bills' own
+   *  hand-off from a booking just converted there via "Convert to bill →",
+   *  not a plain "Manage" click on an already-billed row. See that page's
+   *  own doc. */
+  autoCollect?: boolean;
 }) {
   if (!booking) return null;
   return (
@@ -90,6 +97,7 @@ export function LabBookingModal({
       booking={booking}
       onClose={onClose}
       onChanged={onChanged}
+      autoCollect={autoCollect}
     />
   );
 }
@@ -98,10 +106,12 @@ function BookingWindow({
   booking,
   onClose,
   onChanged,
+  autoCollect,
 }: {
   booking: LabBooking;
   onClose: () => void;
   onChanged: () => void;
+  autoCollect: boolean;
 }) {
   const [schedule, setSchedule] = useState(toLocalInput(booking.scheduledFor));
   const [note, setNote] = useState(booking.note);
@@ -113,6 +123,7 @@ function BookingWindow({
   const [preview, setPreview] = useState<LabReportPage | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const { accessToken } = useAuth();
+  const navigate = useNavigate();
 
   const status = booking.status;
   const closed = status === 'cancelled';
@@ -175,7 +186,21 @@ function BookingWindow({
     try {
       await sendLabBookingBill(booking.id, { image: billImage, discountAmount: billDiscount }, accessToken);
       onChanged();
-      void startCollection();
+      if (billed) {
+        // Already billed — this was "Update bill" (a discount/photo fix
+        // before collecting), not a first conversion. Already exactly
+        // where collection happens, so go straight into it in place.
+        void startCollection();
+      } else {
+        // First conversion, from Lab Orders — "Convert to bill" hands the
+        // booking off to Lab Bills, the same way pricing/collecting a
+        // standard order's bill happens on its own page, not the order
+        // review it started from. Closing here, not just navigating, so
+        // the Lab Orders list behind doesn't sit stale under a modal the
+        // admin no longer needs.
+        onClose();
+        navigate(`/lab-bills?open=${booking.id}`);
+      }
     } catch (err) {
       setBillError(dbErrorMessage(err));
     } finally {
@@ -262,6 +287,18 @@ function BookingWindow({
   const effectivePaid = collected !== null || booking.billStatus === 'paid';
   const walletCoverage = Math.min(walletBalance ?? 0, billed ? booking.billAmount : netTotal);
   const cashOwed = Math.max((billed ? booking.billAmount : netTotal) - walletCoverage, 0);
+
+  // Lab Bills' own hand-off from "Convert to bill →" (see [autoCollect]'s
+  // doc) — the pricing was already filled in and saved to land here, so
+  // skip straight to the OTP step instead of showing that same form again.
+  // Once, on this booking's first mount only: collecting successfully
+  // flips effectivePaid, which must not re-trigger this.
+  useEffect(() => {
+    if (autoCollect && billed && !effectivePaid) {
+      void startCollection();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function loadPages() {
     setPagesLoading(true);
