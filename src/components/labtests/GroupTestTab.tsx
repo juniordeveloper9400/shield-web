@@ -26,7 +26,10 @@ export function GroupTestTab({
   testType: LabTestType;
   items: LabGroupItem[];
   onChange: (items: LabGroupItem[]) => void;
-  /** Saved, active single tests that can be added (the group itself excluded). */
+  /** Every saved single test, active or not (the group itself excluded) —
+   *  an inactive one is still real and priced, just off the app on its own,
+   *  so it can still be bundled into a group/package here. Marked
+   *  "(Inactive)" in the picker so that's not a surprise. */
   pickable: LabTestSummary[];
   totalAmount: number;
 }) {
@@ -93,7 +96,7 @@ export function GroupTestTab({
               );
               const options = pickable
                 .filter((t) => !taken.has(t.id))
-                .map((t) => ({ value: t.id, label: t.name }));
+                .map((t) => ({ value: t.id, label: t.isActive ? t.name : `${t.name} (Inactive)` }));
               return (
                 <tr key={`${item.testId || 'new'}-${index}`}>
                   <td className={`${cell} text-slate-500`}>{index + 1}</td>

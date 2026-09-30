@@ -328,8 +328,13 @@ export function LabTestMaster() {
     [list, searchBy, searchText],
   );
 
+  // Every saved single test can go into a group or package, active or not —
+  // "Inactive" means off the app on its own, not unusable as a line inside
+  // someone else's group/package (GroupTestTab marks which ones are
+  // inactive so that's still visible while picking). A GROUP/PACKAGE itself
+  // is excluded — no nesting a group inside another group.
   const pickable = useMemo(
-    () => list.filter((t) => t.testType === 'TEST' && t.isActive && t.id !== loadedId),
+    () => list.filter((t) => t.testType === 'TEST' && t.id !== loadedId),
     [list, loadedId],
   );
 
