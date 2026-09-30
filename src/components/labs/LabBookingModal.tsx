@@ -335,7 +335,7 @@ function BookingWindow({
     <>
       <Modal
         open
-        size="lg"
+        size="full"
         onClose={onClose}
         title={booking.code}
         footer={
