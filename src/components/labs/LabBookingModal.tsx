@@ -116,6 +116,25 @@ function BookingWindow({
   const status = booking.status;
   const closed = status === 'cancelled';
 
+  // ---- Once the report is ready, there's nothing left to actually do
+  // except bill the member — Schedule & note and Lab report stay fully
+  // capable (a lab tech can still fix a typo or swap a blurry page; see
+  // canEditNote/canAttachReport/canRemoveReportPage's own docs, all
+  // deliberately still true past report_ready), but collapse into a
+  // one-line summary by default so Billing's "Convert to bill" reads as
+  // the one thing left to do, not one of three open sections. Either can
+  // still be expanded back open by hand; the effect below only fires the
+  // moment a booking actually becomes report_ready, so it never fights an
+  // admin who reopened one to make that fix.
+  const [scheduleOpen, setScheduleOpen] = useState(status !== 'report_ready');
+  const [reportOpen, setReportOpen] = useState(status !== 'report_ready');
+  useEffect(() => {
+    if (status === 'report_ready') {
+      setScheduleOpen(false);
+      setReportOpen(false);
+    }
+  }, [status]);
+
   // ---- Billing: same "Convert to bill, then collect from the wallet under
   // an OTP" flow a prescription/standard order gets (BillEditorModal), sized
   // down to what a lab booking actually needs — its price is already fixed
@@ -454,140 +473,175 @@ function BookingWindow({
 
         {/* ---- Schedule & note ---- */}
         <section className="mt-5 rounded-lg border border-slate-200 p-4">
-          <h3 className="text-sm font-semibold text-slate-800">Schedule &amp; note</h3>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="block text-xs font-medium text-slate-600">
-              Scheduled for
-              <input
-                type="datetime-local"
-                value={schedule}
-                disabled={!canReschedule(status) || busy !== null}
-                onChange={(e) => setSchedule(e.target.value)}
-                className={`${inputClass} mt-1`}
-              />
-            </label>
-            <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
-              Note to the member
-              <textarea
-                value={note}
-                rows={2}
-                maxLength={300}
-                disabled={!canEditNote(status) || busy !== null}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="e.g. Please come fasting for 10–12 hours."
-                className={`${inputClass} mt-1`}
-              />
-            </label>
-          </div>
-          <div className="mt-3 flex items-center justify-between gap-3">
-            <p className="text-xs text-slate-400">
-              {closed
-                ? 'A cancelled booking can no longer be edited.'
-                : status === 'report_ready'
-                  ? 'The date is fixed once the report is ready; the note can still change.'
-                  : 'The member sees the date and note beside this booking in the app.'}
-            </p>
-            <Button
-              size="sm"
-              disabled={!dirty || busy !== null}
-              onClick={() => void saveDetails()}
-            >
-              {busy === 'details' ? 'Saving…' : 'Save changes'}
-            </Button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setScheduleOpen((v) => !v)}
+            className="flex w-full items-center justify-between gap-3 text-left"
+          >
+            <div className="min-w-0">
+              <h3 className="text-sm font-semibold text-slate-800">Schedule &amp; note</h3>
+              {!scheduleOpen && (
+                <p className="mt-0.5 truncate text-xs text-slate-400">
+                  {booking.scheduledFor ? formatDateTime(booking.scheduledFor) : 'Not scheduled'}
+                  {booking.note ? ` · ${booking.note}` : ''}
+                </p>
+              )}
+            </div>
+            <Icon
+              name="chevron-down"
+              className={`h-4 w-4 shrink-0 text-slate-400 ${scheduleOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
+          {scheduleOpen && (
+            <>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block text-xs font-medium text-slate-600">
+                  Scheduled for
+                  <input
+                    type="datetime-local"
+                    value={schedule}
+                    disabled={!canReschedule(status) || busy !== null}
+                    onChange={(e) => setSchedule(e.target.value)}
+                    className={`${inputClass} mt-1`}
+                  />
+                </label>
+                <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
+                  Note to the member
+                  <textarea
+                    value={note}
+                    rows={2}
+                    maxLength={300}
+                    disabled={!canEditNote(status) || busy !== null}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="e.g. Please come fasting for 10–12 hours."
+                    className={`${inputClass} mt-1`}
+                  />
+                </label>
+              </div>
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <p className="text-xs text-slate-400">
+                  {closed
+                    ? 'A cancelled booking can no longer be edited.'
+                    : status === 'report_ready'
+                      ? 'The date is fixed once the report is ready; the note can still change.'
+                      : 'The member sees the date and note beside this booking in the app.'}
+                </p>
+                <Button
+                  size="sm"
+                  disabled={!dirty || busy !== null}
+                  onClick={() => void saveDetails()}
+                >
+                  {busy === 'details' ? 'Saving…' : 'Save changes'}
+                </Button>
+              </div>
+            </>
+          )}
         </section>
 
         {/* ---- Report ---- */}
         <section className="mt-4 rounded-lg border border-slate-200 p-4">
-          <div className="flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => setReportOpen((v) => !v)}
+            className="flex w-full items-center justify-between gap-3 text-left"
+          >
             <h3 className="text-sm font-semibold text-slate-800">
               Lab report{' '}
               <span className="font-normal text-slate-400">
                 ({pages.length || booking.reportPages}/{MAX_REPORT_PAGES} pages)
               </span>
             </h3>
-            {canAttachReport(status) && (
-              <>
-                <input
-                  ref={fileInput}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => void onPickFiles(e.target.files)}
-                />
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={busy !== null}
-                  onClick={() => fileInput.current?.click()}
-                >
-                  <Icon name="plus" className="h-3.5 w-3.5" />
-                  {busy === 'upload' ? 'Uploading…' : 'Add pages'}
-                </Button>
-              </>
-            )}
-          </div>
+            <Icon
+              name="chevron-down"
+              className={`h-4 w-4 shrink-0 text-slate-400 ${reportOpen ? 'rotate-180' : ''}`}
+            />
+          </button>
 
-          {!canAttachReport(status) ? (
-            <p className="mt-2 text-xs text-slate-400">
-              {closed
-                ? 'This booking was cancelled.'
-                : 'The report can be attached once the sample has been collected.'}
-            </p>
-          ) : pagesLoading ? (
-            <p className="mt-3 text-sm text-slate-400">Loading report…</p>
-          ) : pages.length === 0 ? (
-            <p className="mt-2 text-xs text-slate-500">
-              Attach a photo or scan of each report page (JPG or PNG). You can mark the booking
-              Report ready once at least one page is attached — the member can then open it from
-              the app.
-            </p>
-          ) : (
-            <ul className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
-              {pages.map((page, i) => (
-                <li key={page.id} className="group relative">
-                  <button
-                    type="button"
-                    onClick={() => setPreview(page)}
-                    className="block w-full overflow-hidden rounded-md border border-slate-200 bg-slate-50"
-                    title={page.name || `Page ${i + 1}`}
+          {reportOpen && (
+            <>
+              {canAttachReport(status) && (
+                <div className="mt-3 flex justify-end">
+                  <input
+                    ref={fileInput}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => void onPickFiles(e.target.files)}
+                  />
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={busy !== null}
+                    onClick={() => fileInput.current?.click()}
                   >
-                    <img
-                      src={page.image}
-                      alt={`Report page ${i + 1}`}
-                      className="h-28 w-full object-cover"
-                    />
-                  </button>
-                  <span className="absolute left-1 top-1 rounded bg-slate-900/70 px-1.5 text-[10px] font-medium text-white">
-                    {i + 1}
-                  </span>
-                  {canRemoveReportPage(status, pages.length) && (
-                    <button
-                      type="button"
-                      disabled={busy !== null}
-                      onClick={() =>
-                        ask({
-                          title: 'Remove this report page?',
-                          message: `Page ${i + 1} of ${booking.code}'s report will be removed. This cannot be undone.`,
-                          confirmLabel: 'Remove page',
-                          danger: true,
-                          onConfirm: () => removePage(page),
-                        })
-                      }
-                      title="Remove this page"
-                      className="absolute right-1 top-1 rounded bg-white/90 p-1 text-rose-600 shadow hover:bg-rose-50 disabled:opacity-50"
-                    >
-                      <Icon name="close" className="h-3 w-3" />
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+                    <Icon name="plus" className="h-3.5 w-3.5" />
+                    {busy === 'upload' ? 'Uploading…' : 'Add pages'}
+                  </Button>
+                </div>
+              )}
 
-          {blocker && canAttachReport(status) && (
-            <p className="mt-3 text-xs text-amber-600">{blocker}</p>
+              {!canAttachReport(status) ? (
+                <p className="mt-2 text-xs text-slate-400">
+                  {closed
+                    ? 'This booking was cancelled.'
+                    : 'The report can be attached once the sample has been collected.'}
+                </p>
+              ) : pagesLoading ? (
+                <p className="mt-3 text-sm text-slate-400">Loading report…</p>
+              ) : pages.length === 0 ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  Attach a photo or scan of each report page (JPG or PNG). You can mark the booking
+                  Report ready once at least one page is attached — the member can then open it from
+                  the app.
+                </p>
+              ) : (
+                <ul className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {pages.map((page, i) => (
+                    <li key={page.id} className="group relative">
+                      <button
+                        type="button"
+                        onClick={() => setPreview(page)}
+                        className="block w-full overflow-hidden rounded-md border border-slate-200 bg-slate-50"
+                        title={page.name || `Page ${i + 1}`}
+                      >
+                        <img
+                          src={page.image}
+                          alt={`Report page ${i + 1}`}
+                          className="h-28 w-full object-cover"
+                        />
+                      </button>
+                      <span className="absolute left-1 top-1 rounded bg-slate-900/70 px-1.5 text-[10px] font-medium text-white">
+                        {i + 1}
+                      </span>
+                      {canRemoveReportPage(status, pages.length) && (
+                        <button
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={() =>
+                            ask({
+                              title: 'Remove this report page?',
+                              message: `Page ${i + 1} of ${booking.code}'s report will be removed. This cannot be undone.`,
+                              confirmLabel: 'Remove page',
+                              danger: true,
+                              onConfirm: () => removePage(page),
+                            })
+                          }
+                          title="Remove this page"
+                          className="absolute right-1 top-1 rounded bg-white/90 p-1 text-rose-600 shadow hover:bg-rose-50 disabled:opacity-50"
+                        >
+                          <Icon name="close" className="h-3 w-3" />
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {blocker && canAttachReport(status) && (
+                <p className="mt-3 text-xs text-amber-600">{blocker}</p>
+              )}
+            </>
           )}
         </section>
 
