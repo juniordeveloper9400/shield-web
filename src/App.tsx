@@ -19,6 +19,7 @@ import AgentApprovalsPage from '@/pages/AgentApprovalsPage';
 import AgentApprovalDetailPage from '@/pages/AgentApprovalDetailPage';
 import AgentDetailPage from '@/pages/AgentDetailPage';
 import LabOrdersPage from '@/pages/LabOrdersPage';
+import LabBillsPage from '@/pages/LabBillsPage';
 import AppointmentsPage from '@/pages/AppointmentsPage';
 import LabsPage from '@/pages/LabsPage';
 import AccountsPage from '@/pages/AccountsPage';
@@ -171,6 +172,14 @@ export default function App() {
           element={
             <ProtectedRoute module="lab_orders">
               <LabOrdersPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/lab-bills"
+          element={
+            <ProtectedRoute module="lab_bills">
+              <LabBillsPage />
             </ProtectedRoute>
           }
         />

@@ -40,6 +40,7 @@ export type ModuleKey =
   | 'agent_withdrawals'
   | 'users'
   | 'lab_orders'
+  | 'lab_bills'
   | 'lab_tests'
   | 'appointments'
   | 'accounts'

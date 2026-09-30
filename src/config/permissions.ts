@@ -96,6 +96,13 @@ export const MODULES: NavItem[] = [
     description: 'Member lab-test bookings',
   },
   {
+    key: 'lab_bills',
+    label: 'Lab Bills',
+    path: '/lab-bills',
+    icon: 'receipt',
+    description: 'Lab bookings converted to a bill',
+  },
+  {
     key: 'lab_tests',
     label: 'Lab Tests',
     path: '/lab-tests',
@@ -166,6 +173,7 @@ const APP_MODULES: ModuleKey[] = [
   'agent_withdrawals',
   'users',
   'lab_orders',
+  'lab_bills',
   'lab_tests',
   'appointments',
   'accounts',
@@ -182,12 +190,12 @@ export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   // exist for their store, the same as any other order — LabOrdersPage
   // itself redacts the patient/test detail for this role; see its own doc.
   pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries', 'lab_orders'],
-  lab: ['dashboard', 'stores', 'lab_orders', 'lab_tests'],
+  lab: ['dashboard', 'stores', 'lab_orders', 'lab_bills', 'lab_tests'],
   appointments: ['dashboard', 'appointments'],
   delivery: ['dashboard', 'deliveries'],
   // No 'stores'/'lab_tests' — a technician works their one already-assigned
   // branch's bookings, not the branch list or the package catalogue.
-  lab_technician: ['dashboard', 'lab_orders'],
+  lab_technician: ['dashboard', 'lab_orders', 'lab_bills'],
 };
 
 export const ROLE_LABELS: Record<Role, string> = {
@@ -206,11 +214,11 @@ export const ROLE_SUMMARY: Record<Role, string> = {
   admin:
     'Runs the app: catalogue, users & agent / investor conversion, orders, bills, prescriptions, privilege plans, labs, appointments and the Accounts money-flow view.',
   pharmacy: 'Works one branch — its member orders, bills and uploaded prescriptions.',
-  lab: 'Works member lab-test bookings — schedule, notes and reports — the test master and package catalogue, and the branch list.',
+  lab: 'Works member lab-test bookings — schedule, notes, reports and bills — the test master and package catalogue, and the branch list.',
   appointments: 'Handles the clinic, tele and dietitian appointment queue.',
   delivery: "Delivers and collects cash for their branch's cash orders.",
   lab_technician:
-    "Works their own branch's lab bookings only — full patient, test and report detail, the same as Lab Admin but for one store.",
+    "Works their own branch's lab bookings and bills only — full patient, test and report detail, the same as Lab Admin but for one store.",
 };
 
 export function canAccess(role: Role, moduleKey: ModuleKey): boolean {

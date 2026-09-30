@@ -28,16 +28,22 @@ test('scopeToStore leaves every row alone for a store-bound role with no store a
   assert.deepEqual(scopeToStore(rows, { role: 'lab_technician', storeCode: undefined }), rows);
 });
 
-test('a Lab Technician can open Lab Orders and the dashboard, nothing else', () => {
+test('a Lab Technician can open Lab Orders, Lab Bills and the dashboard, nothing else', () => {
   assert.equal(canAccess('lab_technician', 'lab_orders'), true);
+  assert.equal(canAccess('lab_technician', 'lab_bills'), true);
   assert.equal(canAccess('lab_technician', 'dashboard'), true);
   assert.equal(canAccess('lab_technician', 'stores'), false);
   assert.equal(canAccess('lab_technician', 'lab_tests'), false);
   assert.equal(canAccess('lab_technician', 'orders'), false);
 });
 
-test('Pharmacy can now also open Lab Orders — the redacted, branch-scoped view LabOrdersPage renders for it', () => {
+test('Lab Admin can also open Lab Bills, same as Lab Technician', () => {
+  assert.equal(canAccess('lab', 'lab_bills'), true);
+});
+
+test('Pharmacy can open the redacted Lab Orders view, but not Lab Bills — that stays lab-only', () => {
   assert.equal(canAccess('pharmacy', 'lab_orders'), true);
+  assert.equal(canAccess('pharmacy', 'lab_bills'), false);
 });
 
 test('every role in ROLE_PERMISSIONS has a corresponding STORE_BOUND_ROLES entry only if it actually carries a storeCode', () => {
