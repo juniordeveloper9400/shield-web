@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   MAX_REPORT_PAGES,
   canAttachReport,
+  canBillBooking,
   canEditNote,
   canRemoveReportPage,
   canReschedule,
@@ -66,6 +67,14 @@ test('pages can be attached only from sample collection onward', () => {
   assert.equal(canAttachReport('sample_collected'), true);
   assert.equal(canAttachReport('report_ready'), true);
   assert.equal(canAttachReport('cancelled'), false);
+});
+
+test('a booking can only be converted to a bill once the report is ready', () => {
+  assert.equal(canBillBooking('requested'), false);
+  assert.equal(canBillBooking('confirmed'), false);
+  assert.equal(canBillBooking('sample_collected'), false);
+  assert.equal(canBillBooking('report_ready'), true);
+  assert.equal(canBillBooking('cancelled'), false);
 });
 
 test('"Report ready" is blocked until at least one page is attached', () => {

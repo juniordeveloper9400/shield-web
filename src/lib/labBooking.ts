@@ -74,6 +74,18 @@ export function canAttachReport(status: LabStatus): boolean {
 }
 
 /**
+ * Whether this booking can be converted to a bill yet — only once the report
+ * itself is ready, the same point "Convert to bill" would actually make
+ * sense: billing before there is a report to hand over lets a booking be
+ * charged for work the lab has not done. A booking already billed stays
+ * billable (to edit the discount/photo) since billing only ever happens from
+ * `report_ready`, and nothing moves it on from there.
+ */
+export function canBillBooking(status: LabStatus): boolean {
+  return status === 'report_ready';
+}
+
+/**
  * The next step's button is blocked when it would be "Report ready" with no
  * report attached — the member is told a report is waiting, so it must be.
  * Returns the reason, or null when the step may go ahead.

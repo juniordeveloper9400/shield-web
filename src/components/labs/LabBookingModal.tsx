@@ -13,6 +13,7 @@ import { clearDeliveryOtp, confirmDeliveryOtp, describeOtpError, sendDeliveryOtp
 import {
   MAX_REPORT_PAGES,
   canAttachReport,
+  canBillBooking,
   canEditNote,
   canRemoveReportPage,
   canReschedule,
@@ -670,6 +671,11 @@ function BookingWindow({
                 )}
               </p>
             </div>
+          ) : !canBillBooking(status) ? (
+            <p className="mt-2 text-xs text-slate-400">
+              Billing opens up once the report is ready — attach the report pages above and mark
+              this booking Report ready first.
+            </p>
           ) : (
             <>
               {billError && (
