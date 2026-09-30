@@ -62,6 +62,15 @@ export const LAB_TEST_FIELDS: ReadonlyArray<readonly [column: string, key: keyof
  * delete-then-reinsert, because the CTEs of one statement run in no set order.
  *
  * Only a group / package keeps members; any other type clears whatever it had.
+ *
+ * Saving an existing row also claims it as `source = 'ADMIN'` — a bulk
+ * `RATE_LIST` import (migration 0049) is raw reference data until someone
+ * here actually opens and saves it; the moment they do, it has staff edits
+ * on it and belongs with the "created here" tests the Saved tests list
+ * counts separately, not lumped back in with the untouched rate list. A new
+ * row gets `ADMIN` for the same reason, via the column's own DEFAULT
+ * (`source` is deliberately left out of the INSERT column list below).
+ *
  * Pure (no database access) so it can be tested against a real Postgres.
  */
 export function buildSaveStatement(
@@ -88,7 +97,7 @@ export function buildSaveStatement(
   let head: string;
   if (id) {
     const sets = LAB_TEST_FIELDS.map(([column], i) => `${column} = ${p(values[i])}`);
-    sets.push(`updated_by = ${p(userName)}`);
+    sets.push(`updated_by = ${p(userName)}`, `source = ${p('ADMIN')}`);
     head = `UPDATE app.lab_test SET ${sets.join(', ')}
              WHERE id = ${p(id)} RETURNING id, lis_code`;
   } else {
