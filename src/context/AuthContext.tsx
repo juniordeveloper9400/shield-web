@@ -8,7 +8,7 @@ import {
   useState,
 } from 'react';
 import type { ReactNode } from 'react';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, registerUnauthorizedHandler } from '@/lib/api';
 import type { AuthUser, Role } from '@/types';
 
 /** Where the refresh token is kept so a reload doesn't drop the session. */
@@ -101,6 +101,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Logout needs the *current* token without forcing every token refresh to
   // re-create the callback — a ref mirrors the state for that one read.
   const accessTokenRef = useRef<string | null>(null);
+  // Concurrent 401s (a page that fires several calls at once) must not each
+  // spend their own refresh token on a separate round trip — they share
+  // whichever attempt is already in flight instead.
+  const refreshInFlight = useRef<Promise<string | null> | null>(null);
 
   const establishSession = useCallback(async (session: StaffSessionResponse) => {
     accessTokenRef.current = session.accessToken;
@@ -113,6 +117,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const profile = await api.get<StaffProfileResponse>('/v1/staff/me', session.accessToken);
     setUser(toAuthUser(profile));
   }, []);
+
+  /**
+   * Trades the persisted refresh token for a new session, the one place
+   * that actually happens — the reload-time restore below and a live 401
+   * (see `api.ts`'s `registerUnauthorizedHandler`) both call this rather
+   * than each keeping their own copy of the exchange. Null means signed
+   * out for real: no refresh token to begin with, or the backend rejected
+   * the one there was (expired, revoked, or itself unreachable) — either
+   * way nothing to retry a request with, so this also clears the session
+   * rather than leaving the admin clicking into the same 401 forever.
+   */
+  const refreshAccessToken = useCallback((): Promise<string | null> => {
+    if (refreshInFlight.current) return refreshInFlight.current;
+
+    const attempt = (async () => {
+      let stored: string | null = null;
+      try {
+        stored = localStorage.getItem(REFRESH_TOKEN_KEY);
+      } catch {
+        /* ignore */
+      }
+      if (!stored) return null;
+
+      try {
+        const session = await api.post<StaffSessionResponse>('/v1/staff/auth/refresh', {
+          refreshToken: stored,
+        });
+        await establishSession(session);
+        return session.accessToken;
+      } catch {
+        accessTokenRef.current = null;
+        setAccessToken(null);
+        setUser(null);
+        try {
+          localStorage.removeItem(REFRESH_TOKEN_KEY);
+        } catch {
+          /* ignore */
+        }
+        return null;
+      }
+    })();
+
+    refreshInFlight.current = attempt;
+    return attempt.finally(() => {
+      refreshInFlight.current = null;
+    });
+  }, [establishSession]);
+
+  // Any call anywhere in the console that hits a 401 on a token it sent
+  // routes through this same exchange — see api.ts's own doc.
+  useEffect(() => {
+    registerUnauthorizedHandler(refreshAccessToken);
+    return () => registerUnauthorizedHandler(null);
+  }, [refreshAccessToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,30 +188,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      try {
-        const session = await api.post<StaffSessionResponse>('/v1/staff/auth/refresh', {
-          refreshToken: stored,
-        });
-        if (cancelled) return;
-        await establishSession(session);
-      } catch {
-        // Refresh token expired, revoked, or the backend is unreachable —
-        // start signed out rather than stuck loading.
-        try {
-          localStorage.removeItem(REFRESH_TOKEN_KEY);
-        } catch {
-          /* ignore */
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      await refreshAccessToken();
+      if (!cancelled) setLoading(false);
     }
 
     void restore();
     return () => {
       cancelled = true;
     };
-  }, [establishSession]);
+  }, [refreshAccessToken]);
 
   const login = useCallback(
     async (loginId: string, password: string): Promise<LoginResult> => {
