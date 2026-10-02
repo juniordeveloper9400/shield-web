@@ -1106,9 +1106,16 @@ export interface WalletActivity {
   rewardPoints: number;
 }
 
+/** Which swipeable banner strip a row belongs to (migration 0069) — the
+ *  original home-screen hero carousel, or the Lab section's own. */
+export type BannerPlacement = 'home' | 'lab';
+
 /**
- * The home-screen hero banner — `app.home_banner` — shown at the top of the
- * app and web build, below the search bar. Members see only `isActive` rows,
+ * One row of a swipeable promotional strip — `app.home_banner` — shown at
+ * the top of the app and web build, below that placement's own search bar.
+ * Scoped to one [BannerPlacement] at a time (passed alongside this type
+ * rather than carried on it, since every screen that reads or edits these
+ * already knows which strip it's showing). Members see only `isActive` rows,
  * nearest-to-front first by `sort`.
  */
 export interface HomeBanner {

@@ -1,6 +1,6 @@
-import { sql, query } from '@/lib/db';
+import { query } from '@/lib/db';
 import { iso, num } from '@/lib/mappers';
-import type { HomeBanner, NewHomeBanner } from '@/types';
+import type { BannerPlacement, HomeBanner, NewHomeBanner } from '@/types';
 
 type Row = Record<string, unknown>;
 
@@ -19,26 +19,34 @@ function toBanner(r: Row): HomeBanner {
 }
 
 /**
- * Every home-screen banner — `app.home_banner` — in display order. The
- * console shows all of them (active and not); the app and web build only ever
- * query the active ones.
+ * Every banner on one placement's strip — `app.home_banner` filtered to
+ * [placement] (migration 0069) — in display order. The console shows all of
+ * them (active and not); the app and web build only ever query the active
+ * ones.
  */
-export async function listBanners(): Promise<HomeBanner[]> {
-  const rows = (await sql`
-    SELECT id, title, subtitle, image, cta, target, is_active, sort, created_at
-    FROM app.home_banner
-    ORDER BY sort, id
-  `) as Row[];
+export async function listBanners(placement: BannerPlacement): Promise<HomeBanner[]> {
+  const rows = await query<Row>(
+    `SELECT id, title, subtitle, image, cta, target, is_active, sort, created_at
+       FROM app.home_banner
+      WHERE placement = $1
+      ORDER BY sort, id`,
+    [placement],
+  );
   return rows.map(toBanner);
 }
 
-/** Inserts a banner after the current last one unless a sort is given. */
-export async function createBanner(input: NewHomeBanner): Promise<string> {
+/** Inserts a banner after the current last one on [placement]'s own strip,
+ *  unless a sort is given. */
+export async function createBanner(
+  placement: BannerPlacement,
+  input: NewHomeBanner,
+): Promise<string> {
   const rows = await query<Row>(
     `
-    INSERT INTO app.home_banner (title, subtitle, image, cta, target, is_active, sort)
+    INSERT INTO app.home_banner (title, subtitle, image, cta, target, is_active, sort, placement)
     VALUES ($1, $2, $3, $4, $5, $6,
-      COALESCE($7, (SELECT COALESCE(MAX(sort), -1) + 1 FROM app.home_banner)))
+      COALESCE($7, (SELECT COALESCE(MAX(sort), -1) + 1 FROM app.home_banner WHERE placement = $8)),
+      $8)
     RETURNING id
     `,
     [
@@ -49,6 +57,7 @@ export async function createBanner(input: NewHomeBanner): Promise<string> {
       input.target.trim(),
       input.isActive,
       Number.isFinite(input.sort) ? input.sort : null,
+      placement,
     ],
   );
   return String(rows[0].id);
