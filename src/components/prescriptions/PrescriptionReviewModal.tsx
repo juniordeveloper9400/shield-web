@@ -103,6 +103,29 @@ const STATUS_LABEL: Record<PrescriptionStatus, string> = {
   ordered: 'Completed',
 };
 
+// The medicine table's "Sort by" control — see the field's own comment next
+// to `useState<StockSortMode>` for what each mode means. `next` is what one
+// click advances to; the button cycles default → issues → available → back.
+type StockSortMode = 'default' | 'issues_first' | 'available_first';
+const STOCK_SORT_LABEL: Record<StockSortMode, string> = {
+  default: 'Sort by: Added order',
+  issues_first: 'Sort by: Out of stock first',
+  available_first: 'Sort by: Stock available first',
+};
+const STOCK_SORT_NEXT: Record<StockSortMode, StockSortMode> = {
+  default: 'issues_first',
+  issues_first: 'available_first',
+  available_first: 'default',
+};
+// Lower sorts first. Out of stock and Not possible both count as "an issue"
+// for the issues-first view — either way the counter still has to do
+// something about that line — and swap order for the available-first view.
+const STOCK_SORT_RANK: Record<StockSortMode, Record<PrescriptionMedicineStatus, number>> = {
+  default: { available: 0, out_of_stock: 0, not_possible: 0 },
+  issues_first: { out_of_stock: 0, not_possible: 0, available: 1 },
+  available_first: { available: 0, out_of_stock: 1, not_possible: 1 },
+};
+
 /**
  * The counter's view of one uploaded script: the image, its details, and the
  * intake card editor — read the pack, dose and count off the script and send
@@ -138,6 +161,28 @@ export function PrescriptionReviewModal({
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
   }, [openRowMenu]);
+  // The medicine table's "Sort by" control, cycling through three views each
+  // click: the order medicines were added in, out-of-stock/not-possible
+  // lines surfaced first (so whatever needs chasing up is at the top), or
+  // stock-available lines first. This only changes the order rows are DRAWN
+  // in — it sorts an array of the real `draft` indices, never `draft`
+  // itself, so every row's editing state and callbacks (keyed by that real
+  // index) keep working no matter how the table is currently sorted.
+  const [stockSort, setStockSort] = useState<StockSortMode>('default');
+  // The on-screen row order for the medicine table below — an array of the
+  // real `draft` indices (1.. same as the table itself skips row 0, the open
+  // entry card), reordered by the current sort mode. `draft` itself is never
+  // reordered, so `patchRow(i, …)`, `selectedFrequency[i]`, `openRowMenu ===
+  // i` and every other lookup keyed by the true index keep pointing at the
+  // right row no matter how the table is currently sorted.
+  const sortedRowIndices = useMemo(() => {
+    const rank = STOCK_SORT_RANK[stockSort];
+    const indices = draft.slice(1).map((_, idx) => idx + 1);
+    return indices.sort((a, b) => {
+      const diff = rank[draft[a].status] - rank[draft[b].status];
+      return diff !== 0 ? diff : a - b;
+    });
+  }, [draft, stockSort]);
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [intakeSent, setIntakeSent] = useState(false);
@@ -907,16 +952,30 @@ export function PrescriptionReviewModal({
    *  row is what makes "+ Add to list" legible as "goes here". */
   function renderMedicineTable() {
     return (
-      // overflow-x-auto alone (with no overflow-y set) makes the browser
-      // implicitly compute overflow-y as auto too — the CSS spec doesn't
-      // allow "scrollable on x, visible on y" — which was quietly giving
-      // this its own second vertical scroll region (on top of the Modal
-      // body's single one) and clipping the row-actions dropdown menu
-      // (absolutely positioned inside a <td> here) whenever it extended
-      // past that accidental scroll boundary. overflow-y-visible overrides
-      // it back to normal — horizontal scroll for a wide table stays,
-      // nothing about vertical sizing or scrolling is affected by this
-      // element any more.
+      <div>
+      {draft.length > 1 && (
+        <div className="mb-2 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => setStockSort((m) => STOCK_SORT_NEXT[m])}
+            title="Click to cycle the row order: added order → out of stock first → stock available first"
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+          >
+            <Icon name="sort" className="h-3.5 w-3.5" />
+            {STOCK_SORT_LABEL[stockSort]}
+          </button>
+        </div>
+      )}
+      {/* overflow-x-auto alone (with no overflow-y set) makes the browser
+          implicitly compute overflow-y as auto too — the CSS spec doesn't
+          allow "scrollable on x, visible on y" — which was quietly giving
+          this its own second vertical scroll region (on top of the Modal
+          body's single one) and clipping the row-actions dropdown menu
+          (absolutely positioned inside a <td> here) whenever it extended
+          past that accidental scroll boundary. overflow-y-visible overrides
+          it back to normal — horizontal scroll for a wide table stays,
+          nothing about vertical sizing or scrolling is affected by this
+          element any more. */}
       <div className="overflow-x-auto overflow-y-visible rounded-lg border border-slate-200">
         <table className="w-full text-left text-xs">
           <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
@@ -938,8 +997,8 @@ export function PrescriptionReviewModal({
                 </td>
               </tr>
             )}
-            {draft.slice(1).map((row, idx) => {
-              const i = idx + 1;
+            {sortedRowIndices.map((i) => {
+              const row = draft[i];
               return (
                 <tr key={i} className="align-top">
                   <td className="min-w-[140px] px-3 py-2">
@@ -1083,6 +1142,7 @@ export function PrescriptionReviewModal({
             })}
           </tbody>
         </table>
+      </div>
       </div>
     );
   }

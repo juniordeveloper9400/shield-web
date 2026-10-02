@@ -28,7 +28,8 @@ export type IconName =
   | 'whatsapp'
   | 'receipt'
   | 'deliveries'
-  | 'more-vertical';
+  | 'more-vertical'
+  | 'sort';
 
 const ICONS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -187,6 +188,13 @@ const ICONS: Record<IconName, ReactNode> = {
       <circle cx="12" cy="5" r="1.5" fill="currentColor" stroke="none" />
       <circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none" />
       <circle cx="12" cy="19" r="1.5" fill="currentColor" stroke="none" />
+    </>
+  ),
+  // Two opposed arrows, short-to-long bars -- a column/list "sort by" trigger.
+  sort: (
+    <>
+      <path d="M3 7h5M3 12h8M3 17h11" />
+      <path d="M17 4v16M17 20l-3-3M17 20l3-3" />
     </>
   ),
 };
