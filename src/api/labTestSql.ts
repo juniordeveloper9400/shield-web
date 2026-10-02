@@ -11,6 +11,7 @@ export const LAB_TEST_FIELDS: ReadonlyArray<readonly [column: string, key: keyof
   ['name', 'name'],
   ['category_id', 'categoryId'],
   ['show_in_app', 'showInApp'],
+  ['is_most_common', 'isMostCommon'],
   ['short_name', 'shortName'],
   ['calc_code', 'calcCode'],
   ['division', 'division'],

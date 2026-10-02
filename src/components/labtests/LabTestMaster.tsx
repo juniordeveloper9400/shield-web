@@ -764,6 +764,18 @@ export function LabTestMaster() {
                         “Top Profiles and Tests” in the Lab section and can book it. It needs to
                         be Active too.
                       </p>
+                      <div className="mt-3">
+                        <LisCheck
+                          label="Most Common Test"
+                          checked={form.isMostCommon}
+                          disabled={!form.showInApp}
+                          onChange={(c) => patch({ isMostCommon: c })}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Also leads the colourful “Most Common Tests” banner above the package
+                        cards in the Lab section — needs “Show in the app” switched on too.
+                      </p>
                     </>
                   )}
                 </div>

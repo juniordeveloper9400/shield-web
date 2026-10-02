@@ -82,6 +82,7 @@ export function blankLabTest(): LabTestInput {
     name: '',
     categoryId: '',
     showInApp: true,
+    isMostCommon: false,
     shortName: '',
     calcCode: '',
     division: 'LAB',

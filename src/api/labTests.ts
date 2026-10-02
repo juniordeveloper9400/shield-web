@@ -143,11 +143,16 @@ function slugify(name: string): string {
  * reporting time. Anything else — switched off or inactive — has its listing
  * switched off (never deleted, so a member's earlier booking keeps pointing at
  * something).
+ *
+ * `is_most_common` (migration 0068) rides along the same way: the form's
+ * "Most Common Test" switch, carried onto the listing row so the apps' "Most
+ * Common Tests" banner can read it straight off `app.lab_package` without a
+ * join back to `lab_test`.
  */
 export async function syncLabTestListing(testId: string): Promise<void> {
   const rows = await query<Row>(
     `SELECT t.id, t.test_type, t.name, t.rate, t.amount, t.category_id, t.sample,
-            t.reporting_time, t.is_active, t.show_in_app,
+            t.reporting_time, t.is_active, t.show_in_app, t.is_most_common,
             (SELECT count(*) FROM app.lab_test_group_item i WHERE i.group_id = t.id) AS item_count
        FROM app.lab_test t WHERE t.id = $1`,
     [testId],
@@ -178,14 +183,15 @@ export async function syncLabTestListing(testId: string): Promise<void> {
   const saved = await query<Row>(
     `INSERT INTO app.lab_package (
        slug, name, category_id, test_count, profile_count, price, mrp, saved,
-       report_in, sample, is_active, source_test_id
+       report_in, sample, is_active, source_test_id, is_most_common
      )
-     VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, true, $10)
+     VALUES ($1, $2, $3, $4, 1, $5, $6, $7, $8, $9, true, $10, $11)
      ON CONFLICT (source_test_id) DO UPDATE SET
        slug = EXCLUDED.slug, name = EXCLUDED.name, category_id = EXCLUDED.category_id,
        test_count = EXCLUDED.test_count, profile_count = 1,
        price = EXCLUDED.price, mrp = EXCLUDED.mrp, saved = EXCLUDED.saved,
-       report_in = EXCLUDED.report_in, sample = EXCLUDED.sample, is_active = true
+       report_in = EXCLUDED.report_in, sample = EXCLUDED.sample, is_active = true,
+       is_most_common = EXCLUDED.is_most_common
      RETURNING id`,
     [
       slug,
@@ -198,6 +204,7 @@ export async function syncLabTestListing(testId: string): Promise<void> {
       String(t.reporting_time ?? ''),
       String(t.sample ?? ''),
       testId,
+      Boolean(t.is_most_common),
     ],
   );
   const packageId = String(saved[0].id);

@@ -928,6 +928,12 @@ export interface LabTestInput {
    *  that is on (and active) is offered to members under "Top Profiles and
    *  Tests" as its own bookable listing. Meaningless for a PACKAGE type. */
   showInApp: boolean;
+  /** The form's "Most Common Test" switch (migration 0068): on top of
+   *  [showInApp], also leads the colourful "Most Common Tests" banner above
+   *  the package cards in the Lab section — curated by staff rather than
+   *  guessed from sort order, so only what's actually flagged here shows
+   *  there. Meaningless unless [showInApp] is also on. */
+  isMostCommon: boolean;
   shortName: string;
   calcCode: string;
   division: string;

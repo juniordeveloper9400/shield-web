@@ -177,18 +177,28 @@ export function LisCheck({
   label,
   checked,
   onChange,
+  disabled = false,
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  /** Greys the row out and blocks toggling — for a switch that only means
+   *  something alongside another one (e.g. "Most Common Test" needs "Show in
+   *  the app" on too) rather than being removed from the form entirely. */
+  disabled?: boolean;
 }) {
   return (
-    <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+    <label
+      className={`flex items-center gap-2 text-sm ${
+        disabled ? 'cursor-not-allowed text-slate-400' : 'cursor-pointer text-slate-700'
+      }`}
+    >
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+        className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500 disabled:cursor-not-allowed disabled:opacity-60"
       />
       {label}
     </label>
