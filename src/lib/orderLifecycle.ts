@@ -17,7 +17,12 @@ export function orderLifecycleStatus(order: Order): OrderLifecycleStatus {
   if (order.status === 'cancelled') return 'cancelled';
   if (order.status === 'delivered') return 'completed';
   if (order.convertedToBillAt) return 'billing';
-  if (order.reviewedAt) return 'processed';
+  // Either staff action counts — reviewing/saving the order (`reviewedAt`)
+  // or calling/WhatsApping the member (`storeContactedAt`) — whichever
+  // happens first. The member's own app reads this exact pair the same way
+  // (`OrderStage.derive`'s `contacted`), so an order sitting on just one of
+  // the two can't show "Processed" here while still reading "Pending" there.
+  if (order.reviewedAt || order.storeContactedAt) return 'processed';
   return 'pending';
 }
 
