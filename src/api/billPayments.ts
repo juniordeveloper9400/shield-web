@@ -1,7 +1,7 @@
 import { query } from '@/lib/db';
 import { api } from '@/lib/api';
 import { num } from '@/lib/mappers';
-import { redeemedThisMonth, availablePlanAllowance } from '@/lib/walletMonth';
+import { redeemedThisMonth, availablePlanAllowance, redeemableAllowance } from '@/lib/walletMonth';
 
 export async function getAvailableAllowanceForOrder(orderId: string): Promise<number> {
   const [cards, entries, balance] = await Promise.all([
@@ -46,13 +46,21 @@ export async function getWalletBalanceForOrder(orderId: string): Promise<number>
 }
 
 /**
- * What the member's Health Pass wallet actually releases this month, across
- * every approved card — the same "a twelfth of what's on the card, on the
- * day of the month it was issued" rule `WalletCard.monthlyRedeemable` /
- * `isActiveOn` apply in the Flutter app (`lib/module/wallet/wallet_service.dart`),
- * ported here since it is never persisted as a column — `app.wallet.balance`
- * carries a card's full load the moment it's approved (see
+ * "Health Pass monthly redeemable": everything the member's wallet has
+ * released so far across every approved card — carry-forward from earlier
+ * months included, the same cumulative "a twelfth per instalment that's come
+ * due" rule `WalletCard.releasedBy` applies in the Flutter app
+ * (`lib/module/wallet/wallet_service.dart`) — less whatever plan spending
+ * happened before this month began. Ported here (via [redeemableAllowance])
+ * since none of it is persisted as a column: `app.wallet.balance` carries a
+ * card's full load the moment it's approved (see
  * `approve_wallet_card_activation`), not released in instalments.
+ *
+ * Previously summed only the cards whose own due-day had already come round
+ * *today* — correct for "has a fresh twelfth opened up this exact day", but
+ * not for "Health Pass monthly redeemable", which left a card showing ₹0
+ * here for most of a month even with real, released, unspent carry-forward
+ * from an earlier one.
  *
  * Informational only: this does NOT change what `collectBillWithWallet`
  * actually draws (the full balance, same as it always has) — a member's
@@ -63,26 +71,19 @@ export async function getWalletBalanceForOrder(orderId: string): Promise<number>
  * the collection itself.
  */
 export async function getMonthlyRedeemableForOrder(orderId: string): Promise<number> {
-  const rows = await query<Row>(
-    `WITH cards AS (
-       SELECT wc.amount + wc.bonus + wc.recharged_extra AS loaded,
-              wc.issued_on, wc.expires_on
-         FROM app."order" o
-         JOIN app.wallet w      ON w.member_id = o.member_id
-         JOIN app.wallet_card wc ON wc.wallet_id = w.id AND wc.status = 'APPROVED'
-        WHERE o.id = $1
-     )
-     SELECT COALESCE(SUM(FLOOR(loaded / 12)), 0) AS total
-       FROM cards
-      WHERE current_date >= issued_on
-        AND current_date <= expires_on
-        AND EXTRACT(day FROM current_date) >= LEAST(
-              EXTRACT(day FROM issued_on),
-              EXTRACT(day FROM (date_trunc('month', current_date) + interval '1 month - 1 day'))
-            )`,
-    [orderId],
+  const [cards, entries] = await Promise.all([
+    query<Row>(`SELECT wc.amount + wc.bonus + wc.recharged_extra AS loaded, wc.issued_on::text AS issued_on
+      FROM app."order" o JOIN app.wallet w ON w.member_id = o.member_id
+      JOIN app.wallet_card wc ON wc.wallet_id = w.id AND wc.status = 'APPROVED' WHERE o.id = $1`, [orderId]),
+    query<Row>(`SELECT we.kind::text AS kind, we.amount, we.occurred_on::text AS occurred_on
+      FROM app."order" o JOIN app.wallet w ON w.member_id = o.member_id
+      JOIN app.wallet_entry we ON we.wallet_id = w.id WHERE o.id = $1 ORDER BY we.created_at, we.id`, [orderId]),
+  ]);
+  return redeemableAllowance(
+    cards.map(r => ({ loaded: num(r.loaded), issuedOn: String(r.issued_on) })),
+    entries.map(r => ({ kind: String(r.kind), amount: num(r.amount), occurredOn: String(r.occurred_on) })),
+    new Date(),
   );
-  return rows.length > 0 ? num(rows[0].total) : 0;
 }
 
 /**

@@ -59,6 +59,53 @@ export function monthlyBalanceOf(monthlyRedeemable: number, redeemed: number): n
 
 export interface AllowanceCard { loaded: number; issuedOn: string }
 
+/**
+ * "Health Pass monthly redeemable": everything released so far, carry-forward
+ * from earlier months included, less whatever plan spending happened *before*
+ * the month [now] falls in (that month's own spending is [redeemedThisMonth],
+ * shown — and subtracted — separately, right next to it).
+ *
+ * Not "which cards have come round to release a *fresh* twelfth today" (the
+ * narrower question a per-card due-day check answers) — this is the number
+ * that actually belongs under "Health Pass monthly redeemable", so staff
+ * collecting a bill are never shown ₹0 while a real, unused balance from an
+ * earlier month is sitting right there. Floored at zero the same way
+ * [availablePlanAllowance] is; deliberately *not* also capped at the wallet
+ * balance — unlike that figure (what is actually left to spend right now),
+ * this is the size of the allowance pool itself, which a part-spent balance
+ * does not shrink.
+ */
+export function redeemableAllowance(cards: AllowanceCard[], entriesOldestFirst: LedgerEntry[], now: Date): number {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let released = 0;
+  for (const card of cards) {
+    const [year, month, day] = card.issuedOn.slice(0, 10).split('-').map(Number);
+    const issued = new Date(year, month - 1, day);
+    if (!Number.isFinite(issued.getTime()) || today < issued) continue;
+    const dueDay = Math.min(day, new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate());
+    const instalments = Math.max(0, Math.min(12,
+      (today.getFullYear() - year) * 12 + today.getMonth() - (month - 1) + 1 - (today.getDate() < dueDay ? 1 : 0)));
+    released += Math.floor(card.loaded / 12) * instalments;
+  }
+  // The last day of the month before [now]'s — spending on or before this
+  // counts as "before this month began"; [redeemedThisMonth] picks up from
+  // the day after.
+  const cutoff = new Date(today.getFullYear(), today.getMonth(), 0);
+  const cutoffIso = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, '0')}-${String(cutoff.getDate()).padStart(2, '0')}`;
+  let earnings = 0;
+  let spentBeforeThisMonth = 0;
+  for (const entry of entriesOldestFirst) {
+    if (entry.occurredOn.slice(0, 10) > cutoffIso) continue;
+    if (isEarnings(entry) && entry.amount > 0) earnings += entry.amount;
+    if (entry.amount < 0) {
+      const fromEarnings = Math.min(earnings, -entry.amount);
+      earnings -= fromEarnings;
+      spentBeforeThisMonth += -entry.amount - fromEarnings;
+    }
+  }
+  return Math.max(0, released - spentBeforeThisMonth);
+}
+
 /** Unused releases remain available; future instalments never release early. */
 export function availablePlanAllowance(cards: AllowanceCard[], entriesOldestFirst: LedgerEntry[], now: Date, balance: number): number {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());

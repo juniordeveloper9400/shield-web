@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { monthlyBalanceOf, redeemedThisMonth, availablePlanAllowance } from '../src/lib/walletMonth.ts';
+import {
+  monthlyBalanceOf,
+  redeemedThisMonth,
+  availablePlanAllowance,
+  redeemableAllowance,
+} from '../src/lib/walletMonth.ts';
 
 test('unused allowance carries forward and earlier spending cannot be reused', () => {
   const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
@@ -94,4 +99,43 @@ test('monthly balance is what is left, and never negative', () => {
   assert.equal(monthlyBalanceOf(916, 916), 0);
   assert.equal(monthlyBalanceOf(916, 1200), 0);
   assert.equal(monthlyBalanceOf(0, 0), 0);
+});
+
+// "Health Pass monthly redeemable" — the figure BillEditorModal shows staff
+// collecting a bill. Before this fix it asked "has a fresh twelfth opened up
+// TODAY" (the per-card due-day check `availablePlanAllowance`'s own release
+// loop still performs) and so read ₹0 for most of a month even with real,
+// released, unused carry-forward sitting in the wallet from an earlier one —
+// exactly what shieldweb's PrescriptionReviewModal / BillEditorModal and the
+// Flutter apps' own wallet screens must never disagree about.
+test('redeemable carries forward before the card\'s next due day, not just on it', () => {
+  const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
+  // 03 Oct falls between the Sep 15 and Oct 15 instalments — nothing fresh
+  // has opened up today, but the Aug + Sep instalments (₹1,832) were
+  // released and never touched.
+  assert.equal(redeemableAllowance(cards, [], new Date(2026, 9, 3)), 1832);
+});
+
+test('spending in an earlier month is carried into the next, not double '
+  + 'counted against this one', () => {
+  const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
+  const entries = [spend(400, '2026-09-20')];
+  // ₹1,832 released by early October, ₹400 of it already spent in
+  // September — ₹1,432 of carry-forward walks into October, before
+  // anything this month has touched it.
+  assert.equal(redeemableAllowance(cards, entries, new Date(2026, 9, 3)), 1432);
+});
+
+test('floors at zero rather than going negative when past spending outran '
+  + 'what was ever released', () => {
+  const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
+  const entries = [spend(1832, '2026-09-20')];
+  assert.equal(redeemableAllowance(cards, entries, new Date(2026, 9, 3)), 0);
+});
+
+test('this month\'s own spending does not reduce it — redeemedThisMonth '
+  + 'is shown, and subtracted, separately', () => {
+  const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
+  const entries = [spend(800, '2026-10-01')];
+  assert.equal(redeemableAllowance(cards, entries, new Date(2026, 9, 3)), 1832);
 });
