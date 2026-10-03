@@ -373,6 +373,14 @@ function intakeDigits(code: string): [number, number, number] {
  * and moves the row to `READ` — the customer app picks the card up on its next
  * read and expands it.
  *
+ * Also stamps the linked order's own `reviewed_at` — the same milestone
+ * `saveOrderReview`/`markOrderConvertedToBill` stamp for a standard order —
+ * so a prescription order reaches "Processed" (orderLifecycle.ts, and the
+ * member app's identical `OrderStage.derive`) the moment the pharmacist has
+ * actually read the script and saved what's on it, rather than only once
+ * someone separately presses Call/WhatsApp or jumping straight to "Billing"
+ * on Convert to bill without ever having shown "Processed" at all.
+ *
  * Blank rows (no name) are dropped. Sending an empty list clears the card and
  * leaves the row at whatever status it was.
  */
@@ -418,6 +426,24 @@ export async function savePrescriptionIntake(
               reviewed_at = COALESCE(reviewed_at, now()),
               updated_at = now()
         WHERE id = $1`,
+      [id],
+    );
+    // The order this script was submitted with, if it has one yet — same
+    // "most recent prescription_order row with an order_id" lookup
+    // `fetchForReview`'s own LATERAL join above uses. A cancelled order
+    // isn't moved; there's nothing left to process on it.
+    await query(
+      `UPDATE app."order"
+          SET reviewed_at = COALESCE(reviewed_at, now()),
+              updated_at = now()
+        WHERE id = (
+                SELECT po.order_id
+                  FROM app.prescription_order po
+                 WHERE po.prescription_id = $1 AND po.order_id IS NOT NULL
+                 ORDER BY po.id DESC
+                 LIMIT 1
+              )
+          AND status <> 'CANCELLED'::app.order_status`,
       [id],
     );
   }
