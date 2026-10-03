@@ -5,7 +5,7 @@ import { Icon } from '@/components/ui/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { Combobox } from '@/components/ui/Combobox';
 import { DetailList } from '@/components/ui/DetailList';
-import { formatCurrency, formatDateTime, toneForStatus } from '@/lib/format';
+import { formatCurrency, formatDateTime } from '@/lib/format';
 import {
   STOCK_STATUS_LABEL,
   STOCK_STATUS_OPTIONS,
@@ -49,6 +49,11 @@ import {
 import { createPatient, listPatients, updateMemberContact } from '@/api/users';
 import { listStores } from '@/api/stores';
 import { useAsync } from '@/lib/useAsync';
+import {
+  ORDER_LIFECYCLE_LABEL,
+  ORDER_LIFECYCLE_TONE,
+  prescriptionLifecycleStatus,
+} from '@/lib/orderLifecycle';
 import { useAuth } from '@/context/AuthContext';
 import type {
   MemberPatient,
@@ -91,16 +96,6 @@ const EMPTY_ROW: PrescriptionMedicineInput = {
   totalUnits: 0,
   routeTime: '',
   status: 'available',
-};
-
-// Display labels only — see the identical note in PrescriptionsPage.tsx.
-// The underlying status values (`changeStatus('awaiting_review')` etc.
-// below) are untouched.
-const STATUS_LABEL: Record<PrescriptionStatus, string> = {
-  awaiting_review: 'Pending',
-  read: 'Processed',
-  in_cart: 'Billing',
-  ordered: 'Completed',
 };
 
 // The medicine table's "Sort by" control — see the field's own comment next
@@ -1517,8 +1512,8 @@ export function PrescriptionReviewModal({
             <div className={step === 'intake' ? 'order-2 md:order-1' : ''}>
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Badge tone={toneForStatus(prescription.status)}>
-                    {STATUS_LABEL[prescription.status]}
+                  <Badge tone={ORDER_LIFECYCLE_TONE[prescriptionLifecycleStatus(prescription)]}>
+                    {ORDER_LIFECYCLE_LABEL[prescriptionLifecycleStatus(prescription)]}
                   </Badge>
                   {/* Store pickup vs home delivery — the same fact Orders
                       shows on every order, surfaced here too since a

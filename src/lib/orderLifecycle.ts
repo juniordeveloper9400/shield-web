@@ -1,5 +1,5 @@
 import type { Tone } from '@/components/ui/Badge';
-import type { Order } from '@/types';
+import type { Order, OrderStatus } from '@/types';
 
 /**
  * Where a standard order actually stands, at a glance — distinct from
@@ -13,7 +13,15 @@ import type { Order } from '@/types';
  */
 export type OrderLifecycleStatus = 'pending' | 'processed' | 'billing' | 'completed' | 'cancelled';
 
-export function orderLifecycleStatus(order: Order): OrderLifecycleStatus {
+/** The four fields the lifecycle reads — narrowed so a page that only joins
+ *  these (the Prescriptions list, against a script's linked order) can use the
+ *  same rule without building a whole [Order]. */
+export type OrderLifecycleInput = Pick<
+  Order,
+  'status' | 'reviewedAt' | 'storeContactedAt' | 'convertedToBillAt'
+>;
+
+export function orderLifecycleStatus(order: OrderLifecycleInput): OrderLifecycleStatus {
   if (order.status === 'cancelled') return 'cancelled';
   if (order.status === 'delivered') return 'completed';
   if (order.convertedToBillAt) return 'billing';
@@ -24,6 +32,27 @@ export function orderLifecycleStatus(order: Order): OrderLifecycleStatus {
   // the two can't show "Processed" here while still reading "Pending" there.
   if (order.reviewedAt || order.storeContactedAt) return 'processed';
   return 'pending';
+}
+
+/**
+ * A prescription's stage on the Prescriptions list and review modal: its linked
+ * order's lifecycle, never the prescription's own `status` — that only records
+ * that the script was turned into an order (`ordered`), which happens the moment
+ * it is submitted, so echoing it as "Completed" marked brand-new scripts done
+ * before anyone had read them. A script with no order yet reads "Pending".
+ */
+export function prescriptionLifecycleStatus(rx: {
+  orderStatus: OrderStatus;
+  orderReviewedAt: string;
+  orderStoreContactedAt: string;
+  orderConvertedToBillAt: string;
+}): OrderLifecycleStatus {
+  return orderLifecycleStatus({
+    status: rx.orderStatus,
+    reviewedAt: rx.orderReviewedAt,
+    storeContactedAt: rx.orderStoreContactedAt,
+    convertedToBillAt: rx.orderConvertedToBillAt,
+  });
 }
 
 export const ORDER_LIFECYCLE_LABEL: Record<OrderLifecycleStatus, string> = {

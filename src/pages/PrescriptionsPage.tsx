@@ -8,30 +8,25 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { PrescriptionReviewModal } from '@/components/prescriptions/PrescriptionReviewModal';
-import { formatDateTime, toneForStatus } from '@/lib/format';
+import { formatDateTime } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { listPrescriptions } from '@/api/prescriptions';
-import type { Prescription, PrescriptionStatus } from '@/types';
+import type { Prescription } from '@/types';
+import {
+  ORDER_LIFECYCLE_LABEL,
+  ORDER_LIFECYCLE_OPTIONS,
+  ORDER_LIFECYCLE_TONE,
+  prescriptionLifecycleStatus,
+} from '@/lib/orderLifecycle';
 
-// Display labels only — the underlying values (`row.status`, filter
-// matching, PrescriptionStatus itself) are untouched, still
-// 'awaiting_review' | 'read' | 'in_cart' | 'ordered' end to end (DB enum,
-// backend/api's transition rules in prescription-status.ts, and every
-// other consumer of these rows). Only what the admin panel prints for
-// each one changed: Pending / Processed / Billing / Completed.
-const STATUS_LABEL: Record<PrescriptionStatus, string> = {
-  awaiting_review: 'Pending',
-  read: 'Processed',
-  in_cart: 'Billing',
-  ordered: 'Completed',
-};
+// The list shows the linked order's lifecycle (Pending → Completed), the same
+// rule as OrdersPage — see prescriptionLifecycleStatus for why not `row.status`.
+const lifecycleOf = prescriptionLifecycleStatus;
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
-  { value: 'awaiting_review', label: 'Pending' },
-  { value: 'read', label: 'Processed' },
-  { value: 'in_cart', label: 'Billing' },
-  { value: 'ordered', label: 'Completed' },
+  ...ORDER_LIFECYCLE_OPTIONS,
+  { value: 'cancelled', label: ORDER_LIFECYCLE_LABEL.cancelled },
 ];
 
 const FULFILLMENT_OPTIONS = [
@@ -74,7 +69,7 @@ export default function PrescriptionsPage() {
         row.memberName.toLowerCase().includes(q) ||
         row.patientName.toLowerCase().includes(q) ||
         row.doctor.toLowerCase().includes(q);
-      const matchesStatus = status === 'all' || row.status === status;
+      const matchesStatus = status === 'all' || lifecycleOf(row) === status;
       const matchesFulfillment =
         fulfillment === 'all' || row.fulfillmentType === fulfillment;
       const matchesStore = store === 'all' || row.storeCode === store;
@@ -83,10 +78,10 @@ export default function PrescriptionsPage() {
   }, [scoped, search, status, fulfillment, store]);
 
   const counts = {
-    awaiting: scoped.filter((r) => r.status === 'awaiting_review').length,
-    read: scoped.filter((r) => r.status === 'read').length,
-    inCart: scoped.filter((r) => r.status === 'in_cart').length,
-    ordered: scoped.filter((r) => r.status === 'ordered').length,
+    pending: scoped.filter((r) => lifecycleOf(r) === 'pending').length,
+    processed: scoped.filter((r) => lifecycleOf(r) === 'processed').length,
+    billing: scoped.filter((r) => lifecycleOf(r) === 'billing').length,
+    completed: scoped.filter((r) => lifecycleOf(r) === 'completed').length,
   };
 
   const columns: Column<Prescription>[] = [
@@ -143,7 +138,9 @@ export default function PrescriptionsPage() {
       key: 'status',
       header: 'Status',
       render: (row) => (
-        <Badge tone={toneForStatus(row.status)}>{STATUS_LABEL[row.status]}</Badge>
+        <Badge tone={ORDER_LIFECYCLE_TONE[lifecycleOf(row)]}>
+          {ORDER_LIFECYCLE_LABEL[lifecycleOf(row)]}
+        </Badge>
       ),
     },
     {
@@ -168,10 +165,10 @@ export default function PrescriptionsPage() {
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Pending" value={counts.awaiting} icon="alert" tone="amber" />
-        <StatCard label="Processed" value={counts.read} icon="prescriptions" tone="blue" />
-        <StatCard label="Billing" value={counts.inCart} icon="orders" tone="violet" />
-        <StatCard label="Completed" value={counts.ordered} icon="check" tone="green" />
+        <StatCard label="Pending" value={counts.pending} icon="alert" tone="amber" />
+        <StatCard label="Processed" value={counts.processed} icon="prescriptions" tone="blue" />
+        <StatCard label="Billing" value={counts.billing} icon="orders" tone="violet" />
+        <StatCard label="Completed" value={counts.completed} icon="check" tone="green" />
       </div>
 
       <Card>

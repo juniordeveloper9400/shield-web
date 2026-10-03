@@ -98,3 +98,39 @@ test('cancelled wins over every other stamp', () => {
     'cancelled',
   );
 });
+
+// The Prescriptions list reads a script's stage off its linked order, not the
+// script's own `status` — which flips to "ordered" the moment it is submitted.
+// A freshly submitted script must read Pending, not Completed.
+import { prescriptionLifecycleStatus } from '../src/lib/orderLifecycle.ts';
+
+function rx(overrides = {}) {
+  return {
+    orderStatus: 'processing',
+    orderReviewedAt: '',
+    orderStoreContactedAt: '',
+    orderConvertedToBillAt: '',
+    ...overrides,
+  };
+}
+
+test('a script just submitted into an order reads Pending, not Completed', () => {
+  assert.equal(prescriptionLifecycleStatus(rx()), 'pending');
+});
+
+test('a script with no linked order at all reads Pending', () => {
+  assert.equal(prescriptionLifecycleStatus(rx({ orderStatus: 'processing' })), 'pending');
+});
+
+test('a script moves Processed → Billing → Completed with its order', () => {
+  assert.equal(prescriptionLifecycleStatus(rx({ orderReviewedAt: '2026-10-03T06:34:00Z' })), 'processed');
+  assert.equal(
+    prescriptionLifecycleStatus(rx({ orderReviewedAt: '2026-10-03T06:34:00Z', orderConvertedToBillAt: '2026-10-03T06:40:00Z' })),
+    'billing',
+  );
+  assert.equal(prescriptionLifecycleStatus(rx({ orderStatus: 'delivered' })), 'completed');
+});
+
+test('a cancelled order cancels the script too', () => {
+  assert.equal(prescriptionLifecycleStatus(rx({ orderStatus: 'cancelled' })), 'cancelled');
+});

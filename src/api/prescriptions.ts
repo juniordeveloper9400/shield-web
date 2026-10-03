@@ -2,6 +2,7 @@ import { query } from '@/lib/db';
 import { fromEnum, iso, num, toEnum } from '@/lib/mappers';
 import type {
   FulfillmentType,
+  OrderStatus,
   PaymentStatus,
   Prescription,
   PrescriptionImage,
@@ -63,7 +64,11 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
            pxo.order_id AS linked_order_id,
            rxo.fulfillment_type::text AS order_fulfillment_type,
            rxb.amount AS order_bill_amount,
-           rxb.status::text AS order_bill_status
+           rxb.status::text AS order_bill_status,
+           rxo.status::text AS order_status,
+           rxo.reviewed_at AS order_reviewed_at,
+           rxo.store_contacted_at AS order_store_contacted_at,
+           rxo.converted_to_bill_at AS order_converted_to_bill_at
     FROM app.prescription rx
     LEFT JOIN app.users m         ON m.id  = rx.member_id
     LEFT JOIN app.patient pt       ON pt.id = rx.patient_id
@@ -199,6 +204,15 @@ async function fetchPrescriptions(memberId?: string): Promise<Prescription[]> {
     ),
     billAmount: num(r.order_bill_amount),
     billStatus: fromEnum<PaymentStatus>(String(r.order_bill_status ?? 'PENDING')),
+    // The linked order's own milestones, not the prescription's own `status`
+    // — `status` only records that the script was turned into an order
+    // (`ORDERED`), which happens the moment it is submitted, long before any
+    // staff action. Left blank when there is no linked order, which
+    // `orderLifecycleStatus` reads as "Pending".
+    orderStatus: r.order_status == null ? 'processing' : fromEnum<OrderStatus>(String(r.order_status)),
+    orderReviewedAt: iso(r.order_reviewed_at) ?? '',
+    orderStoreContactedAt: iso(r.order_store_contacted_at) ?? '',
+    orderConvertedToBillAt: iso(r.order_converted_to_bill_at) ?? '',
   }));
 }
 

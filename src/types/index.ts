@@ -551,6 +551,13 @@ export interface Prescription {
   fulfillmentType: FulfillmentType;
   billAmount: number;
   billStatus: PaymentStatus;
+  /** The linked order's own `status` — `processing` when there is no linked
+   *  order, so the lifecycle reads "Pending" for a script not yet submitted. */
+  orderStatus: OrderStatus;
+  /** The linked order's milestones (same meaning as on [Order]); '' until set. */
+  orderReviewedAt: string;
+  orderStoreContactedAt: string;
+  orderConvertedToBillAt: string;
 }
 
 /** What a member's account currently resolves to across the app + web console. */
