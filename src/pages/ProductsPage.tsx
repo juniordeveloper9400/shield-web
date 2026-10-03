@@ -611,11 +611,15 @@ export default function ProductsPage() {
               className={inputClass}
             >
               <option value="">Select a category…</option>
-              {(categories.data ?? []).map((c) => (
-                <option key={c.id} value={c.slug}>
-                  {c.title}
-                </option>
-              ))}
+              {/* Lab tests are added on the Lab Tests page, never as products,
+                  so that category is left out of this product form. */}
+              {(categories.data ?? [])
+                .filter((c) => c.slug !== 'lab-tests' && c.title.trim().toLowerCase() !== 'lab tests')
+                .map((c) => (
+                  <option key={c.id} value={c.slug}>
+                    {c.title}
+                  </option>
+                ))}
             </select>
           </EditField>
           <EditField label="Sub-category">
