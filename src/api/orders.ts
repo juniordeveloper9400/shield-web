@@ -219,6 +219,7 @@ async function mapOrderRows(rows: Row[]): Promise<Order[]> {
       billedAt: iso(r.billed_at) ?? '',
       billAmount: num(r.bill_amount),
       billDiscount: num(r.bill_discount),
+      billId: r.bill_id == null ? '' : String(r.bill_id),
       billWalletCollected: num(r.bill_wallet_collected),
       billCashCollected: num(r.bill_cash_collected),
       billStatus: fromEnum<PaymentStatus>(String(r.bill_status ?? 'PENDING')),

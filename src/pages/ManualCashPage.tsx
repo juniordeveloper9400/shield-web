@@ -30,10 +30,12 @@ export default function ManualCashPage() {
   const [store, setStore] = useState('all');
   const [receiving, setReceiving] = useState<Order | null>(null);
 
+  // Only the cash still to be received: a bill whose wallet share already
+  // covers it, or whose cash has been taken, has nothing left to collect here.
   const scoped = useMemo(
     () =>
       scopeToStore(
-        rows.filter((o) => o.convertedToBillAt && o.billAmount > 0),
+        rows.filter((o) => o.convertedToBillAt && cashPendingOf(o) > 0),
         user,
       ),
     [rows, user],
@@ -63,6 +65,15 @@ export default function ManualCashPage() {
   }, [scoped, search, store]);
 
   const columns: Column<Order>[] = [
+    {
+      key: 'id',
+      header: 'ID',
+      render: (row) => (
+        <span className="font-mono text-xs text-slate-500">
+          {row.billId ? `#${row.billId}` : '—'}
+        </span>
+      ),
+    },
     {
       key: 'code',
       header: 'Order',

@@ -243,6 +243,11 @@ export default function BillsPage() {
             ? "Orders converted to bills for your branch — price, send and collect payment here."
             : 'Orders converted to bills, across every branch — price, send and collect payment here.'
         }
+        actions={
+          <Button variant="secondary" onClick={() => navigate('/bills/manual-cash')}>
+            Manual cash
+          </Button>
+        }
       />
 
       {justConverted && (
@@ -289,9 +294,6 @@ export default function BillsPage() {
               onChange={setBillFilter}
               options={BILL_OPTIONS}
             />
-            <Button variant="secondary" onClick={() => navigate('/bills/manual-cash')}>
-              Manual cash
-            </Button>
           </div>
         </div>
         <DataTable

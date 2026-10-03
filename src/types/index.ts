@@ -425,6 +425,8 @@ export interface Order {
   /** How much of the priced lines' subtotal was knocked off to reach
    *  [billAmount] — 0 for a bill with no discount applied. */
   billDiscount: number;
+  /** `app.bill.id` as text; '' when the order has no bill yet. */
+  billId: string;
   /** How much of the bill was drawn from the member's wallet at collection —
    *  0 until collected. `app.bill.wallet_collected`. */
   billWalletCollected: number;
