@@ -906,7 +906,12 @@ export function BillEditorModal({
                 </button>
               )}
               <div className="flex items-center gap-3">
-                <label className="cursor-pointer text-xs font-medium text-brand-600">
+                <label
+                  className={`inline-flex items-center gap-1.5 rounded-lg border border-dashed border-brand-400 bg-brand-50/50 px-3 py-2 text-xs font-medium text-brand-700 ${
+                    saving || imageBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-brand-50'
+                  }`}
+                >
+                  <span aria-hidden className="text-base leading-none">+</span>
                   {imageBusy ? 'Reading picture…' : pickedImage ? 'Change picture' : 'Upload bill from gallery'}
                   <input
                     type="file"
