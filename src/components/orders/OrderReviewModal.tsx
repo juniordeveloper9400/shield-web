@@ -78,11 +78,12 @@ export function OrderReviewModal({
   const [memberPhone, setMemberPhone] = useState(order.memberPhone);
   const [storeId, setStoreId] = useState(order.storeId);
 
-  // True from a previous visit (`reviewedAt`) or the moment "Save"/"Convert
-  // to bill" succeeds in this one — just an informational note now, since
-  // both actions are always available rather than one unlocking the other.
-  const [submitted, setSubmitted] = useState(Boolean(order.reviewedAt));
-  const [busy, setBusy] = useState<'save' | 'convert' | 'cancel' | null>(null);
+  // True the moment "Process →" succeeds in this visit — set optimistically,
+  // ahead of `onSaved()`'s reload actually landing a fresh `order.reviewedAt`,
+  // so the footer swaps to "Convert to bill →" immediately rather than
+  // flashing "Process →" again for the gap between the two.
+  const [submitted, setSubmitted] = useState(false);
+  const [busy, setBusy] = useState<'process' | 'convert' | 'cancel' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { ask, dialog: confirmDialog } = useConfirmDialog();
   // When staff first used Call / WhatsApp here — the member's app shows the
@@ -125,6 +126,14 @@ export function OrderReviewModal({
   const closed = order.status === 'delivered' || order.status === 'cancelled';
   const converted = Boolean(order.convertedToBillAt);
   const lifecycle = orderLifecycleStatus(order);
+  // Reached "Processed" (or further) — either this visit's own "Process →"
+  // just landed (`submitted`, before the reload behind it catches up), or a
+  // previous visit already did, or staff used Call/WhatsApp instead (either
+  // milestone counts the same way `orderLifecycleStatus` itself does). Once
+  // true, the footer's primary action is "Convert to bill →" rather than
+  // "Process →" — there's nothing left for a second click of the same button
+  // to do.
+  const processed = submitted || lifecycle !== 'pending';
 
   const [lines, setLines] = useState<OrderLineDraft[]>(() =>
     order.lines.map((l) => ({
@@ -249,11 +258,15 @@ export function OrderReviewModal({
     }
   }
 
-  /** Saves and stays open — for settling stock statuses or adding an item
-   *  without committing to billing yet. */
-  async function save() {
+  /** "Process →" — the footer's primary action before the order has been
+   *  reviewed at all: saves everything on the page (member details, each
+   *  line's stock status, any items added by hand) and stamps the order's
+   *  own `reviewed_at`, which is what actually moves it to "Processed"
+   *  (`orderLifecycleStatus`). Stays open — there's still the item table to
+   *  settle before converting. */
+  async function process() {
     if (!validateDetails()) return;
-    setBusy('save');
+    setBusy('process');
     setError(null);
     try {
       if (await saveAll()) {
@@ -265,10 +278,16 @@ export function OrderReviewModal({
     }
   }
 
-  /** "Convert to bill →" — saves everything above first (an edit here may
-   *  not have been saved yet), stamps the order as converted so it starts
-   *  showing on the Bills page, then just closes — the admin opens Bills on
-   *  their own from there, same as a prescription. */
+  /** "Convert to bill →" — the footer's primary action once the order has
+   *  been processed, replacing "Process →" rather than sitting beside it
+   *  (same as `PrescriptionReviewModal`'s own "Convert to bill →" replacing
+   *  its Send/Update intake button). Saves everything above first (an edit
+   *  here may not have been saved yet), stamps the order as converted so it
+   *  starts showing on the Bills page, then just closes — the admin opens
+   *  Bills on their own from there, same as a prescription. Pricing and the
+   *  OTP-gated wallet/cash collection that reaches "Completed" both happen
+   *  there, not in this modal — same as a prescription never shows a manual
+   *  "Complete" button here either. */
   async function convertToBill() {
     if (!validateDetails()) return;
     setBusy('convert');
@@ -372,20 +391,19 @@ export function OrderReviewModal({
                 >
                   Converted to bill
                 </Button>
+              ) : processed ? (
+                <Button
+                  variant="primary"
+                  disabled={working || billableCount === 0}
+                  title={billableCount === 0 ? 'Check at least one item first' : undefined}
+                  onClick={() => void convertToBill()}
+                >
+                  {busy === 'convert' ? 'Converting…' : 'Convert to bill →'}
+                </Button>
               ) : (
-                <>
-                  <Button variant="secondary" disabled={working} onClick={() => void save()}>
-                    {busy === 'save' ? 'Saving…' : 'Save'}
-                  </Button>
-                  <Button
-                    variant="primary"
-                    disabled={working || billableCount === 0}
-                    title={billableCount === 0 ? 'Check at least one item first' : undefined}
-                    onClick={() => void convertToBill()}
-                  >
-                    {busy === 'convert' ? 'Converting…' : 'Convert to bill →'}
-                  </Button>
-                </>
+                <Button variant="primary" disabled={working} onClick={() => void process()}>
+                  {busy === 'process' ? 'Processing…' : 'Process →'}
+                </Button>
               ))}
           </>
         }
@@ -402,7 +420,9 @@ export function OrderReviewModal({
             </Badge>
             {converted && <Badge tone="green">Converted to bill</Badge>}
           </div>
-          {submitted && <span className="text-xs font-medium text-slate-400">Saved</span>}
+          {processed && !converted && (
+            <span className="text-xs font-medium text-slate-400">Saved</span>
+          )}
         </div>
 
         {/* Top: the member's own details. */}
