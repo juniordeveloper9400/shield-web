@@ -11,7 +11,8 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { formatCurrency, formatDateTime, titleCase } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { cashPendingOf } from '@/lib/billCash';
+import { billProgress, cashPendingOf } from '@/lib/billCash';
+import { ReceivePaymentModal } from '@/components/orders/ReceivePaymentModal';
 import { useAsync } from '@/lib/useAsync';
 import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import { clearOrderBill, listOrders } from '@/api/orders';
@@ -24,31 +25,6 @@ const BILL_OPTIONS = [
   { value: 'partial', label: 'Partially completed' },
   { value: 'pending', label: 'Pending' },
 ];
-
-/**
- * Where this order's bill actually stands, by comparing what's supposed to
- * be on it ([Order.billableItemNames] — a standard order's own reviewed
- * cart lines, or a prescription's own intake medicines) against what's
- * actually on it ([Order.billLines]), the same "billable vs already billed"
- * check `PrescriptionReviewModal` already does for one prescription at a
- * time — generalised here to every order this page lists:
- *   - 'pending':  nothing's been billed yet.
- *   - 'billed':   every billable item is on the bill (or there's no known
- *     billable set to compare against — a manually-built bill still counts
- *     as done rather than perpetually "partial").
- *   - 'partial':  something's been billed, but not everything that should be.
- */
-function billProgress(row: Order): 'pending' | 'partial' | 'billed' {
-  const billed = new Set(
-    row.billLines.map((l) => l.name.trim().toLowerCase()).filter(Boolean),
-  );
-  if (billed.size === 0) return 'pending';
-  const billable = row.billableItemNames
-    .map((n) => n.trim().toLowerCase())
-    .filter(Boolean);
-  if (billable.length === 0) return 'billed';
-  return billable.every((n) => billed.has(n)) ? 'billed' : 'partial';
-}
 
 /**
  * The store's invoice for every order that has been converted to a bill, in
@@ -71,6 +47,7 @@ export default function BillsPage() {
   );
   const [editing, setEditing] = useState<Order | null>(null);
   const [cashOpen, setCashOpen] = useState(false);
+  const [receiving, setReceiving] = useState<Order | null>(null);
 
   // Set the moment "Convert to bill →" lands here and finds its order —
   // the banner that confirms the hand-off actually worked, since the
@@ -309,6 +286,25 @@ export default function BillsPage() {
         );
       },
     },
+    {
+      key: 'receive',
+      header: '',
+      render: (row) => (
+        <div className="flex justify-end">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={(e) => {
+              e.stopPropagation();
+              setReceiving(row);
+            }}
+          >
+            Receive
+          </Button>
+        </div>
+      ),
+      className: 'text-right',
+    },
   ];
 
   return (
@@ -407,6 +403,14 @@ export default function BillsPage() {
           empty="No priced bills match these filters."
         />
       </Modal>
+
+      {receiving && (
+        <ReceivePaymentModal
+          order={receiving}
+          open={Boolean(receiving)}
+          onClose={() => setReceiving(null)}
+        />
+      )}
 
       {editing && (
         <BillEditorModal

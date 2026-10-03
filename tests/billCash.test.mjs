@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { cashPendingOf } from '../src/lib/billCash.ts';
+import { cashPendingOf, billProgress, receiveHeading } from '../src/lib/billCash.ts';
 
 test('an uncollected bill owes its whole amount in cash', () => {
   assert.equal(cashPendingOf({ billAmount: 800, billWalletCollected: 0, billCashCollected: 0 }), 800);
@@ -17,4 +17,39 @@ test('a split bill owes only what the wallet did not cover, once the counter has
 
 test('an overpayment never reads as negative cash', () => {
   assert.equal(cashPendingOf({ billAmount: 100, billWalletCollected: 100, billCashCollected: 20 }), 0);
+});
+
+const order = (over) => ({
+  billStatus: 'pending', billLines: [], billableItemNames: [], ...over,
+});
+
+test('bill progress: nothing billed is pending, all billable items billed is billed', () => {
+  assert.equal(billProgress(order({})), 'pending');
+  assert.equal(
+    billProgress(order({ billLines: [{ name: 'A' }], billableItemNames: ['a'] })),
+    'billed',
+  );
+});
+
+test('bill progress: some but not all billable items billed is partial', () => {
+  assert.equal(
+    billProgress(order({ billLines: [{ name: 'A' }], billableItemNames: ['A', 'B'] })),
+    'partial',
+  );
+});
+
+test('the receive heading reads Completed once paid, whatever the items say', () => {
+  assert.equal(receiveHeading(order({ billStatus: 'paid' })), 'Completed');
+  assert.equal(
+    receiveHeading(order({ billStatus: 'paid', billLines: [{ name: 'A' }], billableItemNames: ['A', 'B'] })),
+    'Completed',
+  );
+});
+
+test('the receive heading reads Partially billed for an unpaid partial bill, else Pending', () => {
+  assert.equal(
+    receiveHeading(order({ billLines: [{ name: 'A' }], billableItemNames: ['A', 'B'] })),
+    'Partially billed',
+  );
+  assert.equal(receiveHeading(order({})), 'Pending');
 });
