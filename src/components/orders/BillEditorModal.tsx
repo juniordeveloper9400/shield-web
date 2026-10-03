@@ -26,6 +26,8 @@ import { ORDER_LINE_STATUS_LABEL, ORDER_LINE_STATUS_TONE } from '@/lib/orderLine
 import { WalletBreakdown } from './WalletBreakdown';
 import type { Tone } from '@/components/ui/Badge';
 import type { Order, PaymentStatus } from '@/types';
+import { isSelectedForBill } from '@/lib/billCash';
+
 
 const inputClass =
   'w-full rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
@@ -263,11 +265,8 @@ export function BillEditorModal({
   const [lines, setLines] = useState<BillLineDraft[]>(() =>
     order.billLines.length > 0
       ? order.billLines
-      : // Only lines the counter marked "Stock available" start on the bill —
-        // out-of-stock, not-possible and customer-not-needed lines are left off
-        // (an admin can still add one back by hand with "+ Add line").
-        order.lines
-          .filter((l) => l.status === 'available')
+      : order.lines
+          .filter((l) => isSelectedForBill(order.kind, l.status))
           .map((l) => ({
             name: l.name,
             pack: l.pack,
@@ -275,6 +274,29 @@ export function BillEditorModal({
             qty: l.qty,
           })),
   );
+
+  // A prescription's medicines load after the modal opens, so its selected
+  // medicines seed the bill once they arrive — but only the first time, and
+  // only while nothing has been put on the bill yet, so a bill the admin is
+  // already editing is never overwritten.
+  const seededFromMedicines = useRef(false);
+  useEffect(() => {
+    if (seededFromMedicines.current) return;
+    if (order.kind !== 'prescription' || !prescriptionMedicines) return;
+    seededFromMedicines.current = true;
+    if (order.billLines.length > 0) return;
+    setLines((current) => {
+      if (current.length > 0) return current;
+      return prescriptionMedicines
+        .filter((m) => m.name.trim() && isSelectedForBill('prescription', m.status))
+        .map((m) => ({
+          name: m.name,
+          pack: m.pack,
+          unitPrice: 0,
+          qty: m.totalUnits || 1,
+        }));
+    });
+  }, [order.kind, order.billLines.length, prescriptionMedicines]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The bill's picture, staged locally until "Send cash redemption
@@ -398,7 +420,8 @@ export function BillEditorModal({
 
     for (const l of order.lines) {
       const key = keyOf(l.name);
-      if (!key || rows.has(key)) continue;
+      // A line the counter deselected is not offered here at all.
+      if (!key || rows.has(key) || !isSelectedForBill(order.kind, l.status)) continue;
       const draft = linesByName.get(key);
       rows.set(key, {
         name: l.name,
@@ -412,7 +435,7 @@ export function BillEditorModal({
     }
     for (const m of prescriptionMedicines ?? []) {
       const key = keyOf(m.name);
-      if (!key || rows.has(key)) continue;
+      if (!key || rows.has(key) || !isSelectedForBill('prescription', m.status)) continue;
       const draft = linesByName.get(key);
       rows.set(key, {
         name: m.name,

@@ -43,3 +43,13 @@ export function receiveHeading(row: Order): 'Completed' | 'Partially billed' | '
   if (billProgress(row) === 'partial') return 'Partially billed';
   return 'Pending';
 }
+
+/** Whether one item on an order counts as selected for its bill — the same
+ *  rule the server uses for `billableItemNames`, and what the bill editor
+ *  offers and seeds from:
+ *   - a standard order's own line: only one marked "Stock available";
+ *   - a prescription's intake medicine: anything not marked "Not possible"
+ *     (what the intake card's checkbox ticks). */
+export function isSelectedForBill(kind: Order['kind'], status: string): boolean {
+  return kind === 'prescription' ? status !== 'not_possible' : status === 'available';
+}

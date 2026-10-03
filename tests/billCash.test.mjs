@@ -53,3 +53,17 @@ test('the receive heading reads Partially billed for an unpaid partial bill, els
   );
   assert.equal(receiveHeading(order({})), 'Pending');
 });
+
+import { isSelectedForBill } from '../src/lib/billCash.ts';
+
+test('a standard order item is selected for the bill only when stock is available', () => {
+  assert.equal(isSelectedForBill('standard', 'available'), true);
+  assert.equal(isSelectedForBill('standard', 'out_of_stock'), false);
+  assert.equal(isSelectedForBill('standard', 'not_possible'), false);
+});
+
+test('a prescription medicine is selected unless the counter marked it not possible', () => {
+  assert.equal(isSelectedForBill('prescription', 'available'), true);
+  assert.equal(isSelectedForBill('prescription', 'out_of_stock'), true);
+  assert.equal(isSelectedForBill('prescription', 'not_possible'), false);
+});
