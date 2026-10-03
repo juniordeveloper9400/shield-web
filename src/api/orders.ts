@@ -59,6 +59,7 @@ const ORDER_SELECT = `
            o.delivery_boy_id, db.name AS delivery_boy_name,
            o.placed_at, b.id AS bill_id, b.image AS bill_image, b.sent_at AS billed_at,
            b.amount AS bill_amount, b.discount_amount AS bill_discount, b.status::text AS bill_status,
+           b.wallet_collected AS bill_wallet_collected, b.cash_collected AS bill_cash_collected,
            r.payer_name AS receipt_payer_name, r.reference AS receipt_reference,
            r.amount AS receipt_amount, r.file_name AS receipt_file_name,
            r.image AS receipt_image, r.uploaded_at AS receipt_uploaded_at
@@ -218,6 +219,8 @@ async function mapOrderRows(rows: Row[]): Promise<Order[]> {
       billedAt: iso(r.billed_at) ?? '',
       billAmount: num(r.bill_amount),
       billDiscount: num(r.bill_discount),
+      billWalletCollected: num(r.bill_wallet_collected),
+      billCashCollected: num(r.bill_cash_collected),
       billStatus: fromEnum<PaymentStatus>(String(r.bill_status ?? 'PENDING')),
       billLines: r.bill_id == null ? [] : billLinesByBill.get(String(r.bill_id)) ?? [],
       billableItemNames:

@@ -425,6 +425,12 @@ export interface Order {
   /** How much of the priced lines' subtotal was knocked off to reach
    *  [billAmount] — 0 for a bill with no discount applied. */
   billDiscount: number;
+  /** How much of the bill was drawn from the member's wallet at collection —
+   *  0 until collected. `app.bill.wallet_collected`. */
+  billWalletCollected: number;
+  /** How much the counter took in cash at collection — 0 until collected.
+   *  `app.bill.cash_collected`. */
+  billCashCollected: number;
   billStatus: PaymentStatus;
   billLines: BillLine[];
   /** What's actually supposed to end up on this order's bill, by name — a
