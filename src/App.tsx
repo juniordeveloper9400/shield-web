@@ -11,6 +11,7 @@ import BannersPage from '@/pages/BannersPage';
 import CustomerVideosPage from '@/pages/CustomerVideosPage';
 import OrdersPage from '@/pages/OrdersPage';
 import BillsPage from '@/pages/BillsPage';
+import ManualCashPage from '@/pages/ManualCashPage';
 import PrescriptionsPage from '@/pages/PrescriptionsPage';
 import ActivationsPage from '@/pages/ActivationsPage';
 import ActivationDetailPage from '@/pages/ActivationDetailPage';
@@ -108,6 +109,14 @@ export default function App() {
           element={
             <ProtectedRoute module="bills">
               <BillsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/bills/manual-cash"
+          element={
+            <ProtectedRoute module="bills">
+              <ManualCashPage />
             </ProtectedRoute>
           }
         />

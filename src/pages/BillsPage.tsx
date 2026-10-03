@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -10,9 +10,9 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { formatCurrency, formatDateTime, titleCase } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
-import { billProgress, cashPendingOf } from '@/lib/billCash';
-import { ReceivePaymentModal } from '@/components/orders/ReceivePaymentModal';
+
+import { billProgress } from '@/lib/billCash';
+
 import { useAsync } from '@/lib/useAsync';
 import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import { clearOrderBill, listOrders } from '@/api/orders';
@@ -34,6 +34,7 @@ const BILL_OPTIONS = [
  */
 export default function BillsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { data, loading, error, reload } = useAsync(listOrders, []);
   const rows = useMemo(() => data ?? [], [data]);
 
@@ -46,8 +47,6 @@ export default function BillsPage() {
     null,
   );
   const [editing, setEditing] = useState<Order | null>(null);
-  const [cashOpen, setCashOpen] = useState(false);
-  const [receiving, setReceiving] = useState<Order | null>(null);
 
   // Set the moment "Convert to bill →" lands here and finds its order —
   // the banner that confirms the hand-off actually worked, since the
@@ -235,78 +234,6 @@ export default function BillsPage() {
     },
   ];
 
-  // The Manual cash report: every priced bill in the current filter, with how
-  // it was settled. Cash still owed is whatever the bill says is due, less
-  // what the wallet already covered and what the counter has taken so far —
-  // so a fully collected bill (wallet, cash, or a split) reads 0.
-  const cashRows = useMemo(
-    () => filtered.filter((row) => row.billAmount > 0),
-    [filtered],
-  );
-
-  const cashColumns: Column<Order>[] = [
-    {
-      key: 'code',
-      header: 'Order',
-      render: (row) => <span className="font-medium text-slate-800">{row.code}</span>,
-    },
-    {
-      key: 'member',
-      header: 'Member',
-      render: (row) => <span className="text-slate-800">{row.memberName}</span>,
-    },
-    {
-      key: 'phone',
-      header: 'Phone',
-      render: (row) => <span className="text-slate-600">{row.memberPhone}</span>,
-    },
-    {
-      key: 'total',
-      header: 'Total bill',
-      render: (row) => (
-        <span className="font-medium text-slate-800">{formatCurrency(row.billAmount)}</span>
-      ),
-    },
-    {
-      key: 'wallet',
-      header: 'Wallet redeemed',
-      render: (row) => (
-        <span className="text-slate-700">{formatCurrency(row.billWalletCollected)}</span>
-      ),
-    },
-    {
-      key: 'cash',
-      header: 'Cash pending',
-      render: (row) => {
-        const pending = cashPendingOf(row);
-        return (
-          <span className={pending > 0 ? 'font-medium text-amber-700' : 'text-slate-500'}>
-            {formatCurrency(pending)}
-          </span>
-        );
-      },
-    },
-    {
-      key: 'receive',
-      header: '',
-      render: (row) => (
-        <div className="flex justify-end">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              setReceiving(row);
-            }}
-          >
-            Receive
-          </Button>
-        </div>
-      ),
-      className: 'text-right',
-    },
-  ];
-
   return (
     <>
       <PageHeader
@@ -362,7 +289,7 @@ export default function BillsPage() {
               onChange={setBillFilter}
               options={BILL_OPTIONS}
             />
-            <Button variant="secondary" onClick={() => setCashOpen(true)}>
+            <Button variant="secondary" onClick={() => navigate('/bills/manual-cash')}>
               Manual cash
             </Button>
           </div>
@@ -386,31 +313,6 @@ export default function BillsPage() {
         )}
       </Card>
 
-      <Modal
-        open={cashOpen}
-        onClose={() => setCashOpen(false)}
-        title="Manual cash"
-        size="xl"
-      >
-        <p className="mb-4 text-sm text-slate-500">
-          Priced bills in the current filter, with how each one was settled: what
-          the member's wallet covered, and what is still owed in cash at the
-          counter. Follows the branch, search and bill filters above.
-        </p>
-        <DataTable
-          columns={cashColumns}
-          rows={cashRows}
-          empty="No priced bills match these filters."
-        />
-      </Modal>
-
-      {receiving && (
-        <ReceivePaymentModal
-          order={receiving}
-          open={Boolean(receiving)}
-          onClose={() => setReceiving(null)}
-        />
-      )}
 
       {editing && (
         <BillEditorModal
