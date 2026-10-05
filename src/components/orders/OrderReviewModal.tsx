@@ -329,7 +329,7 @@ export function OrderReviewModal({
     setBusy('cancel');
     setError(null);
     try {
-      await setOrderStatus(order.id, 'cancelled');
+      await setOrderStatus(order.id, 'cancelled', accessToken);
       onSaved();
       onClose();
     } catch (err) {

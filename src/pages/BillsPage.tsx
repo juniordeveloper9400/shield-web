@@ -35,7 +35,7 @@ const BILL_OPTIONS = [
 export default function BillsPage() {
   const { user, accessToken } = useAuth();
   const navigate = useNavigate();
-  const { data, loading, error, reload } = useAsync(listOrders, []);
+  const { data, loading, error, reload } = useAsync(() => listOrders(accessToken), [accessToken]);
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');

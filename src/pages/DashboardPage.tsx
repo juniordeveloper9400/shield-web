@@ -19,7 +19,7 @@ import { listLabBookings } from '@/api/labBookings';
 import { listAppointments } from '@/api/appointments';
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
 
   const show = {
     orders: user ? canAccess(user.role, 'orders') : false,
@@ -31,8 +31,8 @@ export default function DashboardPage() {
   // Each source loads only if this role can see it — an empty resolved promise
   // otherwise, so the hook order stays stable.
   const orders = useAsync(
-    () => (show.orders ? listOrders() : Promise.resolve([])),
-    [show.orders],
+    () => (show.orders ? listOrders(accessToken) : Promise.resolve([])),
+    [show.orders, accessToken],
   );
   const scripts = useAsync(
     () => (show.prescriptions ? listPrescriptions() : Promise.resolve([])),

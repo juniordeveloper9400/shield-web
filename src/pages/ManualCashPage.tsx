@@ -22,8 +22,8 @@ import type { Order } from '@/types';
  */
 export default function ManualCashPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const { data, loading, error, reload } = useAsync(listOrders, []);
+  const { user, accessToken } = useAuth();
+  const { data, loading, error, reload } = useAsync(() => listOrders(accessToken), [accessToken]);
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');

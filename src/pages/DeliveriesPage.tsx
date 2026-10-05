@@ -164,7 +164,7 @@ export default function DeliveriesPage() {
   }
 
   async function advanceStatus(orderId: string, next: OrderStatus) {
-    await runAction(orderId, () => setOrderStatus(orderId, next), mine.reload, available.reload);
+    await runAction(orderId, () => setOrderStatus(orderId, next, accessToken), mine.reload, available.reload);
   }
 
   async function assignFromDropdown(orderId: string, deliveryBoyId: string) {

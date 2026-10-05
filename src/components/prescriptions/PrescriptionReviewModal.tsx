@@ -244,8 +244,8 @@ export function PrescriptionReviewModal({
   // medicine actually has to be on the order's real bill, and that bill has
   // to be paid, before a reviewer can close the order out.
   const { data: linkedOrder } = useAsync(
-    () => (prescription?.orderId ? getOrder(prescription.orderId) : Promise.resolve(null)),
-    [prescription?.orderId, prescription?.billStatus, prescription?.billAmount],
+    () => (prescription?.orderId ? getOrder(prescription.orderId, accessToken) : Promise.resolve(null)),
+    [prescription?.orderId, prescription?.billStatus, prescription?.billAmount, accessToken],
   );
   const [addedPatients, setAddedPatients] = useState<MemberPatient[]>([]);
   // confirmNewPatient both appends the freshly-created patient here (so the
@@ -1398,7 +1398,7 @@ export function PrescriptionReviewModal({
     setCompleting(true);
     setCompleteError(null);
     try {
-      await setOrderStatus(prescription.orderId, 'delivered');
+      await setOrderStatus(prescription.orderId, 'delivered', accessToken);
       onSaved();
       onClose();
     } catch (err) {
