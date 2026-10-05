@@ -37,6 +37,7 @@ import {
   setPrescriptionImageRotation,
   setPrescriptionStatus,
   updatePrescriptionBranch,
+  updatePrescriptionFulfillment,
   updatePrescriptionDetails,
   updatePrescriptionPatient,
 } from '@/api/prescriptions';
@@ -56,6 +57,7 @@ import {
 } from '@/lib/orderLifecycle';
 import { useAuth } from '@/context/AuthContext';
 import type {
+  FulfillmentType,
   MemberPatient,
   Prescription,
   PrescriptionMedicineInput,
@@ -215,6 +217,7 @@ export function PrescriptionReviewModal({
   const [memberPhone, setMemberPhone] = useState('');
   const [patientId, setPatientId] = useState('');
   const [storeId, setStoreId] = useState('');
+  const [fulfillment, setFulfillment] = useState<FulfillmentType>('home_delivery');
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
   // "Complete order" — separate from payment collection, which now happens
@@ -536,6 +539,7 @@ export function PrescriptionReviewModal({
     setMemberPhone(prescription.memberPhone);
     setPatientId(prescription.patientId);
     setStoreId(prescription.storeId);
+    setFulfillment(prescription.fulfillmentType);
     // Only when the open prescription changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prescription?.id]);
@@ -1205,6 +1209,19 @@ export function PrescriptionReviewModal({
       }
       await updatePrescriptionPatient(prescription.id, patientId);
       await updatePrescriptionBranch(prescription.id, storeId || null);
+      if (prescription.orderId && fulfillment !== prescription.fulfillmentType) {
+        const changed = await updatePrescriptionFulfillment(
+          prescription.id,
+          fulfillment === 'store_pickup' ? 'STORE_PICKUP' : 'HOME_DELIVERY',
+        );
+        if (!changed) {
+          setDetailsError(
+            'The delivery option can no longer be changed — this order is already out for delivery, delivered or cancelled.',
+          );
+          setFulfillment(prescription.fulfillmentType);
+          return false;
+        }
+      }
       await updatePrescriptionDetails(prescription.id, {
         doctor,
         durationToken,
@@ -1289,7 +1306,7 @@ export function PrescriptionReviewModal({
             // if it had existed all along.
             orderId = await createOrderForPrescription(
               prescription.id,
-              prescription.fulfillmentType === 'store_pickup'
+              fulfillment === 'store_pickup'
                 ? 'STORE_PICKUP'
                 : 'HOME_DELIVERY',
             );
@@ -1520,12 +1537,12 @@ export function PrescriptionReviewModal({
                       prescription's fulfilment decides whether the counter
                       hands the script over in person or a delivery boy takes
                       it out. */}
-                  <Badge tone={prescription.fulfillmentType === 'home_delivery' ? 'blue' : 'gray'}>
+                  <Badge tone={fulfillment === 'home_delivery' ? 'blue' : 'gray'}>
                     <Icon
-                      name={prescription.fulfillmentType === 'home_delivery' ? 'deliveries' : 'stores'}
+                      name={fulfillment === 'home_delivery' ? 'deliveries' : 'stores'}
                       className="h-3 w-3"
                     />
-                    {prescription.fulfillmentType === 'home_delivery' ? 'Home Delivery' : 'Store Pickup'}
+                    {fulfillment === 'home_delivery' ? 'Home Delivery' : 'Store Pickup'}
                   </Badge>
                 </div>
                 <span className="text-xs font-medium text-slate-400">
@@ -1853,13 +1870,39 @@ export function PrescriptionReviewModal({
                       {
                         label: 'Fulfilment',
                         value: (
-                          <Badge tone={prescription.fulfillmentType === 'home_delivery' ? 'blue' : 'gray'}>
-                            <Icon
-                              name={prescription.fulfillmentType === 'home_delivery' ? 'deliveries' : 'stores'}
-                              className="h-3 w-3"
-                            />
-                            {prescription.fulfillmentType === 'home_delivery' ? 'Home Delivery' : 'Store Pickup'}
-                          </Badge>
+                          <div className="space-y-1">
+                            <div role="radiogroup" aria-label="Fulfilment" className="flex flex-wrap gap-2">
+                              {(['home_delivery', 'store_pickup'] as const).map((option) => {
+                                const selected = fulfillment === option;
+                                return (
+                                  <button
+                                    key={option}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={selected}
+                                    onClick={() => setFulfillment(option)}
+                                    className={
+                                      'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ' +
+                                      (selected
+                                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                        : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300')
+                                    }
+                                  >
+                                    <Icon
+                                      name={option === 'home_delivery' ? 'deliveries' : 'stores'}
+                                      className="h-3 w-3"
+                                    />
+                                    {option === 'home_delivery' ? 'Home Delivery' : 'Store Pickup'}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {fulfillment !== prescription.fulfillmentType && (
+                              <p className="text-xs text-slate-400">
+                                Member chose {prescription.fulfillmentType === 'home_delivery' ? 'Home Delivery' : 'Store Pickup'} — saved with the other details.
+                              </p>
+                            )}
+                          </div>
                         ),
                       },
                       {

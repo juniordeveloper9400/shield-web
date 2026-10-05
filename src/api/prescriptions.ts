@@ -330,6 +330,28 @@ export async function updatePrescriptionBranch(
 }
 
 /**
+ * Sets how this prescription's order reaches the member — home delivery or
+ * store pickup (`app."order".fulfillment_type`). The member's own choice at
+ * checkout is the default; this is the reviewer's override. Only an order
+ * still being processed can change: once it is out for delivery, delivered
+ * or cancelled the way it reached the member is a fact, not a plan.
+ * Returns false when there was no such order to change.
+ */
+export async function updatePrescriptionFulfillment(
+  id: string,
+  fulfillmentType: 'HOME_DELIVERY' | 'STORE_PICKUP',
+): Promise<boolean> {
+  const rows = await query<{ id: unknown }>(
+    `UPDATE app."order" SET fulfillment_type = $2::app.fulfillment_type
+      WHERE id = (SELECT order_id FROM app.prescription WHERE id = $1)
+        AND status = 'PROCESSING'::app.order_status
+      RETURNING id`,
+    [id, fulfillmentType],
+  );
+  return rows.length > 0;
+}
+
+/**
  * Re-points this prescription at a different saved patient of the same
  * member — `app.prescription.patient_id` — for when the wrong family member
  * was picked at upload, or the right one hadn't been added yet. The picker
