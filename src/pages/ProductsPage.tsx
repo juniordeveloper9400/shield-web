@@ -335,267 +335,8 @@ export default function ProductsPage() {
     },
   ];
 
-  return (
-    <>
-      <PageHeader
-        title="Catalogue"
-        subtitle="The storefront and pharmacy-shelf catalogue members buy from."
-        actions={
-          <Button variant="primary" onClick={openAdd}>
-            <Icon name="plus" className="h-4 w-4" /> Add product
-          </Button>
-        }
-      />
-
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Products" value={counts.total} icon="products" tone="blue" />
-        <StatCard label="Active" value={counts.active} icon="check" tone="green" />
-        <StatCard label="Inactive" value={counts.inactive} tone="rose" />
-        <StatCard label="Prescription only" value={counts.rx} tone="amber" />
-      </div>
-
-      <Card>
-        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
-          <SearchInput
-            value={search}
-            onChange={setSearch}
-            placeholder="Search product, brand, code…"
-          />
-          <div className="flex flex-wrap gap-2">
-            <FilterSelect
-              value={category}
-              onChange={setCategory}
-              options={categoryOptions}
-            />
-            <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
-          </div>
-        </div>
-        <DataTable
-          columns={columns}
-          rows={filtered}
-          loading={loading}
-          error={error}
-          empty="No products match your filters."
-        />
-      </Card>
-
-      <Modal
-        open={Boolean(selected)}
-        onClose={() => setSelectedId(null)}
-        title={selected?.name ?? ''}
-        footer={
-          selected && (
-            <>
-              {editing ? (
-                <>
-                  <Button variant="secondary" disabled={saving} onClick={() => setEditing(false)}>
-                    Cancel
-                  </Button>
-                  <Button variant="primary" disabled={saving} onClick={saveEdit}>
-                    Save changes
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button variant="secondary" onClick={() => setEditing(true)}>
-                    <Icon name="plus" className="h-4 w-4" /> Edit price / stock
-                  </Button>
-                  {selected.status === 'active' ? (
-                    <Button
-                      variant="danger"
-                      disabled={saving}
-                      onClick={() => changeStatus(selected.id, 'inactive')}
-                    >
-                      Deactivate
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="success"
-                      disabled={saving}
-                      onClick={() => changeStatus(selected.id, 'active')}
-                    >
-                      <Icon name="check" className="h-4 w-4" /> Activate
-                    </Button>
-                  )}
-                  <Button
-                    variant="danger"
-                    disabled={saving}
-                    onClick={() =>
-                      ask({
-                        title: 'Delete this product?',
-                        message: `"${selected.name}" will be removed from the catalogue. This cannot be undone.`,
-                        confirmLabel: 'Delete',
-                        danger: true,
-                        onConfirm: () => removeProduct(selected.id),
-                      })
-                    }
-                  >
-                    Delete
-                  </Button>
-                </>
-              )}
-            </>
-          )
-        }
-      >
-        {selected && !editing && (
-          <>
-            <div className="mb-3 flex items-center gap-3">
-              <Badge tone={selected.status === 'active' ? 'green' : 'gray'}>
-                {selected.status === 'active' ? 'Active' : 'Inactive'}
-              </Badge>
-            </div>
-            {selected.image && (
-              <img
-                src={selected.image}
-                alt={selected.name}
-                className="mb-4 h-40 w-full rounded-lg border border-slate-200 object-contain bg-slate-50"
-              />
-            )}
-            <DetailList
-              rows={[
-                { label: 'Code', value: selected.code || '—' },
-                { label: 'Brand', value: selected.brand || '—' },
-                { label: 'Pack', value: selected.pack || '—' },
-                { label: 'Category', value: selected.categoryTitle || '—' },
-                {
-                  label: 'Sub-category',
-                  value: selected.subcategoryLabel || '—',
-                },
-                { label: 'Price', value: formatCurrency(selected.price) },
-                { label: 'MRP', value: formatCurrency(selected.mrp) },
-                {
-                  label: 'Discount',
-                  value: selected.discountLabel || '—',
-                },
-                { label: 'Stock on hand', value: selected.stockQuantity },
-                {
-                  label: 'Prescription',
-                  value: selected.isPrescriptionOnly ? 'Required' : 'Not required',
-                },
-                { label: 'Added', value: formatDate(selected.addedAt) },
-              ]}
-            />
-            <div className="mt-4 rounded-lg border border-slate-200 p-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Home feed rows
-              </p>
-              <div className="space-y-1.5">
-                {(
-                  [
-                    ['isPopular', 'Popular Items'],
-                    ['isDeal', 'Deals You Love'],
-                    ['isOfferOfDay', 'Offer of the Day'],
-                  ] as const
-                ).map(([key, label]) => (
-                  <label
-                    key={key}
-                    className="flex items-center gap-2 text-sm text-slate-700"
-                  >
-                    <input
-                      type="checkbox"
-                      disabled={saving}
-                      checked={selected[key]}
-                      onChange={async (e) => {
-                        setSaving(true);
-                        try {
-                          await updateProductSections(selected.id, {
-                            isPopular: selected.isPopular,
-                            isDeal: selected.isDeal,
-                            isOfferOfDay: selected.isOfferOfDay,
-                            [key]: e.target.checked,
-                          });
-                          reload();
-                        } finally {
-                          setSaving(false);
-                        }
-                      }}
-                    />
-                    {label}
-                  </label>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-lg border border-slate-200 p-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Detail page
-              </p>
-              {selectedDetail === undefined ? (
-                <p className="text-sm text-slate-400">Loading…</p>
-              ) : selectedDetail && selectedDetail.hasDetail ? (
-                <div className="space-y-2 text-sm text-slate-600">
-                  <p>
-                    <span className="font-medium text-slate-700">Custom content</span>{' '}
-                    entered by an admin. Shown in the app; blanks fall back to
-                    auto-generated text.
-                  </p>
-                  {selectedDetail.form && (
-                    <p className="text-xs text-slate-500">
-                      Form: {selectedDetail.form}
-                    </p>
-                  )}
-                  {selectedDetail.description && (
-                    <p className="line-clamp-3 text-xs text-slate-500">
-                      {selectedDetail.description}
-                    </p>
-                  )}
-                  {selectedDetail.faqs.length > 0 && (
-                    <p className="text-xs text-slate-500">
-                      {selectedDetail.faqs.length} FAQ
-                      {selectedDetail.faqs.length === 1 ? '' : 's'}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-400">
-                  Auto-generated by the app from the name and pack. Add custom
-                  content when creating a product.
-                </p>
-              )}
-            </div>
-          </>
-        )}
-
-        {selected && editing && (
-          <div className="space-y-4">
-            <EditField label="Price (₹)">
-              <input
-                inputMode="numeric"
-                value={form.price}
-                onChange={(e) => setForm({ ...form, price: e.target.value })}
-                className={inputClass}
-              />
-            </EditField>
-            <EditField label="Stock on hand">
-              <input
-                inputMode="numeric"
-                value={form.stockQuantity}
-                onChange={(e) =>
-                  setForm({ ...form, stockQuantity: e.target.value })
-                }
-                className={inputClass}
-              />
-            </EditField>
-          </div>
-        )}
-      </Modal>
-
-      <Modal
-        open={adding}
-        onClose={() => setAdding(false)}
-        title="Add product"
-        footer={
-          <>
-            <Button variant="secondary" disabled={saving} onClick={() => setAdding(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" disabled={saving} onClick={saveNew}>
-              Add to catalogue
-            </Button>
-          </>
-        }
-      >
+  // The Add product form is a page of its own, not a pop-up.
+  const addFields = (
         <div className="space-y-4">
           <EditField label="Category">
             <select
@@ -984,7 +725,282 @@ export default function ProductsPage() {
             </p>
           )}
         </div>
+  );
+
+  if (adding) {
+    return (
+      <>
+        <PageHeader
+          title="Add product"
+          subtitle="Fill in the product, then add it to the catalogue."
+          actions={
+            <Button variant="secondary" disabled={saving} onClick={() => setAdding(false)}>
+              Back to catalogue
+            </Button>
+          }
+        />
+
+        <Card>
+          <div className="p-6">{addFields}</div>
+          <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
+            <Button variant="secondary" disabled={saving} onClick={() => setAdding(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" disabled={saving} onClick={saveNew}>
+              Add to catalogue
+            </Button>
+          </div>
+        </Card>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <PageHeader
+        title="Catalogue"
+        subtitle="The storefront and pharmacy-shelf catalogue members buy from."
+        actions={
+          <Button variant="primary" onClick={openAdd}>
+            <Icon name="plus" className="h-4 w-4" /> Add product
+          </Button>
+        }
+      />
+
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Products" value={counts.total} icon="products" tone="blue" />
+        <StatCard label="Active" value={counts.active} icon="check" tone="green" />
+        <StatCard label="Inactive" value={counts.inactive} tone="rose" />
+        <StatCard label="Prescription only" value={counts.rx} tone="amber" />
+      </div>
+
+      <Card>
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
+          <SearchInput
+            value={search}
+            onChange={setSearch}
+            placeholder="Search product, brand, code…"
+          />
+          <div className="flex flex-wrap gap-2">
+            <FilterSelect
+              value={category}
+              onChange={setCategory}
+              options={categoryOptions}
+            />
+            <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
+          </div>
+        </div>
+        <DataTable
+          columns={columns}
+          rows={filtered}
+          loading={loading}
+          error={error}
+          empty="No products match your filters."
+        />
+      </Card>
+
+      <Modal
+        open={Boolean(selected)}
+        onClose={() => setSelectedId(null)}
+        title={selected?.name ?? ''}
+        footer={
+          selected && (
+            <>
+              {editing ? (
+                <>
+                  <Button variant="secondary" disabled={saving} onClick={() => setEditing(false)}>
+                    Cancel
+                  </Button>
+                  <Button variant="primary" disabled={saving} onClick={saveEdit}>
+                    Save changes
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button variant="secondary" onClick={() => setEditing(true)}>
+                    <Icon name="plus" className="h-4 w-4" /> Edit price / stock
+                  </Button>
+                  {selected.status === 'active' ? (
+                    <Button
+                      variant="danger"
+                      disabled={saving}
+                      onClick={() => changeStatus(selected.id, 'inactive')}
+                    >
+                      Deactivate
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="success"
+                      disabled={saving}
+                      onClick={() => changeStatus(selected.id, 'active')}
+                    >
+                      <Icon name="check" className="h-4 w-4" /> Activate
+                    </Button>
+                  )}
+                  <Button
+                    variant="danger"
+                    disabled={saving}
+                    onClick={() =>
+                      ask({
+                        title: 'Delete this product?',
+                        message: `"${selected.name}" will be removed from the catalogue. This cannot be undone.`,
+                        confirmLabel: 'Delete',
+                        danger: true,
+                        onConfirm: () => removeProduct(selected.id),
+                      })
+                    }
+                  >
+                    Delete
+                  </Button>
+                </>
+              )}
+            </>
+          )
+        }
+      >
+        {selected && !editing && (
+          <>
+            <div className="mb-3 flex items-center gap-3">
+              <Badge tone={selected.status === 'active' ? 'green' : 'gray'}>
+                {selected.status === 'active' ? 'Active' : 'Inactive'}
+              </Badge>
+            </div>
+            {selected.image && (
+              <img
+                src={selected.image}
+                alt={selected.name}
+                className="mb-4 h-40 w-full rounded-lg border border-slate-200 object-contain bg-slate-50"
+              />
+            )}
+            <DetailList
+              rows={[
+                { label: 'Code', value: selected.code || '—' },
+                { label: 'Brand', value: selected.brand || '—' },
+                { label: 'Pack', value: selected.pack || '—' },
+                { label: 'Category', value: selected.categoryTitle || '—' },
+                {
+                  label: 'Sub-category',
+                  value: selected.subcategoryLabel || '—',
+                },
+                { label: 'Price', value: formatCurrency(selected.price) },
+                { label: 'MRP', value: formatCurrency(selected.mrp) },
+                {
+                  label: 'Discount',
+                  value: selected.discountLabel || '—',
+                },
+                { label: 'Stock on hand', value: selected.stockQuantity },
+                {
+                  label: 'Prescription',
+                  value: selected.isPrescriptionOnly ? 'Required' : 'Not required',
+                },
+                { label: 'Added', value: formatDate(selected.addedAt) },
+              ]}
+            />
+            <div className="mt-4 rounded-lg border border-slate-200 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Home feed rows
+              </p>
+              <div className="space-y-1.5">
+                {(
+                  [
+                    ['isPopular', 'Popular Items'],
+                    ['isDeal', 'Deals You Love'],
+                    ['isOfferOfDay', 'Offer of the Day'],
+                  ] as const
+                ).map(([key, label]) => (
+                  <label
+                    key={key}
+                    className="flex items-center gap-2 text-sm text-slate-700"
+                  >
+                    <input
+                      type="checkbox"
+                      disabled={saving}
+                      checked={selected[key]}
+                      onChange={async (e) => {
+                        setSaving(true);
+                        try {
+                          await updateProductSections(selected.id, {
+                            isPopular: selected.isPopular,
+                            isDeal: selected.isDeal,
+                            isOfferOfDay: selected.isOfferOfDay,
+                            [key]: e.target.checked,
+                          });
+                          reload();
+                        } finally {
+                          setSaving(false);
+                        }
+                      }}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-lg border border-slate-200 p-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Detail page
+              </p>
+              {selectedDetail === undefined ? (
+                <p className="text-sm text-slate-400">Loading…</p>
+              ) : selectedDetail && selectedDetail.hasDetail ? (
+                <div className="space-y-2 text-sm text-slate-600">
+                  <p>
+                    <span className="font-medium text-slate-700">Custom content</span>{' '}
+                    entered by an admin. Shown in the app; blanks fall back to
+                    auto-generated text.
+                  </p>
+                  {selectedDetail.form && (
+                    <p className="text-xs text-slate-500">
+                      Form: {selectedDetail.form}
+                    </p>
+                  )}
+                  {selectedDetail.description && (
+                    <p className="line-clamp-3 text-xs text-slate-500">
+                      {selectedDetail.description}
+                    </p>
+                  )}
+                  {selectedDetail.faqs.length > 0 && (
+                    <p className="text-xs text-slate-500">
+                      {selectedDetail.faqs.length} FAQ
+                      {selectedDetail.faqs.length === 1 ? '' : 's'}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">
+                  Auto-generated by the app from the name and pack. Add custom
+                  content when creating a product.
+                </p>
+              )}
+            </div>
+          </>
+        )}
+
+        {selected && editing && (
+          <div className="space-y-4">
+            <EditField label="Price (₹)">
+              <input
+                inputMode="numeric"
+                value={form.price}
+                onChange={(e) => setForm({ ...form, price: e.target.value })}
+                className={inputClass}
+              />
+            </EditField>
+            <EditField label="Stock on hand">
+              <input
+                inputMode="numeric"
+                value={form.stockQuantity}
+                onChange={(e) =>
+                  setForm({ ...form, stockQuantity: e.target.value })
+                }
+                className={inputClass}
+              />
+            </EditField>
+          </div>
+        )}
       </Modal>
+
 
       {confirmDialog}
     </>
