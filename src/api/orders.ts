@@ -1,4 +1,5 @@
 import { query } from '@/lib/db';
+import { api } from '@/lib/api';
 import { fromEnum, iso, num } from '@/lib/mappers';
 import type {
   BillLine,
@@ -259,46 +260,23 @@ export async function saveOrderReview(
     newLines: { name: string; pack: string; unitPrice: number; qty: number; status: OrderLineStatus }[];
     storeId: string | null;
   },
+  token: string | null,
 ): Promise<void> {
-  const rows = await query<{ id: unknown }>(
-    `WITH updated AS (
-       UPDATE app.order_line l
-          SET stock_status = v.status::app.order_line_status
-         FROM unnest($1::bigint[], $2::text[]) AS v(id, status)
-        WHERE l.id = v.id AND l.order_id = $3::bigint
-       RETURNING l.id
-     ),
-     inserted AS (
-       INSERT INTO app.order_line (order_id, name, pack, unit_price, qty, stock_status)
-       SELECT $3::bigint, v.name, v.pack, v.unit_price, v.qty, v.status::app.order_line_status
-         FROM unnest($5::text[], $6::text[], $7::numeric[], $8::int[], $9::text[])
-           AS v(name, pack, unit_price, qty, status)
-       RETURNING id
-     )
-     UPDATE app."order"
-        SET store_id = $4::bigint,
-            -- Reflects any lines just added; never touches mrp_total/paid_total —
-            -- those are what the member actually checked out with and paid,
-            -- and stay exactly that regardless of what gets added here.
-            item_count = (SELECT count(*) FROM app.order_line WHERE order_id = $3::bigint)
-                         + (SELECT count(*) FROM inserted),
-            reviewed_at = now(),
-            updated_at = now()
-      WHERE id = $3::bigint
-      RETURNING id`,
-    [
-      input.lines.map((l) => l.id),
-      input.lines.map((l) => l.status.toUpperCase()),
-      id,
-      input.storeId,
-      input.newLines.map((l) => l.name),
-      input.newLines.map((l) => l.pack),
-      input.newLines.map((l) => l.unitPrice),
-      input.newLines.map((l) => l.qty),
-      input.newLines.map((l) => l.status.toUpperCase()),
-    ],
+  await api.patch(
+    `/v1/staff/orders/${id}/review`,
+    {
+      lines: input.lines.map((l) => ({ id: Number(l.id), status: l.status.toUpperCase() })),
+      newLines: input.newLines.map((l) => ({
+        name: l.name,
+        pack: l.pack,
+        unitPrice: l.unitPrice,
+        qty: l.qty,
+        status: l.status.toUpperCase(),
+      })),
+      storeId: input.storeId ? Number(input.storeId) : null,
+    },
+    token,
   );
-  if (!rows.length) throw new Error('This order no longer exists.');
 }
 
 /**
@@ -307,17 +285,8 @@ export async function saveOrderReview(
  * converted) and `reviewed_at` if the order somehow got here without a Submit.
  * A cancelled order can't be billed.
  */
-export async function markOrderConvertedToBill(id: string): Promise<void> {
-  const rows = await query<{ id: unknown }>(
-    `UPDATE app."order"
-        SET converted_to_bill_at = COALESCE(converted_to_bill_at, now()),
-            reviewed_at = COALESCE(reviewed_at, now()),
-            updated_at = now()
-      WHERE id = $1 AND status <> 'CANCELLED'::app.order_status
-      RETURNING id`,
-    [id],
-  );
-  if (!rows.length) throw new Error('A cancelled order cannot be converted to a bill.');
+export async function markOrderConvertedToBill(id: string, token: string | null): Promise<void> {
+  await api.patch(`/v1/staff/orders/${id}/converted-to-bill`, undefined, token);
 }
 
 /**
@@ -326,28 +295,18 @@ export async function markOrderConvertedToBill(id: string): Promise<void> {
  * re-contact never moves the date the member sees. Returns the stamp, or ''
  * when the order is cancelled (nothing to contact them about).
  */
-export async function markOrderStoreContacted(id: string): Promise<string> {
-  const rows = await query<{ store_contacted_at: unknown }>(
-    `UPDATE app."order"
-        SET store_contacted_at = COALESCE(store_contacted_at, now()),
-            updated_at = CASE WHEN store_contacted_at IS NULL THEN now() ELSE updated_at END
-      WHERE id = $1 AND status <> 'CANCELLED'::app.order_status
-      RETURNING store_contacted_at`,
-    [id],
+export async function markOrderStoreContacted(id: string, token: string | null): Promise<string> {
+  const { storeContactedAt } = await api.patch<{ storeContactedAt: string | null }>(
+    `/v1/staff/orders/${id}/store-contacted`,
+    undefined,
+    token,
   );
-  return iso(rows[0]?.store_contacted_at) ?? '';
+  return storeContactedAt ?? '';
 }
 
 /** Completion changes fulfilment only; it never collects money or marks a bill paid. */
-export async function completeBilledOrder(id: string): Promise<void> {
-  const rows = await query<{ id: unknown }>(
-    `UPDATE app."order" o SET status = 'DELIVERED'::app.order_status, updated_at = now()
-       WHERE o.id = $1 AND o.status <> 'CANCELLED'::app.order_status
-         AND EXISTS (SELECT 1 FROM app.bill b WHERE b.order_id = o.id AND b.amount > 0)
-       RETURNING o.id`,
-    [id],
-  );
-  if (!rows.length) throw new Error('Save a priced bill first. Cancelled orders cannot be completed.');
+export async function completeBilledOrder(id: string, token: string | null): Promise<void> {
+  await api.patch(`/v1/staff/orders/${id}/complete`, undefined, token);
 }
 
 /**
@@ -356,21 +315,15 @@ export async function completeBilledOrder(id: string): Promise<void> {
  * store". One row per order: sending again (e.g. "Replace") overwrites it
  * and bumps `sent_at`, rather than piling up a history.
  */
-export async function sendOrderBill(id: string, image: string): Promise<void> {
-  await query(
-    `INSERT INTO app.bill (order_id, image, sent_at, updated_at)
-     VALUES ($1, $2, now(), now())
-     ON CONFLICT (order_id)
-     DO UPDATE SET image = excluded.image, sent_at = now(), updated_at = now()`,
-    [id, image],
-  );
+export async function sendOrderBill(id: string, image: string, token: string | null): Promise<void> {
+  await api.put(`/v1/staff/orders/${id}/picture`, { image }, token);
 }
 
 /** Withdraws a bill sent in error — the member stops seeing it. `app.bill_line`
  *  rows for it are dropped automatically by the `ON DELETE CASCADE` on
  *  `bill_line.bill_id → bill.id`. */
-export async function clearOrderBill(id: string): Promise<void> {
-  await query('DELETE FROM app.bill WHERE order_id = $1', [id]);
+export async function clearOrderBill(id: string, token: string | null): Promise<void> {
+  await api.delete(`/v1/staff/orders/${id}/bill`, token);
 }
 
 /**
@@ -381,6 +334,14 @@ export async function clearOrderBill(id: string): Promise<void> {
  * `sendOrderBill`), replaces its `app.bill_line` rows when `opts.lines` is
  * given, and reflects the priced total onto the order itself so `mrpTotal`
  * shows what was actually billed.
+ */
+/**
+ * The richer invoice path used to price a prescription's intake into a real
+ * bill the member can see and pay — as opposed to {@link sendOrderBill}'s
+ * simple "attach a picture" flow for standard orders. The server upserts the
+ * one bill row with the priced `amount`, replaces its lines when `opts.lines`
+ * is given, and reflects the priced total onto the order (see
+ * `OrderService.sendInvoice` in backend/api). Returns the bill's `sent_at`.
  */
 export async function sendOrderInvoice(
   id: string,
@@ -393,54 +354,17 @@ export async function sendOrderInvoice(
      *  purely the audit trail; 0 when no discount was applied. */
     discountAmount?: number;
   },
+  token: string | null,
 ): Promise<string> {
-  // app.bill.image is NOT NULL (it predates this priced-invoice path, which
-  // often has no picture at all — a prescription bill is built from typed
-  // line items, not a photo). '' is the same "no image" the read side
-  // already treats a blank/whitespace image as (see listOrders/fetchPrescriptions),
-  // so a lineitem-only bill inserts cleanly instead of violating the column.
-  const upserted = await query<{ id: unknown; sent_at: unknown }>(
-    `INSERT INTO app.bill (order_id, image, amount, discount_amount, sent_at, updated_at)
-     VALUES ($1, $2, $3, $4, now(), now())
-     ON CONFLICT (order_id)
-     DO UPDATE SET image = CASE WHEN excluded.image = '' THEN app.bill.image ELSE excluded.image END,
-                   amount = excluded.amount,
-                   discount_amount = excluded.discount_amount,
-                   sent_at = now(),
-                   updated_at = now()
-     RETURNING id, sent_at`,
-    [id, opts.image ?? '', opts.amount, opts.discountAmount ?? 0],
+  const { sentAt } = await api.put<{ sentAt: string }>(
+    `/v1/staff/orders/${id}/invoice`,
+    {
+      image: opts.image ?? '',
+      amount: opts.amount,
+      discountAmount: opts.discountAmount ?? 0,
+      ...(opts.lines ? { lines: opts.lines } : {}),
+    },
+    token,
   );
-
-  let billId = upserted[0]?.id == null ? null : String(upserted[0].id);
-  if (billId === null) {
-    const found = await query<{ id: unknown }>(
-      'SELECT id FROM app.bill WHERE order_id = $1',
-      [id],
-    );
-    billId = found[0]?.id == null ? null : String(found[0].id);
-  }
-
-  if (opts.lines && billId !== null) {
-    await query('DELETE FROM app.bill_line WHERE bill_id = $1', [billId]);
-    for (const line of opts.lines) {
-      await query(
-        `INSERT INTO app.bill_line (bill_id, name, pack, unit_price, qty)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [billId, line.name, line.pack ?? '', line.unitPrice, line.qty],
-      );
-    }
-  }
-
-  await query(
-    // Also keeps the invariant that an order with a priced bill is always
-    // listed on the Bills page, whichever path first billed it.
-    `UPDATE app."order"
-        SET mrp_total = $2,
-            converted_to_bill_at = COALESCE(converted_to_bill_at, now()),
-            updated_at = now()
-      WHERE id = $1`,
-    [id, opts.amount],
-  );
-  return String(upserted[0]?.sent_at ?? '');
+  return sentAt;
 }

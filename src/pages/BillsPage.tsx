@@ -33,7 +33,7 @@ const BILL_OPTIONS = [
  * OTP-gated payment collection all happen from this page.
  */
 export default function BillsPage() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const navigate = useNavigate();
   const { data, loading, error, reload } = useAsync(listOrders, []);
   const rows = useMemo(() => data ?? [], [data]);
@@ -126,7 +126,7 @@ export default function BillsPage() {
     setRowError(null);
     setSavingId(id);
     try {
-      await clearOrderBill(id);
+      await clearOrderBill(id, accessToken);
       reload();
     } catch (err) {
       setRowError({

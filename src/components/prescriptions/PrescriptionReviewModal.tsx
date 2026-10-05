@@ -1297,7 +1297,7 @@ export function PrescriptionReviewModal({
           // The Bills page lists only orders stamped as converted, so
           // this has to land before handing off or the order wouldn't
           // show there.
-          await markOrderConvertedToBill(orderId);
+          await markOrderConvertedToBill(orderId, accessToken);
         } catch (err) {
           setDetailsError(
             err instanceof Error ? err.message : 'Could not convert this order to a bill.',
@@ -1324,7 +1324,7 @@ export function PrescriptionReviewModal({
   async function noteContact() {
     if (!prescription?.orderId || contactedAt) return;
     try {
-      const at = await markOrderStoreContacted(prescription.orderId);
+      const at = await markOrderStoreContacted(prescription.orderId, accessToken);
       if (at) {
         setContactMarkedAt(at);
         onSaved();

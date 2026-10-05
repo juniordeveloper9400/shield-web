@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { completeBilledOrder } from '@/api/orders';
+import { useAuth } from '@/context/AuthContext';
 import { formatDateTime } from '@/lib/format';
 import { buildInvoice, canCompleteInvoice, downloadInvoice, invoiceWhatsAppUrl, formatInvoiceCurrency as formatCurrency, type Invoice } from '@/lib/invoice';
 import type { Order, Store } from '@/types';
@@ -58,6 +59,7 @@ export function InvoiceModal({ order, store, open, onClose, onCompleted }: {
   order: Order; store: Store | undefined; open: boolean; onClose: () => void;
   onCompleted?: () => void;
 }) {
+  const { accessToken } = useAuth();
   const [completedId, setCompletedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const completing = useRef(false);
@@ -85,7 +87,7 @@ export function InvoiceModal({ order, store, open, onClose, onCompleted }: {
     if (completing.current || !canCompleteInvoice(currentOrder)) return;
     completing.current = true; setBusy(true); setError(null);
     try {
-      await completeBilledOrder(order.id);
+      await completeBilledOrder(order.id, accessToken);
       setCompletedId(order.id);
       onCompleted?.();
     } catch (err) { setError(err instanceof Error ? err.message : 'Could not complete the order.'); }

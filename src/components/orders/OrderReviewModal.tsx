@@ -250,7 +250,7 @@ export function OrderReviewModal({
             status: l.status,
           })),
         storeId: storeId || null,
-      });
+      }, accessToken);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save this order.');
@@ -294,7 +294,7 @@ export function OrderReviewModal({
     setError(null);
     try {
       if (!(await saveAll())) return;
-      await markOrderConvertedToBill(order.id);
+      await markOrderConvertedToBill(order.id, accessToken);
       onSaved();
       onClose();
     } catch (err) {
@@ -311,7 +311,7 @@ export function OrderReviewModal({
   async function noteContact() {
     if (closed || contactedAt) return;
     try {
-      const at = await markOrderStoreContacted(order.id);
+      const at = await markOrderStoreContacted(order.id, accessToken);
       if (at) {
         setContactedAt(at);
         onSaved();

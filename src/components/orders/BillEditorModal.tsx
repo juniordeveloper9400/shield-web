@@ -530,7 +530,7 @@ export function BillEditorModal({
         amount: netTotal,
         lines: namedLines,
         discountAmount: discount,
-      });
+      }, accessToken);
       setSavedDiscount(discount);
       onSaved();
       setBillSent(true);
@@ -555,7 +555,7 @@ export function BillEditorModal({
     setCompleting(true);
     setCompleteError(null);
     try {
-      await completeBilledOrder(order.id);
+      await completeBilledOrder(order.id, accessToken);
       setCompleted(true);
       onSaved();
     } catch (err) {
