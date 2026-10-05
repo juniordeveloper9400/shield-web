@@ -330,6 +330,22 @@ export async function updatePrescriptionBranch(
 }
 
 /**
+ * Admin removal of a prescription (`deleted_at`), the same soft delete the
+ * member's own Delete does — but not subject to the member's lock, since the
+ * store may remove a script at any stage. Its order, if any, is untouched:
+ * cancel that separately. Returns false when it was already gone.
+ */
+export async function deletePrescription(id: string): Promise<boolean> {
+  const rows = await query<{ id: unknown }>(
+    `UPDATE app.prescription SET deleted_at = now(), updated_at = now()
+      WHERE id = $1 AND deleted_at IS NULL
+      RETURNING id`,
+    [id],
+  );
+  return rows.length > 0;
+}
+
+/**
  * Sets how this prescription's order reaches the member — home delivery or
  * store pickup (`app."order".fulfillment_type`). The member's own choice at
  * checkout is the default; this is the reviewer's override. Only an order

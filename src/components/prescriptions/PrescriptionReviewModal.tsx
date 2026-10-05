@@ -36,6 +36,7 @@ import {
   savePrescriptionIntake,
   setPrescriptionImageRotation,
   setPrescriptionStatus,
+  deletePrescription,
   updatePrescriptionBranch,
   updatePrescriptionFulfillment,
   updatePrescriptionDetails,
@@ -56,6 +57,7 @@ import {
   prescriptionLifecycleStatus,
 } from '@/lib/orderLifecycle';
 import { useAuth } from '@/context/AuthContext';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import type {
   FulfillmentType,
   MemberPatient,
@@ -218,6 +220,7 @@ export function PrescriptionReviewModal({
   const [patientId, setPatientId] = useState('');
   const [storeId, setStoreId] = useState('');
   const [fulfillment, setFulfillment] = useState<FulfillmentType>('home_delivery');
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
   const [detailsError, setDetailsError] = useState<string | null>(null);
 
   // "Complete order" — separate from payment collection, which now happens
@@ -1367,6 +1370,60 @@ export function PrescriptionReviewModal({
     }
   }
 
+  /** The store's own cancel/delete — the member can do neither once the store
+   *  has started on the order, so these are the only way to pull it back. */
+  async function cancelLinkedOrder() {
+    if (!prescription?.orderId) return;
+    await setOrderStatus(prescription.orderId, 'cancelled', accessToken);
+    onSaved();
+    onClose();
+  }
+
+  async function removePrescription() {
+    if (!prescription) return;
+    await deletePrescription(prescription.id);
+    onSaved();
+    onClose();
+  }
+
+  const lifecycle = prescription ? prescriptionLifecycleStatus(prescription) : 'pending';
+  const adminActions = prescription ? (
+    <>
+      {prescription.orderId && lifecycle !== 'cancelled' && lifecycle !== 'completed' && (
+        <Button
+          variant="danger"
+          disabled={sending || saving}
+          onClick={() =>
+            ask({
+              title: 'Cancel this order?',
+              message: `The order for ${prescription.code} will be marked cancelled and the member will see it as cancelled. This cannot be undone.`,
+              confirmLabel: 'Cancel order',
+              danger: true,
+              onConfirm: cancelLinkedOrder,
+            })
+          }
+        >
+          Cancel order
+        </Button>
+      )}
+      <Button
+        variant="danger"
+        disabled={sending || saving}
+        onClick={() =>
+          ask({
+            title: 'Delete this prescription?',
+            message: `${prescription.code} will be removed from the member’s app and from this list. Its order, if any, is not cancelled — cancel that separately.`,
+            confirmLabel: 'Delete prescription',
+            danger: true,
+            onConfirm: removePrescription,
+          })
+        }
+      >
+        Delete prescription
+      </Button>
+    </>
+  ) : null;
+
   const draftHasRows = draft.some((r) => r.name.trim().length > 0);
 
   // Can this prescription's order be billed at all -- the same "at least
@@ -1438,6 +1495,7 @@ export function PrescriptionReviewModal({
           prescription &&
           (step === 'intake' ? (
             <>
+              {adminActions}
               {prescription.status !== 'awaiting_review' && (
                 <Button
                   variant="secondary"
@@ -1457,6 +1515,7 @@ export function PrescriptionReviewModal({
             </>
           ) : (
             <>
+              {adminActions}
               <Button
                 variant="secondary"
                 disabled={sending}
@@ -2170,6 +2229,7 @@ export function PrescriptionReviewModal({
             );
           })()}
       </Modal>
+      {confirmDialog}
     </>
   );
 }

@@ -7,7 +7,8 @@ import { formatInvoiceCurrency as formatCurrency } from '@/lib/invoice';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { useAsync } from '@/lib/useAsync';
 import { useAuth } from '@/context/AuthContext';
-import { completeBilledOrder, sendOrderInvoice } from '@/api/orders';
+import { completeBilledOrder, getOrder, sendOrderInvoice } from '@/api/orders';
+import { ReceivePaymentModal } from './ReceivePaymentModal';
 import {
   collectBillWithWallet,
   getMonthlyRedeemableForOrder,
@@ -179,9 +180,19 @@ export function BillEditorModal({
   const [otpCode, setOtpCode] = useState('');
   const [otpBusy, setOtpBusy] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
-  const [collected, setCollected] = useState<{ walletAmount: number; cashAmount: number } | null>(
-    null,
-  );
+  // `cashAmount` is what is still owed after the wallet; the bill is only paid
+  // (`settled`) once that is zero.
+  const [collected, setCollected] = useState<{
+    walletAmount: number;
+    cashAmount: number;
+    settled: boolean;
+  } | null>(null);
+  // The Manual cash Receive panel, offered after the wallet debit when cash is
+  // still owed. Holds a freshly loaded order (the one on this modal predates
+  // the wallet debit). Skippable: the bill then waits on Bills → Manual cash.
+  const [receiveOrder, setReceiveOrder] = useState<Order | null>(null);
+  const [receiveLoading, setReceiveLoading] = useState(false);
+  const [receiveError, setReceiveError] = useState<string | null>(null);
   // Whether the OTP-verification popover is open — shown automatically the
   // moment a bill actually gets sent (see `submit()`), or reopened by hand
   // from "Collect payment" if the admin closed it before finishing.
@@ -248,7 +259,11 @@ export function BillEditorModal({
         setOtpError(result.reason);
         return;
       }
-      setCollected({ walletAmount: result.walletAmount, cashAmount: result.cashAmount });
+      setCollected({
+        walletAmount: result.walletAmount,
+        cashAmount: result.cashAmount,
+        settled: result.settled,
+      });
       setOtpConfirmation(null);
       setOtpCode('');
       onSaved();
@@ -262,6 +277,24 @@ export function BillEditorModal({
       setOtpBusy(false);
     }
   }
+  async function openReceive() {
+    if (receiveLoading) return;
+    setReceiveLoading(true);
+    setReceiveError(null);
+    try {
+      const fresh = await getOrder(order.id, accessToken);
+      if (!fresh) {
+        setReceiveError('Could not load this bill. Receive it from Bills → Manual cash instead.');
+        return;
+      }
+      setReceiveOrder(fresh);
+    } catch (err) {
+      setReceiveError(err instanceof Error ? err.message : 'Could not load this bill.');
+    } finally {
+      setReceiveLoading(false);
+    }
+  }
+
   const [lines, setLines] = useState<BillLineDraft[]>(() =>
     order.billLines.length > 0
       ? order.billLines
@@ -370,7 +403,7 @@ export function BillEditorModal({
   // session's own confirmation) and `order.paymentStatus` both independently
   // being able to say "paid" is exactly what closes that gap.
   const effectiveBillStatus: PaymentStatus =
-    collected || order.paymentStatus === 'paid' ? 'paid' : order.billStatus;
+    collected?.settled || order.paymentStatus === 'paid' ? 'paid' : order.billStatus;
   // Fully done in every sense — paid AND handed off. Once true, there's
   // nothing left for "Send/Resend cash redemption request" to do, so the
   // footer locks it instead of offering to resend an already-settled bill.
@@ -972,7 +1005,7 @@ export function BillEditorModal({
       )}
     </Modal>
     <Modal
-      open={showOtpPopover}
+      open={showOtpPopover && !receiveOrder}
       // Once collected, ANY way of dismissing this (the footer button, the
       // X, Escape, or a backdrop click — Modal's own `onClose` covers all
       // of them) closes the whole bill editor rather than merely hiding the
@@ -983,9 +1016,20 @@ export function BillEditorModal({
       title="Verify OTP to collect payment"
       footer={
         collected ? (
-          <Button size="sm" onClick={onClose}>
-            Done
-          </Button>
+          collected.settled ? (
+            <Button size="sm" onClick={onClose}>
+              Done
+            </Button>
+          ) : (
+            <>
+              <Button variant="secondary" size="sm" onClick={onClose}>
+                Skip for now
+              </Button>
+              <Button size="sm" disabled={receiveLoading} onClick={() => void openReceive()}>
+                {receiveLoading ? 'Loading…' : `Receive ${formatCurrency(collected.cashAmount)}`}
+              </Button>
+            </>
+          )
         ) : (
           <Button variant="secondary" size="sm" onClick={() => setShowOtpPopover(false)}>
             Close
@@ -998,13 +1042,24 @@ export function BillEditorModal({
           <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
             <Icon name="check" className="h-8 w-8 text-emerald-600" />
           </span>
-          <p className="text-sm font-medium text-emerald-700">
-            Collected —{' '}
-            {collected.walletAmount > 0 && `${formatCurrency(collected.walletAmount)} from wallet`}
-            {collected.walletAmount > 0 && collected.cashAmount > 0 && ' + '}
-            {collected.cashAmount > 0 && `${formatCurrency(collected.cashAmount)} in cash`}
-            . This bill is paid.
-          </p>
+          {collected.settled ? (
+            <p className="text-sm font-medium text-emerald-700">
+              Collected — {formatCurrency(collected.walletAmount)} from wallet. This bill is paid.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-emerald-700">
+                {collected.walletAmount > 0
+                  ? `${formatCurrency(collected.walletAmount)} was debited from the member’s wallet.`
+                  : 'The member’s wallet had nothing to debit.'}
+              </p>
+              <p className="text-sm font-medium text-amber-700">
+                {formatCurrency(collected.cashAmount)} is still owed — receive it as GPay or cash now, or skip
+                and take it later from Bills → Manual cash.
+              </p>
+              {receiveError && <p className="text-xs text-rose-600">{receiveError}</p>}
+            </>
+          )}
         </div>
       ) : (
         <>
@@ -1012,7 +1067,10 @@ export function BillEditorModal({
             A one-time code was sent to {order.memberPhone}. Enter what the
             member reads out to you — once it checks out,{' '}
             {formatCurrency(walletCoverage)} is debited from their wallet
-            automatically and {formatCurrency(cashOwed)} is collected in cash.
+            automatically.{' '}
+            {cashOwed > 0
+              ? `The remaining ${formatCurrency(cashOwed)} is then received as GPay or cash — or skipped and taken later from Manual cash.`
+              : 'The bill is then paid in full.'}
           </p>
           {otpBusy && !otpConfirmation ? (
             <p className="text-sm text-slate-500">Sending code…</p>
@@ -1050,6 +1108,19 @@ export function BillEditorModal({
         </>
       )}
     </Modal>
+    {receiveOrder && (
+      <ReceivePaymentModal
+        order={receiveOrder}
+        open
+        onClose={() => setReceiveOrder(null)}
+        onSaved={({ settled, remaining }) => {
+          setCollected((c) =>
+            c ? { ...c, cashAmount: settled ? 0 : remaining, settled } : c,
+          );
+          onSaved();
+        }}
+      />
+    )}
     </>
   );
 }

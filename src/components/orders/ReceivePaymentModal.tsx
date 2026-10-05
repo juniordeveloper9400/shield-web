@@ -38,8 +38,10 @@ export function ReceivePaymentModal({
   order: Order;
   open: boolean;
   onClose: () => void;
-  /** Called after a payment is recorded, so the list can refresh. */
-  onSaved: () => void;
+  /** Called after a payment is recorded, so the list can refresh. `settled`
+   *  is true when it covered everything still owed; `remaining` is what is
+   *  left otherwise. */
+  onSaved: (result: { settled: boolean; remaining: number }) => void;
 }) {
   const { accessToken } = useAuth();
   const owed = cashPendingOf(order);
@@ -88,7 +90,7 @@ export function ReceivePaymentModal({
         setError(result.reason);
         return;
       }
-      onSaved();
+      onSaved({ settled: result.settled, remaining: Number(result.remaining) });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not record the payment.');

@@ -100,9 +100,11 @@ export async function getMonthlyRedeemableForOrder(orderId: string): Promise<num
  * kept for the record). A wallet with nothing in it collects the bill
  * entirely in cash; a wallet that covers it in full collects entirely from
  * the wallet, same as this function's own previous, wallet-only behaviour.
- * Either way the bill is marked PAID the moment this returns `ok`, since
- * the cash portion (if any) is handed over in person at the same moment the
- * admin clicks this — there is no "pay the cash part later" state.
+ * The bill is marked PAID here only when the wallet covered all of it
+ * (`settled`). Anything the wallet could not cover comes back as `cashAmount`
+ * — still owed, NOT assumed collected — and the bill stays unpaid until the
+ * counter records it through [receiveBillPayment] (the Manual cash Receive
+ * panel), or it waits on the Manual cash list.
  *
  * Now `PATCH /v1/staff/orders/:id/collect-wallet`
  * (`OrderService.collectBillWithWallet`, backend/api) — a Drizzle
@@ -131,7 +133,8 @@ export async function collectBillWithWallet(
   orderId: string,
   token: string | null,
 ): Promise<
-  { ok: true; walletAmount: number; cashAmount: number } | { ok: false; reason: string }
+  | { ok: true; walletAmount: number; cashAmount: number; settled: boolean }
+  | { ok: false; reason: string }
 > {
   return api.patch(`/v1/staff/orders/${orderId}/collect-wallet`, undefined, token);
 }
