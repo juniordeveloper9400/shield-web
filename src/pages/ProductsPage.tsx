@@ -10,6 +10,7 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { DetailList } from '@/components/ui/DetailList';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { Icon } from '@/components/ui/Icon';
+import { Tabs, type TabItem } from '@/components/ui/Tabs';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { fileToResizedDataUrl } from '@/lib/images';
 import { useAsync } from '@/lib/useAsync';
@@ -31,6 +32,16 @@ import type {
   ProductDetailInput,
   ProductStatus,
 } from '@/types';
+
+/** The catalogue's tabs: every product, then one per home-feed row the app
+ *  shows (the same three flags the product form's "Home feed rows" sets). */
+type SectionTab = 'all' | 'isPopular' | 'isDeal' | 'isOfferOfDay';
+const SECTION_TABS: { key: SectionTab; label: string }[] = [
+  { key: 'all', label: 'All products' },
+  { key: 'isPopular', label: 'Popular Items' },
+  { key: 'isDeal', label: 'Deals You Love' },
+  { key: 'isOfferOfDay', label: 'Offer of the Day' },
+];
 
 const EMPTY_DETAIL: ProductDetailInput = {
   form: '',
@@ -80,6 +91,7 @@ export default function ProductsPage() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [category, setCategory] = useState('all');
+  const [section, setSection] = useState<SectionTab>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -180,9 +192,20 @@ export default function ProductsPage() {
     ];
   }, [rows]);
 
+  const sectionTabs: TabItem[] = useMemo(
+    () =>
+      SECTION_TABS.map(({ key, label }) => ({
+        key,
+        label,
+        count: key === 'all' ? rows.length : rows.filter((p) => p[key]).length,
+      })),
+    [rows],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((row) => {
+      if (section !== 'all' && !row[section]) return false;
       const matchesQuery =
         !q ||
         row.name.toLowerCase().includes(q) ||
@@ -193,7 +216,7 @@ export default function ProductsPage() {
         category === 'all' || row.categorySlug === category;
       return matchesQuery && matchesStatus && matchesCategory;
     });
-  }, [rows, search, status, category]);
+  }, [rows, search, status, category, section]);
 
   function open(id: string) {
     const product = rows.find((r) => r.id === id);
@@ -775,6 +798,13 @@ export default function ProductsPage() {
       </div>
 
       <Card>
+        <div className="px-4 pt-3">
+          <Tabs
+            items={sectionTabs}
+            active={section}
+            onChange={(key) => setSection(key as SectionTab)}
+          />
+        </div>
         <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
           <SearchInput
             value={search}
@@ -795,7 +825,11 @@ export default function ProductsPage() {
           rows={filtered}
           loading={loading}
           error={error}
-          empty="No products match your filters."
+          empty={
+            section === 'all'
+              ? 'No products match your filters.'
+              : `No products in “${SECTION_TABS.find((t) => t.key === section)?.label}” match your filters.`
+          }
         />
       </Card>
 
