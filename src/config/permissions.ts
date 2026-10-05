@@ -181,15 +181,14 @@ const APP_MODULES: ModuleKey[] = [
 ];
 
 export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
-  // 'commission_reserve' is deliberately not in APP_MODULES (which admin
-  // gets too) — it's the company's own share of every agent commission
-  // split, not something an Admin reviewing activations needs to see.
+  // 'commission_reserve' is the company's reserve, split by store: an admin
+  // sees every store, a branch's pharmacy admin only its own.
   superadmin: [...APP_MODULES, 'admins', 'commission_reserve'],
-  admin: [...APP_MODULES],
+  admin: [...APP_MODULES, 'commission_reserve'],
   // 'lab_orders' added so a branch's own admin can see that lab bookings
   // exist for their store, the same as any other order — LabOrdersPage
   // itself redacts the patient/test detail for this role; see its own doc.
-  pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries', 'lab_orders'],
+  pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries', 'lab_orders', 'commission_reserve'],
   lab: ['dashboard', 'stores', 'lab_orders', 'lab_bills', 'lab_tests'],
   appointments: ['dashboard', 'appointments'],
   delivery: ['dashboard', 'deliveries'],
