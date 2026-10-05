@@ -10,8 +10,15 @@ export function cashPendingOf(bill: {
   billAmount: number;
   billWalletCollected: number;
   billCashCollected: number;
+  billGpayCollected?: number;
 }): number {
-  return Math.max(bill.billAmount - bill.billWalletCollected - bill.billCashCollected, 0);
+  return Math.max(
+    bill.billAmount -
+      bill.billWalletCollected -
+      bill.billCashCollected -
+      (bill.billGpayCollected ?? 0),
+    0,
+  );
 }
 
 /**

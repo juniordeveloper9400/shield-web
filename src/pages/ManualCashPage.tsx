@@ -23,7 +23,7 @@ import type { Order } from '@/types';
 export default function ManualCashPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { data, loading, error } = useAsync(listOrders, []);
+  const { data, loading, error, reload } = useAsync(listOrders, []);
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
@@ -173,6 +173,7 @@ export default function ManualCashPage() {
           order={receiving}
           open={Boolean(receiving)}
           onClose={() => setReceiving(null)}
+          onSaved={reload}
         />
       )}
     </>

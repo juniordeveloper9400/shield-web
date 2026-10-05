@@ -113,6 +113,20 @@ export async function getMonthlyRedeemableForOrder(orderId: string): Promise<num
  * helpers above stay on direct Neon for now — only the write that actually
  * moves money is migrated in this slice.
  */
+/**
+ * Records money the counter takes against a priced bill — GPay and/or cash,
+ * as it arrives (`PATCH /v1/staff/orders/:id/receive`, migration 0071). The
+ * server refuses an amount above what is still owed, and marks the bill PAID
+ * once it is covered; nothing here is written until that call succeeds.
+ */
+export async function receiveBillPayment(
+  orderId: string,
+  amounts: { cash: number; gpay: number },
+  token: string | null,
+): Promise<{ ok: true; settled: boolean; remaining: string } | { ok: false; reason: string }> {
+  return api.patch(`/v1/staff/orders/${orderId}/receive`, amounts, token);
+}
+
 export async function collectBillWithWallet(
   orderId: string,
   token: string | null,

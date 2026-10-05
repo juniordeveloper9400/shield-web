@@ -433,6 +433,8 @@ export interface Order {
   /** How much the counter took in cash at collection — 0 until collected.
    *  `app.bill.cash_collected`. */
   billCashCollected: number;
+  /** How much the counter took by GPay — kept apart from cash. `app.bill.gpay_collected` (migration 0071). */
+  billGpayCollected: number;
   billStatus: PaymentStatus;
   billLines: BillLine[];
   /** What's actually supposed to end up on this order's bill, by name — a

@@ -67,3 +67,18 @@ test('a prescription medicine is selected unless the counter marked it not possi
   assert.equal(isSelectedForBill('prescription', 'out_of_stock'), true);
   assert.equal(isSelectedForBill('prescription', 'not_possible'), false);
 });
+
+test('GPay received counts against what is still owed, same as cash', () => {
+  assert.equal(
+    cashPendingOf({ billAmount: 500, billWalletCollected: 0, billCashCollected: 0, billGpayCollected: 300 }),
+    200,
+  );
+  assert.equal(
+    cashPendingOf({ billAmount: 500, billWalletCollected: 0, billCashCollected: 200, billGpayCollected: 300 }),
+    0,
+  );
+  assert.equal(
+    cashPendingOf({ billAmount: 100, billWalletCollected: 0, billCashCollected: 0, billGpayCollected: 150 }),
+    0,
+  );
+});

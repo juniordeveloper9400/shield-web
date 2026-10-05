@@ -4,6 +4,8 @@ import { Badge, type Tone } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { formatCurrency } from '@/lib/format';
 import { cashPendingOf, receiveHeading } from '@/lib/billCash';
+import { useAuth } from '@/context/AuthContext';
+import { receiveBillPayment } from '@/api/billPayments';
 import type { Order } from '@/types';
 
 const HEADING_TONE: Record<ReturnType<typeof receiveHeading>, Tone> = {
@@ -14,43 +16,58 @@ const HEADING_TONE: Record<ReturnType<typeof receiveHeading>, Tone> = {
 
 type Method = 'gpay' | 'cash';
 
+/** Whole rupees and paise as typed — anything else is dropped as it's entered. */
+function parseAmount(raw: string): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
 /**
- * The Receive panel for one priced bill: its status at the top, and the
- * payment method at the bottom — GPay, Cash, or both, each with an amount
- * the counter types in. Display-level for now: nothing typed here is written
- * to the bill, and no UPI payment is initiated or verified.
+ * The Receive panel for one priced bill — the Manual cash "closing" step.
+ * The counter picks GPay, cash, or both and types what arrived; "Record
+ * payment" writes it to the bill (`PATCH /v1/staff/orders/:id/receive`). The
+ * server refuses anything above what is still owed, and marks the bill PAID
+ * once it is covered. Nothing is written until that call succeeds.
  */
 export function ReceivePaymentModal({
   order,
   open,
   onClose,
+  onSaved,
 }: {
   order: Order;
   open: boolean;
   onClose: () => void;
+  /** Called after a payment is recorded, so the list can refresh. */
+  onSaved: () => void;
 }) {
-  const total = order.billAmount;
+  const { accessToken } = useAuth();
+  const owed = cashPendingOf(order);
   const [chosen, setChosen] = useState<Set<Method>>(new Set());
   const [amounts, setAmounts] = useState<Record<Method, string>>({ gpay: '', cash: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const heading = receiveHeading(order);
-  const entered = (['gpay', 'cash'] as Method[])
-    .filter((m) => chosen.has(m))
-    .reduce((sum, m) => sum + (Number(amounts[m]) || 0), 0);
-  const remaining = Math.max(total - entered, 0);
-  const owedInCash = cashPendingOf(order);
+  const gpay = chosen.has('gpay') ? parseAmount(amounts.gpay) : 0;
+  const cash = chosen.has('cash') ? parseAmount(amounts.cash) : 0;
+  const entered = gpay + cash;
+  const remaining = Math.max(owed - entered, 0);
+  const overBy = entered > owed;
+  const canSave = entered > 0 && !overBy && !saving;
 
   function toggle(method: Method) {
+    setError(null);
     setChosen((prev) => {
       const next = new Set(prev);
       if (next.has(method)) {
         next.delete(method);
       } else {
         next.add(method);
-        // A lone method starts with the whole amount still owed, so the
-        // counter only has to change it when the split is not even.
+        // A lone method starts with everything still owed, so the counter only
+        // changes it when the split is not even.
         if (next.size === 1) {
-          setAmounts((a) => ({ ...a, [method]: String(total) }));
+          setAmounts((a) => ({ ...a, [method]: String(owed) }));
         }
       }
       return next;
@@ -58,7 +75,26 @@ export function ReceivePaymentModal({
   }
 
   function setAmount(method: Method, value: string) {
+    setError(null);
     setAmounts((a) => ({ ...a, [method]: value.replace(/[^0-9.]/g, '') }));
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const result = await receiveBillPayment(order.id, { cash, gpay }, accessToken);
+      if (!result.ok) {
+        setError(result.reason);
+        return;
+      }
+      onSaved();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not record the payment.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -72,11 +108,11 @@ export function ReceivePaymentModal({
         <div className="grid grid-cols-2 gap-3 rounded-lg bg-slate-50 p-3 text-sm">
           <div>
             <p className="text-slate-500">Bill total</p>
-            <p className="font-medium text-slate-800">{formatCurrency(total)}</p>
+            <p className="font-medium text-slate-800">{formatCurrency(order.billAmount)}</p>
           </div>
           <div>
-            <p className="text-slate-500">Still owed in cash</p>
-            <p className="font-medium text-slate-800">{formatCurrency(owedInCash)}</p>
+            <p className="text-slate-500">Still owed</p>
+            <p className="font-medium text-slate-800">{formatCurrency(owed)}</p>
           </div>
         </div>
 
@@ -128,16 +164,28 @@ export function ReceivePaymentModal({
               remaining <span className="font-medium">{formatCurrency(remaining)}</span>
             </p>
           )}
+          {overBy && (
+            <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+              That is more than the {formatCurrency(owed)} still owed.
+            </p>
+          )}
         </div>
 
+        {error && (
+          <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
+        )}
+
         <p className="text-xs text-slate-400">
-          Shown here for the counter's own record. Amounts typed here are not
-          written to the bill yet.
+          Recorded against the bill when you press Record payment. The bill is
+          marked paid once everything owed has been received.
         </p>
 
-        <div className="flex justify-end">
-          <Button variant="secondary" onClick={onClose}>
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
             Close
+          </Button>
+          <Button variant="primary" onClick={save} disabled={!canSave}>
+            {saving ? 'Recording…' : 'Record payment'}
           </Button>
         </div>
       </div>
