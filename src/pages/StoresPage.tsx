@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { AdminWhatsAppCard } from '@/components/stores/AdminWhatsAppCard';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
@@ -428,6 +429,8 @@ export default function StoresPage() {
           tone="violet"
         />
       </div>
+
+      <AdminWhatsAppCard />
 
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
