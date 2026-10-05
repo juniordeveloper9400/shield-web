@@ -120,6 +120,31 @@ export async function confirmDeliveryOtp(
   void credential;
 }
 
+/**
+ * Like [confirmDeliveryOtp], but returns the Firebase ID token the confirmed
+ * code produced instead of discarding it. For actions the *server* must
+ * enforce — it verifies the token (signature, phone number, `auth_time`
+ * freshness) itself, so a browser cannot claim a code was entered. Still a
+ * throwaway verification: the sign-in is dropped straight after the token is
+ * read, never kept as a session.
+ */
+export async function confirmOtpForIdToken(
+  confirmation: ConfirmationResult,
+  code: string,
+): Promise<string> {
+  if (!/^\d{6}$/.test(code.trim())) {
+    throw Object.assign(new Error('Enter the six-digit SMS code.'), {
+      code: 'auth/invalid-verification-code',
+    });
+  }
+  const credential = await confirmation.confirm(code.trim());
+  try {
+    return await credential.user.getIdToken(true);
+  } finally {
+    await getAuth(otpApp()).signOut();
+  }
+}
+
 /** Firebase's own error code → what to tell the person holding the bill. */
 export function describeOtpError(
   error: unknown,
