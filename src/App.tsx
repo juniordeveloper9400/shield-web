@@ -26,6 +26,7 @@ import LabsPage from '@/pages/LabsPage';
 import AccountsPage from '@/pages/AccountsPage';
 import AgentWithdrawalsPage from '@/pages/AgentWithdrawalsPage';
 import CommissionReservePage from '@/pages/CommissionReservePage';
+import LedgerPage from '@/pages/LedgerPage';
 import AdminsPage from '@/pages/AdminsPage';
 import DeliveriesPage from '@/pages/DeliveriesPage';
 import UsersPage from '@/pages/UsersPage';
@@ -221,6 +222,14 @@ export default function App() {
           element={
             <ProtectedRoute module="commission_reserve">
               <CommissionReservePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/ledger"
+          element={
+            <ProtectedRoute module="ledger">
+              <LedgerPage />
             </ProtectedRoute>
           }
         />

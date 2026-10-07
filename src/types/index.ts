@@ -46,7 +46,8 @@ export type ModuleKey =
   | 'accounts'
   | 'admins'
   | 'deliveries'
-  | 'commission_reserve';
+  | 'commission_reserve'
+  | 'ledger';
 
 export type AccountStatus = 'active' | 'suspended';
 

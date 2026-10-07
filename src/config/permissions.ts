@@ -151,6 +151,13 @@ export const MODULES: NavItem[] = [
     icon: 'accounts',
     description: "The company's own share of every Health Pass activation (8%)",
   },
+  {
+    key: 'ledger',
+    label: 'Ledger',
+    path: '/ledger',
+    icon: 'accounts',
+    description: 'Double-entry journal — provisional, pending accountant review',
+  },
 ];
 
 /**
@@ -183,8 +190,8 @@ const APP_MODULES: ModuleKey[] = [
 export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   // 'commission_reserve' is the company's reserve, split by store: an admin
   // sees every store, a branch's pharmacy admin only its own.
-  superadmin: [...APP_MODULES, 'admins', 'commission_reserve'],
-  admin: [...APP_MODULES, 'commission_reserve'],
+  superadmin: [...APP_MODULES, 'admins', 'commission_reserve', 'ledger'],
+  admin: [...APP_MODULES, 'commission_reserve', 'ledger'],
   // 'lab_orders' added so a branch's own admin can see that lab bookings
   // exist for their store, the same as any other order — LabOrdersPage
   // itself redacts the patient/test detail for this role; see its own doc.
