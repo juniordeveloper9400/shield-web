@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
@@ -50,24 +50,17 @@ export default function LedgerPage() {
   const canClosePeriods = user?.role === 'superadmin';
 
   const entities = useAsync(() => getLedgerEntities(accessToken), [accessToken]);
+  // null = "All entities" — a real, selectable view, not just a loading
+  // placeholder, so this is also the default: every entity's figures
+  // combined until a specific one is picked.
   const [entityId, setEntityId] = useState<number | null>(null);
   const [period, setPeriod] = useState(currentPeriod());
   const [accountType, setAccountType] = useState('');
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
 
-  // Default to the first entity once the list loads.
-  useEffect(() => {
-    if (entityId === null && entities.data && entities.data.length > 0) {
-      setEntityId(entities.data[0].id);
-    }
-  }, [entities.data, entityId]);
-
   const balance = useAsync(
-    () =>
-      entityId === null
-        ? Promise.resolve<TrialBalanceRow[]>([])
-        : getTrialBalance(accessToken, { entityId, period, type: accountType || undefined }),
+    () => getTrialBalance(accessToken, { entityId: entityId ?? undefined, period, type: accountType || undefined }),
     [accessToken, entityId, period, accountType],
   );
 
@@ -154,10 +147,12 @@ export default function LedgerPage() {
     },
   ];
 
-  const entityOptions = (entities.data ?? []).map((e: LedgerEntity) => ({
-    value: String(e.id),
-    label: e.isProvisional ? `${e.name} (provisional)` : e.name,
-  }));
+  // Entity names already carry "(provisional entity)"/"(provisional)" in
+  // their own text (migration 0074's backfill) — not appended again here.
+  const entityOptions = [
+    { value: '', label: 'All entities' },
+    ...(entities.data ?? []).map((e: LedgerEntity) => ({ value: String(e.id), label: e.name })),
+  ];
 
   return (
     <>
@@ -217,7 +212,7 @@ export default function LedgerPage() {
           rows={balanceRows}
           loading={balance.loading || entities.loading}
           error={balance.error}
-          empty={entityId === null ? 'No legal entity exists yet.' : 'Nothing posted for this entity and month yet.'}
+          empty="Nothing posted for this selection and month yet."
         />
         {(balance.data?.length ?? 0) > 0 && (
           <div className="flex justify-end gap-6 border-t border-slate-200 px-4 py-3 text-sm">
