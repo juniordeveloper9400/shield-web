@@ -7,10 +7,11 @@ import {
   redeemableAllowance,
 } from '../src/lib/walletMonth.ts';
 
-test('unused allowance carries forward and earlier spending cannot be reused', () => {
+test("this month's whole allowance counts from the 1st, carry-forward included, and earlier spending cannot be reused", () => {
   const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
   const entries = [{ kind: 'SPEND', amount: -400, occurredOn: '2026-08-20' }];
-  assert.equal(availablePlanAllowance(cards, entries, new Date(2026, 8, 14), 10600), 516);
+  // 14 Sep is before the card's day (15th), but September's twelfth already counts.
+  assert.equal(availablePlanAllowance(cards, entries, new Date(2026, 8, 14), 10600), 1432);
   assert.equal(availablePlanAllowance(cards, entries, new Date(2026, 8, 15), 10600), 1432);
   assert.equal(availablePlanAllowance(cards, entries, new Date(2026, 8, 15), 100), 100);
 });
@@ -26,7 +27,7 @@ test('month-end, future activation and final release boundaries', () => {
   const cards = [{ loaded: 11000, issuedOn: '2026-01-31' }];
   assert.equal(availablePlanAllowance(cards, [], new Date(2026, 0, 30), 11000), 0);
   assert.equal(availablePlanAllowance(cards, [], new Date(2026, 1, 28), 11000), 1832);
-  assert.equal(availablePlanAllowance(cards, [], new Date(2026, 2, 1), 11000), 1832);
+  assert.equal(availablePlanAllowance(cards, [], new Date(2026, 2, 1), 11000), 2748); // March's twelfth from the 1st
   assert.equal(availablePlanAllowance(cards, [], new Date(2027, 0, 31), 11000), 10992);
 });
 
@@ -110,26 +111,25 @@ test('monthly balance is what is left, and never negative', () => {
 // Flutter apps' own wallet screens must never disagree about.
 test('redeemable carries forward before the card\'s next due day, not just on it', () => {
   const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
-  // 03 Oct falls between the Sep 15 and Oct 15 instalments — nothing fresh
-  // has opened up today, but the Aug + Sep instalments (₹1,832) were
-  // released and never touched.
-  assert.equal(redeemableAllowance(cards, [], new Date(2026, 9, 3)), 1832);
+  // 03 Oct falls before the card's day (the 15th), but October's twelfth is
+  // this month's allowance from the 1st: Aug + Sep (carry-forward) + Oct.
+  assert.equal(redeemableAllowance(cards, [], new Date(2026, 9, 3)), 2748);
 });
 
 test('spending in an earlier month is carried into the next, not double '
   + 'counted against this one', () => {
   const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
   const entries = [spend(400, '2026-09-20')];
-  // ₹1,832 released by early October, ₹400 of it already spent in
-  // September — ₹1,432 of carry-forward walks into October, before
-  // anything this month has touched it.
-  assert.equal(redeemableAllowance(cards, entries, new Date(2026, 9, 3)), 1432);
+  // ₹2,748 released by October (Aug + Sep + Oct), ₹400 of it spent in
+  // September — ₹2,348 for the month, fixed, before anything this month
+  // has touched it.
+  assert.equal(redeemableAllowance(cards, entries, new Date(2026, 9, 3)), 2348);
 });
 
 test('floors at zero rather than going negative when past spending outran '
   + 'what was ever released', () => {
   const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
-  const entries = [spend(1832, '2026-09-20')];
+  const entries = [spend(2748, '2026-09-20')];
   assert.equal(redeemableAllowance(cards, entries, new Date(2026, 9, 3)), 0);
 });
 
@@ -137,5 +137,7 @@ test('this month\'s own spending does not reduce it — redeemedThisMonth '
   + 'is shown, and subtracted, separately', () => {
   const cards = [{ loaded: 11000, issuedOn: '2026-08-15' }];
   const entries = [spend(800, '2026-10-01')];
-  assert.equal(redeemableAllowance(cards, entries, new Date(2026, 9, 3)), 1832);
+  // Redeemable stays fixed for the month; the 800 comes off Available only.
+  assert.equal(redeemableAllowance(cards, entries, new Date(2026, 9, 3)), 2748);
+  assert.equal(availablePlanAllowance(cards, entries, new Date(2026, 9, 3), 20000), 1948);
 });

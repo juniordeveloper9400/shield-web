@@ -60,8 +60,26 @@ export function monthlyBalanceOf(monthlyRedeemable: number, redeemed: number): n
 export interface AllowanceCard { loaded: number; issuedOn: string }
 
 /**
- * "Health Pass monthly redeemable": everything released so far, carry-forward
- * from earlier months included, less whatever plan spending happened *before*
+ * What the calendar month of [today] has released across every card: one
+ * twelfth per calendar month since the card was issued, this month's included
+ * from the 1st (not from the card's due day), capped at 12. Mirrors
+ * `WalletCard.releasedThroughMonthOf` in the Flutter app.
+ */
+function releasedThroughMonth(cards: AllowanceCard[], today: Date): number {
+  let released = 0;
+  for (const card of cards) {
+    const [year, month, day] = card.issuedOn.slice(0, 10).split('-').map(Number);
+    const issued = new Date(year, month - 1, day);
+    if (!Number.isFinite(issued.getTime()) || today < issued) continue;
+    const months = (today.getFullYear() - year) * 12 + today.getMonth() - (month - 1);
+    released += Math.floor(card.loaded / 12) * Math.max(1, Math.min(12, months + 1));
+  }
+  return released;
+}
+
+/**
+ * "Health Pass monthly redeemable": this whole month's allowance plus any
+ * carry-forward from earlier months — a fixed figure for the month, less whatever plan spending happened *before*
  * the month [now] falls in (that month's own spending is [redeemedThisMonth],
  * shown — and subtracted — separately, right next to it).
  *
@@ -77,16 +95,7 @@ export interface AllowanceCard { loaded: number; issuedOn: string }
  */
 export function redeemableAllowance(cards: AllowanceCard[], entriesOldestFirst: LedgerEntry[], now: Date): number {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let released = 0;
-  for (const card of cards) {
-    const [year, month, day] = card.issuedOn.slice(0, 10).split('-').map(Number);
-    const issued = new Date(year, month - 1, day);
-    if (!Number.isFinite(issued.getTime()) || today < issued) continue;
-    const dueDay = Math.min(day, new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate());
-    const instalments = Math.max(0, Math.min(12,
-      (today.getFullYear() - year) * 12 + today.getMonth() - (month - 1) + 1 - (today.getDate() < dueDay ? 1 : 0)));
-    released += Math.floor(card.loaded / 12) * instalments;
-  }
+  const released = releasedThroughMonth(cards, today);
   // The last day of the month before [now]'s — spending on or before this
   // counts as "before this month began"; [redeemedThisMonth] picks up from
   // the day after.
@@ -106,19 +115,10 @@ export function redeemableAllowance(cards: AllowanceCard[], entriesOldestFirst: 
   return Math.max(0, released - spentBeforeThisMonth);
 }
 
-/** Unused releases remain available; future instalments never release early. */
+/** What is left of the month: redeemable less what has been drawn — it moves with every order. */
 export function availablePlanAllowance(cards: AllowanceCard[], entriesOldestFirst: LedgerEntry[], now: Date, balance: number): number {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  let released = 0;
-  for (const card of cards) {
-    const [year, month, day] = card.issuedOn.slice(0, 10).split('-').map(Number);
-    const issued = new Date(year, month - 1, day);
-    if (!Number.isFinite(issued.getTime()) || today < issued) continue;
-    const dueDay = Math.min(day, new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate());
-    const instalments = Math.max(0, Math.min(12,
-      (today.getFullYear() - year) * 12 + today.getMonth() - (month - 1) + 1 - (today.getDate() < dueDay ? 1 : 0)));
-    released += Math.floor(card.loaded / 12) * instalments;
-  }
+  const released = releasedThroughMonth(cards, today);
   let earnings = 0;
   let spent = 0;
   const isoToday = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
