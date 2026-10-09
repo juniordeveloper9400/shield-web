@@ -100,21 +100,12 @@ export interface OtpConfirmation {
   phone: string;
 }
 
-/** No-op, kept only so the existing call sites (which clear a
- *  reCAPTCHA-shaped container between attempts) don't need their own
- *  conditional — MSG91's widget renders nothing into the page, so there is
- *  no element to remove. */
-export function clearDeliveryOtp(_containerId: string): void {
-  // Nothing to clean up.
-}
-
 /**
  * Sends a real SMS OTP to [phone] (Indian local or `+91`/`91` format) via
- * the MSG91 widget. [containerId] is accepted but unused — kept only so
- * this matches the old Firebase-backed signature at both call sites
- * without needing to touch them further.
+ * the MSG91 widget — headless, no DOM container needed (unlike the old
+ * Firebase reCAPTCHA-based version this replaces).
  */
-export async function sendDeliveryOtp(phone: string, _containerId: string): Promise<OtpConfirmation> {
+export async function sendDeliveryOtp(phone: string): Promise<OtpConfirmation> {
   const identifier = normalizeDeliveryPhone(phone);
   await ensureWidget();
   await new Promise<void>((resolve, reject) => {

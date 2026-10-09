@@ -18,7 +18,6 @@ import {
 import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
 import { Icon } from '@/components/ui/Icon';
 import {
-  clearDeliveryOtp,
   confirmDeliveryOtp,
   describeOtpError,
   sendDeliveryOtp,
@@ -204,22 +203,19 @@ export function BillEditorModal({
   // moment a bill actually gets sent (see `submit()`), or reopened by hand
   // from "Collect payment" if the admin closed it before finishing.
   const [showOtpPopover, setShowOtpPopover] = useState(false);
-  const recaptchaContainerId = `bill-otp-recaptcha-${order.id}`;
   const otpInFlight = useRef(false);
   const otpSession = useRef(0);
 
   useEffect(() => {
     return () => {
       otpSession.current += 1;
-      clearDeliveryOtp(recaptchaContainerId);
     };
-  }, [recaptchaContainerId, open]);
+  }, [open]);
 
   async function sendOtp() {
     // Defense in depth alongside the buttons' own `disabled={otpBusy}`: a
     // click that lands before React has repainted that attribute must not
-    // start a second verifier against the same container while the first
-    // is still rendering.
+    // start a second send while the first is still in flight.
     if (otpInFlight.current) return;
     otpInFlight.current = true;
     const session = otpSession.current;
@@ -228,7 +224,7 @@ export function BillEditorModal({
     setOtpConfirmation(null);
     setOtpCode('');
     try {
-      const confirmation = await sendDeliveryOtp(order.memberPhone, recaptchaContainerId);
+      const confirmation = await sendDeliveryOtp(order.memberPhone);
       if (session !== otpSession.current) return;
       setOtpConfirmation(confirmation);
     } catch (err) {

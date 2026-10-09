@@ -10,7 +10,6 @@ import { telHref, whatsappHref } from '@/lib/contactLinks';
 import { formatCurrency, formatDateTime, toneForStatus } from '@/lib/format';
 import { fileToResizedDataUrl } from '@/lib/images';
 import {
-  clearDeliveryOtp,
   confirmDeliveryOtp,
   describeOtpError,
   sendDeliveryOtp,
@@ -226,16 +225,14 @@ function BookingWindow({
     null,
   );
   const [showOtpPopover, setShowOtpPopover] = useState(false);
-  const recaptchaContainerId = `lab-bill-otp-recaptcha-${booking.id}`;
   const otpInFlight = useRef(false);
   const otpSession = useRef(0);
 
   useEffect(() => {
     return () => {
       otpSession.current += 1;
-      clearDeliveryOtp(recaptchaContainerId);
     };
-  }, [recaptchaContainerId]);
+  }, []);
 
   async function sendOtp() {
     if (otpInFlight.current) return;
@@ -246,7 +243,7 @@ function BookingWindow({
     setOtpConfirmation(null);
     setOtpCode('');
     try {
-      const confirmation = await sendDeliveryOtp(booking.memberPhone, recaptchaContainerId);
+      const confirmation = await sendDeliveryOtp(booking.memberPhone);
       if (session !== otpSession.current) return;
       setOtpConfirmation(confirmation);
     } catch (err) {
