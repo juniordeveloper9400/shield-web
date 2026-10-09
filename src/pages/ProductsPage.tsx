@@ -13,6 +13,8 @@ import { Icon } from '@/components/ui/Icon';
 import { Tabs, type TabItem } from '@/components/ui/Tabs';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { fileToResizedDataUrl } from '@/lib/images';
+import { useAuth } from '@/context/AuthContext';
+import { canManageCatalogue } from '@/config/permissions';
 import { useAsync } from '@/lib/useAsync';
 import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import {
@@ -88,6 +90,10 @@ const STATUS_OPTIONS = [
 ];
 
 export default function ProductsPage() {
+  const { user } = useAuth();
+  // Only Admin / Super Admin manage the catalogue; every other role that can
+  // open it (the store's Pharmacy Admin) is view-only.
+  const canManage = user ? canManageCatalogue(user.role) : false;
   const { data, loading, error, reload } = useAsync(listProducts, []);
   const categories = useAsync(listCategories, []);
   const subcategories = useAsync(listSubcategories, []);
@@ -193,6 +199,7 @@ export default function ProductsPage() {
   }, [selectedId]);
 
   function openAdd() {
+    if (!canManage) return;
     setEditingProductId(null);
     setDraft(EMPTY_NEW);
     setAddError(null);
@@ -201,6 +208,7 @@ export default function ProductsPage() {
 
   /** Opens the add/edit page pre-filled with an existing product. */
   async function openEdit(product: Product) {
+    if (!canManage) return;
     setEditingProductId(product.id);
     setAddError(null);
     setSelectedId(null);
@@ -515,7 +523,7 @@ export default function ProductsPage() {
       header: '',
       render: (row) => (
         <div className="flex justify-end gap-2">
-          {section !== 'all' && (
+          {canManage && section !== 'all' && (
             <Button
               variant="danger"
               size="sm"
@@ -525,11 +533,13 @@ export default function ProductsPage() {
               {removingFromSectionId === row.id ? 'Removing…' : 'Remove'}
             </Button>
           )}
-          <Button variant="secondary" size="sm" onClick={() => openEdit(row)}>
-            Edit
-          </Button>
+          {canManage && (
+            <Button variant="secondary" size="sm" onClick={() => openEdit(row)}>
+              Edit
+            </Button>
+          )}
           <Button variant="secondary" size="sm" onClick={() => open(row.id)}>
-            Manage
+            {canManage ? 'Manage' : 'View'}
           </Button>
         </div>
       ),
@@ -1027,7 +1037,7 @@ export default function ProductsPage() {
         </div>
   );
 
-  if (adding) {
+  if (adding && canManage) {
     return (
       <>
         <PageHeader
@@ -1063,11 +1073,17 @@ export default function ProductsPage() {
     <>
       <PageHeader
         title="Catalogue"
-        subtitle="The storefront and pharmacy-shelf catalogue members buy from."
+        subtitle={
+          canManage
+            ? 'The storefront and pharmacy-shelf catalogue members buy from.'
+            : 'The storefront and pharmacy-shelf catalogue (view only — managed by Admin).'
+        }
         actions={
-          <Button variant="primary" onClick={openAdd}>
-            <Icon name="plus" className="h-4 w-4" /> Add product
-          </Button>
+          canManage ? (
+            <Button variant="primary" onClick={openAdd}>
+              <Icon name="plus" className="h-4 w-4" /> Add product
+            </Button>
+          ) : undefined
         }
       />
 
@@ -1108,7 +1124,7 @@ export default function ProductsPage() {
             <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
           </div>
         </div>
-        {section !== 'all' && search.trim() && sectionCandidates.length > 0 && (
+        {canManage && section !== 'all' && search.trim() && sectionCandidates.length > 0 && (
           <div className="border-b border-slate-200 bg-slate-50 p-4">
             <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Add to “{SECTION_TABS.find((t) => t.key === section)?.label}”
@@ -1169,7 +1185,7 @@ export default function ProductsPage() {
         onClose={() => setSelectedId(null)}
         title={selected?.name ?? ''}
         footer={
-          selected && (
+          selected && canManage && (
             <>
               {editing ? (
                 <>
@@ -1279,7 +1295,7 @@ export default function ProductsPage() {
                   >
                     <input
                       type="checkbox"
-                      disabled={saving}
+                      disabled={saving || !canManage}
                       checked={selected[key]}
                       onChange={async (e) => {
                         setSaving(true);

@@ -250,6 +250,15 @@ export function canApproveAgents(role: Role): boolean {
   return role === 'superadmin' || role === 'admin';
 }
 
+/**
+ * Changing the catalogue — add, edit, delete, activate, home-feed rows — is
+ * for the app managers (Super Admin and Admin). Branch roles that can open
+ * the Catalogue (Pharmacy Admin) get a read-only view.
+ */
+export function canManageCatalogue(role: Role): boolean {
+  return role === 'superadmin' || role === 'admin';
+}
+
 export function allowedModules(role: Role): NavItem[] {
   return MODULES.filter((m) => canAccess(role, m.key));
 }
