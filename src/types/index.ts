@@ -283,8 +283,13 @@ export interface NewProduct {
   isPrescriptionOnly: boolean;
   stockQuantity: number;
   status: ProductStatus;
-  /** A resized JPEG data URI from the picked file, or '' for no image. */
+  /** The primary image — a resized JPEG data URI, or '' for no image. Shown
+   *  first everywhere the app/webapp show one image (cards, cart, orders). */
   image: string;
+  /** Extra gallery images beyond the primary, same data-URI shape, written
+   *  to `app.product_image` alongside it. "Set as primary" swaps one of
+   *  these into [image] rather than reordering a combined list. */
+  extraImages: string[];
   /** Home-feed placement — `app.product.is_popular` / `is_deal` / `is_offer_of_day`. */
   isPopular: boolean;
   isDeal: boolean;

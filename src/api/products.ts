@@ -184,6 +184,11 @@ export async function createBrand(name: string): Promise<Brand> {
   return { id: String(rows[0].id), name: String(rows[0].name) };
 }
 
+/** Removes a brand from the list. Products keep their brand text as-is. */
+export async function deleteBrand(id: string): Promise<void> {
+  await query('DELETE FROM app.brand WHERE id = $1', [id]);
+}
+
 /**
  * Adds a product to the catalogue under the chosen category. Available to the
  * app and the web console the moment it is written. Returns the new id.
@@ -235,7 +240,33 @@ export async function createProduct(p: NewProduct): Promise<string> {
     }
   }
 
+  // The full image gallery — primary (p.image) first, then any extras —
+  // mirrored into app.product_image so "Set as primary" has every image to
+  // reorder, not just the one app.product.image already carries. Same
+  // best-effort treatment as the detail page above.
+  const gallery = [p.image, ...p.extraImages].filter((img) => img.trim());
+  if (gallery.length > 0) {
+    try {
+      await writeProductImages(id, gallery);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Product created, but its image gallery failed to save:', err);
+    }
+  }
+
   return id;
+}
+
+/** Replaces a product's whole image gallery — index 0 is the primary,
+ *  mirrored onto `app.product.image` by the caller. */
+async function writeProductImages(productId: string, images: string[]): Promise<void> {
+  await query('DELETE FROM app.product_image WHERE product_id = $1', [productId]);
+  for (let i = 0; i < images.length; i += 1) {
+    await query(
+      `INSERT INTO app.product_image (product_id, image, sort) VALUES ($1, $2, $3)`,
+      [productId, images[i], i],
+    );
+  }
 }
 
 /**
@@ -311,6 +342,42 @@ export async function updateProduct(
     'UPDATE app.product SET price = $2, stock_quantity = $3 WHERE id = $1',
     [id, patch.price, patch.stockQuantity],
   );
+}
+
+/**
+ * Rewrites every admin-editable field of a product (the "Edit" page) —
+ * core fields plus the detail page and FAQs. Home-feed flags and status are
+ * carried through unchanged from the form's values.
+ */
+export async function updateProductFull(id: string, p: NewProduct): Promise<void> {
+  await query(
+    `
+    UPDATE app.product SET
+      name = $2, pack = $3, brand = $4,
+      category_id = (SELECT id FROM app.product_category WHERE slug = $5),
+      subcategory_id = $6::bigint,
+      price = $7, mrp = $8, discount_label = $9, is_prescription_only = $10,
+      status = $11, stock_quantity = $12, code = $13, image = $14
+    WHERE id = $1
+    `,
+    [
+      id,
+      p.name.trim(),
+      p.pack.trim(),
+      p.brand.trim(),
+      p.categorySlug,
+      p.subcategoryId || null,
+      p.price,
+      p.mrp,
+      p.discountLabel.trim(),
+      p.isPrescriptionOnly,
+      p.status === 'active' ? 'ACTIVE' : 'INACTIVE',
+      p.stockQuantity,
+      p.code.trim() || null,
+      p.image || null,
+    ],
+  );
+  await writeProductDetail(id, p.detail);
 }
 
 /**

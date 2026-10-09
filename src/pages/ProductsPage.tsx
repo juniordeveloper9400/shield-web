@@ -21,10 +21,12 @@ import {
   listSubcategories,
   listBrands,
   createBrand,
+  deleteBrand,
   createProduct,
   deleteProduct,
   setProductStatus,
   updateProduct,
+  updateProductFull,
   updateProductSections,
   getProductDetail,
 } from '@/api/products';
@@ -72,6 +74,7 @@ const EMPTY_NEW: NewProduct = {
   stockQuantity: 0,
   status: 'active',
   image: '',
+  extraImages: [],
   isPopular: false,
   isDeal: false,
   isOfferOfDay: false,
@@ -115,6 +118,32 @@ export default function ProductsPage() {
   }
   const rows = useMemo(() => data ?? [], [data]);
 
+  /** Deletes the brand currently picked in the form, after confirmation. */
+  function confirmDeleteBrand() {
+    const brand = (brands.data ?? []).find((b) => b.name === draft.brand);
+    if (!brand) return;
+    const inUse = rows.filter((p) => p.brand === brand.name).length;
+    ask({
+      title: 'Delete this brand?',
+      message: `"${brand.name}" will be removed from the brand list.${
+        inUse > 0
+          ? ` ${inUse} existing product${inUse === 1 ? ' keeps' : 's keep'} the name as text.`
+          : ''
+      }`,
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: async () => {
+        try {
+          await deleteBrand(brand.id);
+          setDraft((d) => (d.brand === brand.name ? { ...d, brand: '' } : d));
+          brands.reload();
+        } catch (err) {
+          setBrandError(err instanceof Error ? err.message : 'Could not delete the brand.');
+        }
+      },
+    });
+  }
+
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('all');
   const [category, setCategory] = useState('all');
@@ -126,6 +155,8 @@ export default function ProductsPage() {
   const { ask, dialog: confirmDialog } = useConfirmDialog();
 
   const [adding, setAdding] = useState(false);
+  // Set while the add page is being used to edit an existing product.
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [draft, setDraft] = useState<NewProduct>(EMPTY_NEW);
   const [addError, setAddError] = useState<string | null>(null);
 
@@ -162,8 +193,47 @@ export default function ProductsPage() {
   }, [selectedId]);
 
   function openAdd() {
+    setEditingProductId(null);
     setDraft(EMPTY_NEW);
     setAddError(null);
+    setAdding(true);
+  }
+
+  /** Opens the add/edit page pre-filled with an existing product. */
+  async function openEdit(product: Product) {
+    setEditingProductId(product.id);
+    setAddError(null);
+    setSelectedId(null);
+    let detail: ProductDetailInput = EMPTY_DETAIL;
+    try {
+      const d = await getProductDetail(product.id);
+      if (d) {
+        const { hasDetail: _hasDetail, ...rest } = d;
+        detail = rest;
+      }
+    } catch {
+      // Fall back to a blank detail block; the core fields are still editable.
+    }
+    setDraft({
+      categorySlug: product.categorySlug,
+      subcategoryId: product.subcategoryId,
+      name: product.name,
+      pack: product.pack,
+      brand: product.brand,
+      code: product.code,
+      price: product.price,
+      mrp: product.mrp,
+      discountLabel: product.discountLabel,
+      isPrescriptionOnly: product.isPrescriptionOnly,
+      stockQuantity: product.stockQuantity,
+      status: product.status,
+      image: product.image,
+      extraImages: [],
+      isPopular: product.isPopular,
+      isDeal: product.isDeal,
+      isOfferOfDay: product.isOfferOfDay,
+      detail,
+    });
     setAdding(true);
   }
 
@@ -194,11 +264,18 @@ export default function ProductsPage() {
     setSaving(true);
     setAddError(null);
     try {
-      await createProduct(draft);
+      if (editingProductId) await updateProductFull(editingProductId, draft);
+      else await createProduct(draft);
       setAdding(false);
       reload();
     } catch (err) {
-      setAddError(err instanceof Error ? err.message : 'Could not add the product.');
+      setAddError(
+        err instanceof Error
+          ? err.message
+          : editingProductId
+            ? 'Could not save the product.'
+            : 'Could not add the product.',
+      );
     } finally {
       setSaving(false);
     }
@@ -448,6 +525,9 @@ export default function ProductsPage() {
               {removingFromSectionId === row.id ? 'Removing…' : 'Remove'}
             </Button>
           )}
+          <Button variant="secondary" size="sm" onClick={() => openEdit(row)}>
+            Edit
+          </Button>
           <Button variant="secondary" size="sm" onClick={() => open(row.id)}>
             Manage
           </Button>
@@ -555,6 +635,17 @@ export default function ProductsPage() {
                 >
                   <Icon name="plus" className="h-4 w-4" />
                 </button>
+                {draft.brand &&
+                  (brands.data ?? []).some((b) => b.name === draft.brand) && (
+                    <button
+                      type="button"
+                      title="Delete this brand"
+                      onClick={confirmDeleteBrand}
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-rose-200 text-rose-500 hover:bg-rose-50"
+                    >
+                      <Icon name="close" className="h-4 w-4" />
+                    </button>
+                  )}
               </div>
               {addingBrand && (
                 <div className="mt-2 flex items-center gap-2">
@@ -630,31 +721,96 @@ export default function ProductsPage() {
               placeholder="20% off"
             />
           </EditField>
-          <EditField label="Product image (optional)">
-            <div className="flex items-center gap-3">
-              {draft.image ? (
-                <img
-                  src={draft.image}
-                  alt=""
-                  className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
-                />
-              ) : (
+          <EditField label="Product images (optional)">
+            <div className="flex flex-wrap items-start gap-3">
+              {draft.image && (
+                <div className="flex flex-col items-center gap-1">
+                  <div className="relative">
+                    <img
+                      src={draft.image}
+                      alt=""
+                      className="h-16 w-16 rounded-lg border-2 border-brand-500 object-cover"
+                    />
+                    <button
+                      type="button"
+                      title="Remove this image"
+                      onClick={() =>
+                        setDraft((d) => {
+                          const extra = [...d.extraImages];
+                          const next = extra.shift() ?? '';
+                          return { ...d, image: next, extraImages: extra };
+                        })
+                      }
+                      className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full border border-rose-200 bg-white text-[10px] leading-none text-rose-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <span className="text-[10px] font-semibold text-brand-600">Primary</span>
+                </div>
+              )}
+              {draft.extraImages.map((img, i) => (
+                <div key={i} className="flex flex-col items-center gap-1">
+                  <div className="relative">
+                    <img
+                      src={img}
+                      alt=""
+                      className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
+                    />
+                    <button
+                      type="button"
+                      title="Remove this image"
+                      onClick={() =>
+                        setDraft((d) => ({
+                          ...d,
+                          extraImages: d.extraImages.filter((_, j) => j !== i),
+                        }))
+                      }
+                      className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full border border-rose-200 bg-white text-[10px] leading-none text-rose-600"
+                    >
+                      ×
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="text-[10px] font-medium text-brand-600"
+                    onClick={() =>
+                      setDraft((d) => {
+                        const extra = [...d.extraImages];
+                        const promoted = extra[i];
+                        extra[i] = d.image;
+                        return { ...d, image: promoted, extraImages: extra };
+                      })
+                    }
+                  >
+                    Set primary
+                  </button>
+                </div>
+              ))}
+              {!draft.image && draft.extraImages.length === 0 && (
                 <div className="grid h-16 w-16 place-items-center rounded-lg border border-dashed border-slate-300 text-slate-300">
                   <Icon name="products" className="h-6 w-6" />
                 </div>
               )}
-              <div className="flex flex-col gap-1">
+              <label className="flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-600">
+                <Icon name="plus" className="h-4 w-4" />
+                <span className="text-[9px] font-medium">Add</span>
                 <input
                   type="file"
                   accept="image/*"
-                  className="text-xs text-slate-500 file:mr-2 file:rounded-md file:border-0 file:bg-brand-50 file:px-2.5 file:py-1.5 file:text-xs file:font-medium file:text-brand-700"
+                  className="hidden"
                   onChange={async (e) => {
                     const file = e.target.files?.[0];
+                    e.target.value = '';
                     if (!file) return;
                     setAddError(null);
                     try {
                       const url = await fileToResizedDataUrl(file);
-                      setDraft((d) => ({ ...d, image: url }));
+                      setDraft((d) =>
+                        d.image
+                          ? { ...d, extraImages: [...d.extraImages, url] }
+                          : { ...d, image: url },
+                      );
                     } catch (err) {
                       setAddError(
                         err instanceof Error ? err.message : 'Could not load the image.',
@@ -662,17 +818,13 @@ export default function ProductsPage() {
                     }
                   }}
                 />
-                {draft.image && (
-                  <button
-                    type="button"
-                    className="self-start text-xs font-medium text-rose-600"
-                    onClick={() => setDraft((d) => ({ ...d, image: '' }))}
-                  >
-                    Remove image
-                  </button>
-                )}
-              </div>
+              </label>
             </div>
+            <p className="mt-1.5 text-xs text-slate-400">
+              The first image (outlined, marked "Primary") is what shows wherever the app and
+              webapp show one image — the catalogue list, product cards, cart. "Set primary" on
+              another image swaps it into that spot.
+            </p>
           </EditField>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
@@ -879,8 +1031,12 @@ export default function ProductsPage() {
     return (
       <>
         <PageHeader
-          title="Add product"
-          subtitle="Fill in the product, then add it to the catalogue."
+          title={editingProductId ? 'Edit product' : 'Add product'}
+          subtitle={
+            editingProductId
+              ? 'Change any detail, then save.'
+              : 'Fill in the product, then add it to the catalogue.'
+          }
           actions={
             <Button variant="secondary" disabled={saving} onClick={() => setAdding(false)}>
               Back to catalogue
@@ -895,7 +1051,7 @@ export default function ProductsPage() {
               Cancel
             </Button>
             <Button variant="primary" disabled={saving} onClick={saveNew}>
-              Add to catalogue
+              {editingProductId ? 'Save changes' : 'Add to catalogue'}
             </Button>
           </div>
         </Card>
