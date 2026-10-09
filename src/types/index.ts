@@ -440,6 +440,10 @@ export interface Order {
   billDiscount: number;
   /** `app.bill.id` as text; '' when the order has no bill yet. */
   billId: string;
+  /** The counter's own receipt-book / POS number for this bill, typed in by
+   *  staff — free text, '' until they add one. `app.bill.bill_number`
+   *  (migration 0087). */
+  billNumber: string;
   /** How much of the bill was drawn from the member's wallet at collection —
    *  0 until collected. `app.bill.wallet_collected`. */
   billWalletCollected: number;

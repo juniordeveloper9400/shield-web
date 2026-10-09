@@ -90,6 +90,9 @@ export function BillEditorModal({
   // `lines` vs `subtotal`.
   const [discount, setDiscount] = useState(order.billDiscount || 0);
   const [savedDiscount, setSavedDiscount] = useState(order.billDiscount || 0);
+  // The counter's own receipt-book / POS number — free text, optional.
+  // Blank on send keeps whatever is already on the bill, same as `image`.
+  const [billNumber, setBillNumber] = useState(order.billNumber || '');
   // Which bill line's "⋮" menu (Remove) is open, if any.
   const [openLineMenu, setOpenLineMenu] = useState<number | null>(null);
   const lineMenuRef = useRef<HTMLDivElement | null>(null);
@@ -567,6 +570,7 @@ export function BillEditorModal({
         amount: netTotal,
         lines: namedLines,
         discountAmount: discount,
+        billNumber,
       }, accessToken);
       setSavedDiscount(discount);
       onSaved();
@@ -973,6 +977,16 @@ export function BillEditorModal({
                 worked: upload the photo, then type the one number it adds
                 up to. */}
             <div className="mt-3 space-y-1.5 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-600">Bill number</span>
+                <input
+                  value={billNumber}
+                  onChange={(e) => setBillNumber(e.target.value)}
+                  placeholder="e.g. receipt book no."
+                  maxLength={100}
+                  className="w-40 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-right text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                />
+              </div>
               <div className="flex items-center justify-between">
                 <span className="text-slate-600">Subtotal</span>
                 <input

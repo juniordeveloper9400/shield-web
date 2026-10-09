@@ -145,6 +145,13 @@ export default function BillsPage() {
       render: (row) => <span className="font-medium text-slate-800">{row.code}</span>,
     },
     {
+      key: 'billNumber',
+      header: 'Bill No.',
+      render: (row) => (
+        <span className="text-slate-600">{row.billNumber || '—'}</span>
+      ),
+    },
+    {
       key: 'member',
       header: 'Member',
       render: (row) => (

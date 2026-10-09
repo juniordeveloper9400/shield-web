@@ -150,6 +150,9 @@ export async function sendOrderInvoice(
     /** How much of the lines' subtotal was knocked off to reach `amount` —
      *  purely the audit trail; 0 when no discount was applied. */
     discountAmount?: number;
+    /** The counter's own receipt-book / POS number — blank keeps whatever is
+     *  already on the bill, the same rule `image` follows. */
+    billNumber?: string;
   },
   token: string | null,
 ): Promise<string> {
@@ -159,6 +162,7 @@ export async function sendOrderInvoice(
       image: opts.image ?? '',
       amount: opts.amount,
       discountAmount: opts.discountAmount ?? 0,
+      billNumber: opts.billNumber ?? '',
       ...(opts.lines ? { lines: opts.lines } : {}),
     },
     token,
