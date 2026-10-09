@@ -190,6 +190,20 @@ export async function deleteBrand(id: string): Promise<void> {
 }
 
 /**
+ * Renames a registered brand. Existing products keep whatever brand text
+ * they were saved with — this only relabels the entry in the dropdown, same
+ * as `createBrand` only ever writes to `app.brand`, never to `product.brand`.
+ */
+export async function renameBrand(id: string, name: string): Promise<Brand> {
+  const trimmed = name.trim();
+  const rows = (await sql`
+    UPDATE app.brand SET name = ${trimmed} WHERE id = ${id}
+    RETURNING id, name
+  `) as Row[];
+  return { id: String(rows[0].id), name: String(rows[0].name) };
+}
+
+/**
  * Adds a product to the catalogue under the chosen category. Available to the
  * app and the web console the moment it is written. Returns the new id.
  */

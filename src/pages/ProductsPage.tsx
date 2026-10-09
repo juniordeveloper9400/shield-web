@@ -25,6 +25,7 @@ import {
   listBrands,
   createBrand,
   deleteBrand,
+  renameBrand,
   createProduct,
   deleteProduct,
   setProductStatus,
@@ -34,6 +35,7 @@ import {
   getProductDetail,
 } from '@/api/products';
 import type {
+  Brand,
   NewProduct,
   Product,
   ProductDetailInput,
@@ -107,6 +109,27 @@ export default function ProductsPage() {
   const [brandSaving, setBrandSaving] = useState(false);
   const [brandError, setBrandError] = useState<string | null>(null);
 
+  // The Brand picker is a custom dropdown (not a native <select>) so each
+  // row can carry its own edit/delete controls next to the name, instead of
+  // one delete button sitting outside the field for whatever's selected.
+  const [brandMenuOpen, setBrandMenuOpen] = useState(false);
+  const brandMenuRef = useRef<HTMLDivElement>(null);
+  const [editingBrandId, setEditingBrandId] = useState<string | null>(null);
+  const [editingBrandName, setEditingBrandName] = useState('');
+  const [brandRowBusy, setBrandRowBusy] = useState(false);
+
+  useEffect(() => {
+    if (!brandMenuOpen) return;
+    function onClickOutside(e: MouseEvent) {
+      if (!brandMenuRef.current?.contains(e.target as Node)) {
+        setBrandMenuOpen(false);
+        setEditingBrandId(null);
+      }
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [brandMenuOpen]);
+
   async function registerBrand() {
     if (!newBrandName.trim()) return;
     setBrandSaving(true);
@@ -125,10 +148,34 @@ export default function ProductsPage() {
   }
   const rows = useMemo(() => data ?? [], [data]);
 
-  /** Deletes the brand currently picked in the form, after confirmation. */
-  function confirmDeleteBrand() {
-    const brand = (brands.data ?? []).find((b) => b.name === draft.brand);
-    if (!brand) return;
+  function startEditingBrand(brand: Brand) {
+    setEditingBrandId(brand.id);
+    setEditingBrandName(brand.name);
+    setBrandError(null);
+  }
+
+  async function saveBrandRename(brand: Brand) {
+    const trimmed = editingBrandName.trim();
+    if (!trimmed || trimmed === brand.name) {
+      setEditingBrandId(null);
+      return;
+    }
+    setBrandRowBusy(true);
+    setBrandError(null);
+    try {
+      const updated = await renameBrand(brand.id, trimmed);
+      setDraft((d) => (d.brand === brand.name ? { ...d, brand: updated.name } : d));
+      setEditingBrandId(null);
+      brands.reload();
+    } catch (err) {
+      setBrandError(err instanceof Error ? err.message : 'Could not rename the brand.');
+    } finally {
+      setBrandRowBusy(false);
+    }
+  }
+
+  /** Deletes a brand from the list, after confirmation. */
+  function confirmDeleteBrand(brand: Brand) {
     const inUse = rows.filter((p) => p.brand === brand.name).length;
     ask({
       title: 'Delete this brand?',
@@ -650,18 +697,104 @@ export default function ProductsPage() {
             </EditField>
             <EditField label="Brand">
               <div className="flex items-center gap-2">
-                <select
-                  value={draft.brand}
-                  onChange={(e) => setDraft({ ...draft, brand: e.target.value })}
-                  className={inputClass}
-                >
-                  <option value="">Select a brand…</option>
-                  {(brands.data ?? []).map((b) => (
-                    <option key={b.id} value={b.name}>
-                      {b.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative flex-1" ref={brandMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBrandMenuOpen((v) => !v);
+                      setEditingBrandId(null);
+                    }}
+                    className={`${inputClass} flex items-center justify-between text-left`}
+                  >
+                    <span className={draft.brand ? '' : 'text-slate-400'}>
+                      {draft.brand || 'Select a brand…'}
+                    </span>
+                    <Icon name="chevron-down" className="h-4 w-4 shrink-0 text-slate-400" />
+                  </button>
+                  {brandMenuOpen && (
+                    <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDraft({ ...draft, brand: '' });
+                          setBrandMenuOpen(false);
+                        }}
+                        className="block w-full px-3 py-2 text-left text-sm text-slate-400 hover:bg-slate-50"
+                      >
+                        Select a brand…
+                      </button>
+                      {(brands.data ?? []).map((b) => (
+                        <div
+                          key={b.id}
+                          className={`flex items-center gap-1 px-1.5 py-1 text-sm hover:bg-slate-50 ${
+                            b.name === draft.brand ? 'bg-accent-50' : ''
+                          }`}
+                        >
+                          {editingBrandId === b.id ? (
+                            <>
+                              <input
+                                autoFocus
+                                value={editingBrandName}
+                                disabled={brandRowBusy}
+                                onChange={(e) => setEditingBrandName(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    void saveBrandRename(b);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingBrandId(null);
+                                  }
+                                }}
+                                className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm outline-none focus:border-brand-500"
+                              />
+                              <button
+                                type="button"
+                                title="Save"
+                                disabled={brandRowBusy}
+                                onClick={() => void saveBrandRename(b)}
+                                className="grid h-7 w-7 shrink-0 place-items-center rounded text-brand-600 hover:bg-brand-50"
+                              >
+                                <Icon name="check" className="h-4 w-4" />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDraft({ ...draft, brand: b.name });
+                                  setBrandMenuOpen(false);
+                                }}
+                                className="min-w-0 flex-1 truncate px-1.5 py-1 text-left"
+                              >
+                                {b.name}
+                              </button>
+                              <button
+                                type="button"
+                                title="Edit this brand"
+                                onClick={() => startEditingBrand(b)}
+                                className="grid h-7 w-7 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                              >
+                                <Icon name="edit" className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                title="Delete this brand"
+                                onClick={() => confirmDeleteBrand(b)}
+                                className="grid h-7 w-7 shrink-0 place-items-center rounded text-rose-400 hover:bg-rose-50 hover:text-rose-600"
+                              >
+                                <Icon name="trash" className="h-3.5 w-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                      {(brands.data ?? []).length === 0 && (
+                        <p className="px-3 py-2 text-sm text-slate-400">No brands yet.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
                   title="Register a new brand"
@@ -673,17 +806,6 @@ export default function ProductsPage() {
                 >
                   <Icon name="plus" className="h-4 w-4" />
                 </button>
-                {draft.brand &&
-                  (brands.data ?? []).some((b) => b.name === draft.brand) && (
-                    <button
-                      type="button"
-                      title="Delete this brand"
-                      onClick={confirmDeleteBrand}
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-rose-200 text-rose-500 hover:bg-rose-50"
-                    >
-                      <Icon name="close" className="h-4 w-4" />
-                    </button>
-                  )}
               </div>
               {addingBrand && (
                 <div className="mt-2 flex items-center gap-2">

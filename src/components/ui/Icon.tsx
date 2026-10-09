@@ -29,7 +29,9 @@ export type IconName =
   | 'receipt'
   | 'deliveries'
   | 'more-vertical'
-  | 'sort';
+  | 'sort'
+  | 'edit'
+  | 'trash';
 
 const ICONS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -195,6 +197,18 @@ const ICONS: Record<IconName, ReactNode> = {
     <>
       <path d="M3 7h5M3 12h8M3 17h11" />
       <path d="M17 4v16M17 20l-3-3M17 20l3-3" />
+    </>
+  ),
+  // A pencil -- rename/edit-in-place trigger.
+  edit: (
+    <path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5Z" />
+  ),
+  // A waste bin -- delete trigger.
+  trash: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0-.8 13.2a2 2 0 0 1-2 1.8H8.8a2 2 0 0 1-2-1.8L6 6h12Z" />
+      <path d="M10 11v6M14 11v6" />
     </>
   ),
 };
