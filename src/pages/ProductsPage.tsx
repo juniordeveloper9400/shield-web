@@ -190,7 +190,7 @@ export default function ProductsPage() {
       return setAddError('Pick a sub-category.');
     if (!draft.name.trim()) return setAddError('Give the product a name.');
     if (!(draft.price >= 0) || !(draft.mrp >= 0))
-      return setAddError('Price and MRP must be zero or more.');
+      return setAddError('Offer price and MRP must be zero or more.');
     setSaving(true);
     setAddError(null);
     try {
@@ -401,7 +401,7 @@ export default function ProductsPage() {
     },
     {
       key: 'price',
-      header: 'Price',
+      header: 'Offer Price',
       render: (row) => (
         <div className="text-right">
           <p className="font-medium text-slate-800">{formatCurrency(row.price)}</p>
@@ -460,6 +460,11 @@ export default function ProductsPage() {
   // The Add product form is a page of its own, not a pop-up.
   const addFields = (
         <div className="space-y-4">
+          <div className="grid gap-6 lg:grid-cols-2">
+          <div className="space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Basic info
+            </p>
           <EditField label="Category">
             <select
               value={draft.categorySlug}
@@ -579,7 +584,7 @@ export default function ProductsPage() {
               )}
               {brandError && <p className="mt-1 text-xs text-rose-600">{brandError}</p>}
             </EditField>
-            <EditField label="Price (₹)">
+            <EditField label="Offer Price (₹)">
               <input
                 inputMode="numeric"
                 value={draft.price || ''}
@@ -689,7 +694,12 @@ export default function ProductsPage() {
             />
             Active (visible in the app straight away)
           </label>
+          </div>
 
+          <div className="space-y-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Additional info
+            </p>
           <div className="rounded-lg border border-slate-200 p-3">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Detail page (optional)
@@ -853,6 +863,8 @@ export default function ProductsPage() {
                 </div>
               </div>
             </div>
+          </div>
+          </div>
           </div>
 
           {addError && (
@@ -1079,7 +1091,7 @@ export default function ProductsPage() {
                   label: 'Sub-category',
                   value: selected.subcategoryLabel || '—',
                 },
-                { label: 'Price', value: formatCurrency(selected.price) },
+                { label: 'Offer Price', value: formatCurrency(selected.price) },
                 { label: 'MRP', value: formatCurrency(selected.mrp) },
                 {
                   label: 'Discount',
@@ -1176,7 +1188,7 @@ export default function ProductsPage() {
 
         {selected && editing && (
           <div className="space-y-4">
-            <EditField label="Price (₹)">
+            <EditField label="Offer Price (₹)">
               <input
                 inputMode="numeric"
                 value={form.price}
