@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -34,6 +35,7 @@ const FULFILLMENT_OPTIONS = [
 
 export default function OrdersPage() {
   const { user, accessToken } = useAuth();
+  const navigate = useNavigate();
   const { data, loading, error, reload } = useAsync(() => listOrders(accessToken), [accessToken]);
   const rows = useMemo(() => data ?? [], [data]);
 
@@ -146,7 +148,23 @@ export default function OrdersPage() {
       header: 'Status',
       render: (row) => {
         const lifecycle = orderLifecycleStatus(row);
-        return <Badge tone={ORDER_LIFECYCLE_TONE[lifecycle]}>{ORDER_LIFECYCLE_LABEL[lifecycle]}</Badge>;
+        const badge = <Badge tone={ORDER_LIFECYCLE_TONE[lifecycle]}>{ORDER_LIFECYCLE_LABEL[lifecycle]}</Badge>;
+        // Only once it's actually a bill (converted) is there anywhere to
+        // jump to — same `?open=` hand-off "Convert to bill →" already uses.
+        if (lifecycle !== 'billing') return badge;
+        return (
+          <button
+            type="button"
+            title="Open this order's bill"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/bills?open=${row.id}`);
+            }}
+            className="cursor-pointer"
+          >
+            {badge}
+          </button>
+        );
       },
     },
     {

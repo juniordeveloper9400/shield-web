@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -37,6 +38,7 @@ const FULFILLMENT_OPTIONS = [
 
 export default function PrescriptionsPage() {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const { data, loading, error, reload } = useAsync(listPrescriptions, []);
   const rows = useMemo(() => data ?? [], [data]);
 
@@ -137,11 +139,29 @@ export default function PrescriptionsPage() {
     {
       key: 'status',
       header: 'Status',
-      render: (row) => (
-        <Badge tone={ORDER_LIFECYCLE_TONE[lifecycleOf(row)]}>
-          {ORDER_LIFECYCLE_LABEL[lifecycleOf(row)]}
-        </Badge>
-      ),
+      render: (row) => {
+        const lifecycle = lifecycleOf(row);
+        const badge = (
+          <Badge tone={ORDER_LIFECYCLE_TONE[lifecycle]}>{ORDER_LIFECYCLE_LABEL[lifecycle]}</Badge>
+        );
+        // Only once it's actually a bill (converted), and there is a linked
+        // order to open one for — same `?open=` hand-off "Convert to bill →"
+        // already uses.
+        if (lifecycle !== 'billing' || !row.orderId) return badge;
+        return (
+          <button
+            type="button"
+            title="Open this prescription's bill"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/bills?open=${row.orderId}`);
+            }}
+            className="cursor-pointer"
+          >
+            {badge}
+          </button>
+        );
+      },
     },
     {
       key: 'go',
