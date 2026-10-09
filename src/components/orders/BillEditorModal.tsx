@@ -139,12 +139,11 @@ export function BillEditorModal({
   // What collecting the total on screen right now would draw from the
   // wallet, and what's left for cash, shown ahead of time so the admin
   // knows what to expect before ever sending the OTP. `collectBillWithWallet`
-  // itself only ever does `LEAST(balance, amount)` server-side — it doesn't
-  // know about the Health Pass monthly cap `walletCoverage` below also
-  // applies, so a member who's already used up this month's allowance can
-  // still have their full wallet balance drawn there even though this
-  // preview showed part of it as "cash needed". Worth knowing if the two
-  // ever need to agree exactly; not fixed here since nothing asked for it.
+  // now enforces the same Health Pass monthly cap `walletCoverage` below
+  // applies (backend/api/src/modules/wallet/wallet-month.ts, ported from
+  // this file's own walletMonth.ts) — this preview and what actually gets
+  // drawn on collection agree, including for a member who's already used
+  // up this month's allowance despite still holding a real balance.
   const { data: walletBalance } = useAsync(
     () => getWalletBalanceForOrder(order.id),
     [order.id],
