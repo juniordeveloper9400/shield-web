@@ -1,6 +1,7 @@
 import { sql, query } from '@/lib/db';
 import { iso, num } from '@/lib/mappers';
 import type {
+  Brand,
   NewProduct,
   Product,
   ProductCategory,
@@ -160,6 +161,27 @@ export async function listSubcategories(): Promise<ProductSubcategory[]> {
     categorySlug: String(r.category_slug),
     label: String(r.label),
   }));
+}
+
+/** Every registered brand — the "Add product" form's Brand field picks from
+ *  this instead of free text, so the same brand reads the same way twice. */
+export async function listBrands(): Promise<Brand[]> {
+  const rows = (await sql`SELECT id, name FROM app.brand ORDER BY name`) as Row[];
+  return rows.map((r) => ({ id: String(r.id), name: String(r.name) }));
+}
+
+/**
+ * Registers a new brand (or returns the existing one — matched
+ * case-insensitively, so "Cetaphil" typed twice is one brand, not two).
+ */
+export async function createBrand(name: string): Promise<Brand> {
+  const trimmed = name.trim();
+  const rows = (await sql`
+    INSERT INTO app.brand (name) VALUES (${trimmed})
+    ON CONFLICT (lower(name)) DO UPDATE SET name = app.brand.name
+    RETURNING id, name
+  `) as Row[];
+  return { id: String(rows[0].id), name: String(rows[0].name) };
 }
 
 /**

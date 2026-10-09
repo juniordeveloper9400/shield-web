@@ -19,6 +19,8 @@ import {
   listProducts,
   listCategories,
   listSubcategories,
+  listBrands,
+  createBrand,
   createProduct,
   deleteProduct,
   setProductStatus,
@@ -86,6 +88,31 @@ export default function ProductsPage() {
   const { data, loading, error, reload } = useAsync(listProducts, []);
   const categories = useAsync(listCategories, []);
   const subcategories = useAsync(listSubcategories, []);
+  const brands = useAsync(listBrands, []);
+
+  // Registering a new brand from the "Add product" form — a small inline
+  // affordance next to the Brand dropdown, not a separate page.
+  const [addingBrand, setAddingBrand] = useState(false);
+  const [newBrandName, setNewBrandName] = useState('');
+  const [brandSaving, setBrandSaving] = useState(false);
+  const [brandError, setBrandError] = useState<string | null>(null);
+
+  async function registerBrand() {
+    if (!newBrandName.trim()) return;
+    setBrandSaving(true);
+    setBrandError(null);
+    try {
+      const brand = await createBrand(newBrandName);
+      setDraft((d) => ({ ...d, brand: brand.name }));
+      setNewBrandName('');
+      setAddingBrand(false);
+      brands.reload();
+    } catch (err) {
+      setBrandError(err instanceof Error ? err.message : 'Could not register the brand.');
+    } finally {
+      setBrandSaving(false);
+    }
+  }
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
@@ -499,11 +526,58 @@ export default function ProductsPage() {
               />
             </EditField>
             <EditField label="Brand">
-              <input
-                value={draft.brand}
-                onChange={(e) => setDraft({ ...draft, brand: e.target.value })}
-                className={inputClass}
-              />
+              <div className="flex items-center gap-2">
+                <select
+                  value={draft.brand}
+                  onChange={(e) => setDraft({ ...draft, brand: e.target.value })}
+                  className={inputClass}
+                >
+                  <option value="">Select a brand…</option>
+                  {(brands.data ?? []).map((b) => (
+                    <option key={b.id} value={b.name}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  title="Register a new brand"
+                  onClick={() => {
+                    setAddingBrand((v) => !v);
+                    setBrandError(null);
+                  }}
+                  className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-300 text-slate-500 hover:bg-slate-50"
+                >
+                  <Icon name="plus" className="h-4 w-4" />
+                </button>
+              </div>
+              {addingBrand && (
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={newBrandName}
+                    onChange={(e) => setNewBrandName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        registerBrand();
+                      }
+                    }}
+                    placeholder="New brand name"
+                    className={inputClass}
+                  />
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    disabled={brandSaving || !newBrandName.trim()}
+                    onClick={registerBrand}
+                  >
+                    {brandSaving ? 'Adding…' : 'Add'}
+                  </Button>
+                </div>
+              )}
+              {brandError && <p className="mt-1 text-xs text-rose-600">{brandError}</p>}
             </EditField>
             <EditField label="Price (₹)">
               <input

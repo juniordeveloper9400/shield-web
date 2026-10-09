@@ -154,6 +154,13 @@ export interface ProductSubcategory {
   label: string;
 }
 
+/** One brand the "Add product" form's Brand field can pick from — a row of
+ *  `app.brand`. Registered once, reused on every later product. */
+export interface Brand {
+  id: string;
+  name: string;
+}
+
 /**
  * One sub-category, fully editable — the "Category banners" page's view of an
  * `app.product_subcategory` row, nested under its `CategoryGroupAdmin`.
