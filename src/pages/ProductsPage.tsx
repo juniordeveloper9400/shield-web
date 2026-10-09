@@ -102,11 +102,12 @@ export default function ProductsPage() {
   const [draft, setDraft] = useState<NewProduct>(EMPTY_NEW);
   const [addError, setAddError] = useState<string | null>(null);
 
-  // Search-and-add to a home-feed section (Popular Items / Deals You Love /
-  // Offer of the Day) — the replacement for picking a section at product
-  // creation. Only meaningful on one of the three section tabs.
-  const [sectionQuery, setSectionQuery] = useState('');
+  // Add/remove a product from a home-feed section (Popular Items / Deals
+  // You Love / Offer of the Day) — the replacement for picking a section at
+  // product creation. Driven by the same `search` box as the table filter
+  // below: on a section tab it doubles as "find something to add".
   const [addingToSectionId, setAddingToSectionId] = useState<string | null>(null);
+  const [removingFromSectionId, setRemovingFromSectionId] = useState<string | null>(null);
 
   // The selected product's detail-page content, loaded lazily when its modal
   // opens. `undefined` = not loaded yet, `null` = loaded and there is none.
@@ -225,12 +226,11 @@ export default function ProductsPage() {
   }, [rows, search, status, category, section]);
 
   // Candidates for "add to this section" — every product not already in it,
-  // matching the search box; capped so the list stays scannable. Reset
-  // whenever the tab changes, so a stale query from one section doesn't
-  // leak into another.
+  // matching the same search box the table below filters by; capped so the
+  // list stays scannable.
   const sectionCandidates = useMemo(() => {
     if (section === 'all') return [];
-    const q = sectionQuery.trim().toLowerCase();
+    const q = search.trim().toLowerCase();
     if (!q) return [];
     return rows
       .filter((p) => !p[section])
@@ -241,7 +241,7 @@ export default function ProductsPage() {
           p.code.toLowerCase().includes(q),
       )
       .slice(0, 20);
-  }, [rows, sectionQuery, section]);
+  }, [rows, search, section]);
 
   async function addToSection(product: Product) {
     if (section === 'all') return;
@@ -252,10 +252,29 @@ export default function ProductsPage() {
         isDeal: section === 'isDeal' ? true : product.isDeal,
         isOfferOfDay: section === 'isOfferOfDay' ? true : product.isOfferOfDay,
       });
-      setSectionQuery('');
+      setSearch('');
       reload();
     } finally {
       setAddingToSectionId(null);
+    }
+  }
+
+  /** Clears this product's flag for the current section — the same write
+   *  `updateProductSections` always made, so the app and webapp (which read
+   *  these same three flags) stop showing it in this row the moment this
+   *  succeeds, with no separate "sync" step. */
+  async function removeFromSection(product: Product) {
+    if (section === 'all') return;
+    setRemovingFromSectionId(product.id);
+    try {
+      await updateProductSections(product.id, {
+        isPopular: section === 'isPopular' ? false : product.isPopular,
+        isDeal: section === 'isDeal' ? false : product.isDeal,
+        isOfferOfDay: section === 'isOfferOfDay' ? false : product.isOfferOfDay,
+      });
+      reload();
+    } finally {
+      setRemovingFromSectionId(null);
     }
   }
 
@@ -391,9 +410,21 @@ export default function ProductsPage() {
       key: 'actions',
       header: '',
       render: (row) => (
-        <Button variant="secondary" size="sm" onClick={() => open(row.id)}>
-          Manage
-        </Button>
+        <div className="flex justify-end gap-2">
+          {section !== 'all' && (
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={removingFromSectionId === row.id}
+              onClick={() => removeFromSection(row)}
+            >
+              {removingFromSectionId === row.id ? 'Removing…' : 'Remove'}
+            </Button>
+          )}
+          <Button variant="secondary" size="sm" onClick={() => open(row.id)}>
+            Manage
+          </Button>
+        </div>
       ),
       className: 'text-right',
     },
@@ -812,71 +843,19 @@ export default function ProductsPage() {
             active={section}
             onChange={(key) => {
               setSection(key as SectionTab);
-              setSectionQuery('');
+              setSearch('');
             }}
           />
         </div>
-        {section !== 'all' && (
-          <div className="border-b border-slate-200 bg-slate-50 p-4">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Add a product to “{SECTION_TABS.find((t) => t.key === section)?.label}”
-            </p>
-            <SearchInput
-              value={sectionQuery}
-              onChange={setSectionQuery}
-              placeholder="Search product, brand, code to add…"
-            />
-            {sectionQuery.trim() && (
-              <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white">
-                {sectionCandidates.length === 0 ? (
-                  <p className="p-3 text-sm text-slate-400">
-                    No matching product outside this section.
-                  </p>
-                ) : (
-                  sectionCandidates.map((p) => (
-                    <div
-                      key={p.id}
-                      className="flex items-center justify-between gap-3 border-b border-slate-100 p-2.5 last:border-0"
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        {p.image ? (
-                          <img
-                            src={p.image}
-                            alt=""
-                            className="h-8 w-8 shrink-0 rounded-md border border-slate-200 object-cover"
-                          />
-                        ) : (
-                          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-dashed border-slate-200 text-slate-300">
-                            <Icon name="products" className="h-3.5 w-3.5" />
-                          </div>
-                        )}
-                        <div className="min-w-0">
-                          <p className="truncate text-sm text-slate-800">{p.name}</p>
-                          <p className="truncate text-xs text-slate-400">
-                            {p.brand} · {p.pack}
-                          </p>
-                        </div>
-                      </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={addingToSectionId === p.id}
-                        onClick={() => addToSection(p)}
-                      >
-                        {addingToSectionId === p.id ? 'Adding…' : 'Add'}
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-        )}
         <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
           <SearchInput
             value={search}
             onChange={setSearch}
-            placeholder="Search product, brand, code…"
+            placeholder={
+              section === 'all'
+                ? 'Search product, brand, code…'
+                : `Search to filter, or find a product to add to “${SECTION_TABS.find((t) => t.key === section)?.label}”…`
+            }
           />
           <div className="flex flex-wrap gap-2">
             <FilterSelect
@@ -887,6 +866,49 @@ export default function ProductsPage() {
             <FilterSelect value={status} onChange={setStatus} options={STATUS_OPTIONS} />
           </div>
         </div>
+        {section !== 'all' && search.trim() && sectionCandidates.length > 0 && (
+          <div className="border-b border-slate-200 bg-slate-50 p-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Add to “{SECTION_TABS.find((t) => t.key === section)?.label}”
+            </p>
+            <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+              {sectionCandidates.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between gap-3 border-b border-slate-100 p-2.5 last:border-0"
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    {p.image ? (
+                      <img
+                        src={p.image}
+                        alt=""
+                        className="h-8 w-8 shrink-0 rounded-md border border-slate-200 object-cover"
+                      />
+                    ) : (
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-dashed border-slate-200 text-slate-300">
+                        <Icon name="products" className="h-3.5 w-3.5" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="truncate text-sm text-slate-800">{p.name}</p>
+                      <p className="truncate text-xs text-slate-400">
+                        {p.brand} · {p.pack}
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={addingToSectionId === p.id}
+                    onClick={() => addToSection(p)}
+                  >
+                    {addingToSectionId === p.id ? 'Adding…' : 'Add'}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <DataTable
           columns={columns}
           rows={filtered}
