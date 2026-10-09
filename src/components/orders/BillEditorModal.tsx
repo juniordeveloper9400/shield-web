@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ConfirmationResult } from 'firebase/auth';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -18,7 +17,13 @@ import {
 } from '@/api/billPayments';
 import { getPrescriptionMedicinesForOrder } from '@/api/prescriptions';
 import { Icon } from '@/components/ui/Icon';
-import { clearDeliveryOtp, confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
+import {
+  clearDeliveryOtp,
+  confirmDeliveryOtp,
+  describeOtpError,
+  sendDeliveryOtp,
+  type OtpConfirmation,
+} from '@/lib/msg91Otp';
 import {
   STOCK_STATUS_LABEL,
   STOCK_STATUS_TONE,
@@ -174,8 +179,8 @@ export function BillEditorModal({
   // Firebase to text the member a code; verifyAndCollect is the one place
   // that calls collectBillWithWallet, and only after Firebase has confirmed
   // the code staff typed in actually matches what was sent to the member's
-  // phone. See lib/deliveryOtp.ts.
-  const [otpConfirmation, setOtpConfirmation] = useState<ConfirmationResult | null>(null);
+  // phone. See lib/msg91Otp.ts.
+  const [otpConfirmation, setOtpConfirmation] = useState<OtpConfirmation | null>(null);
   const [otpCode, setOtpCode] = useState('');
   const [otpBusy, setOtpBusy] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
@@ -248,9 +253,9 @@ export function BillEditorModal({
     setOtpBusy(true);
     setOtpError(null);
     try {
-      await confirmDeliveryOtp(otpConfirmation, otpCode);
+      await confirmDeliveryOtp(otpConfirmation, otpCode, accessToken);
       if (session !== otpSession.current) return;
-      // Firebase codes are single-use. A collection retry needs a fresh code.
+      // OTP codes are single-use. A collection retry needs a fresh code.
       setOtpConfirmation(null);
       setOtpCode('');
       const result = await collectBillWithWallet(order.id, accessToken);
@@ -667,11 +672,6 @@ export function BillEditorModal({
       <p className="mb-3 text-xs text-slate-400">
         {order.memberName} · {order.memberPhone}
       </p>
-      {/* Always mounted — `sendDeliveryOtp` binds its invisible reCAPTCHA to
-          this exact node the moment "Send/Resend cash redemption request"
-          fires `startCollection`, right in the same `submit()` call; the
-          node has to already exist at that point. */}
-      <div id={recaptchaContainerId} />
 
       {editStep === 'select' && (
         <div>

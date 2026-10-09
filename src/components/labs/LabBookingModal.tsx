@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { ConfirmationResult } from 'firebase/auth';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DetailList } from '@/components/ui/DetailList';
@@ -10,7 +9,13 @@ import { WalletBreakdown } from '@/components/orders/WalletBreakdown';
 import { telHref, whatsappHref } from '@/lib/contactLinks';
 import { formatCurrency, formatDateTime, toneForStatus } from '@/lib/format';
 import { fileToResizedDataUrl } from '@/lib/images';
-import { clearDeliveryOtp, confirmDeliveryOtp, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
+import {
+  clearDeliveryOtp,
+  confirmDeliveryOtp,
+  describeOtpError,
+  sendDeliveryOtp,
+  type OtpConfirmation,
+} from '@/lib/msg91Otp';
 import {
   MAX_REPORT_PAGES,
   canAttachReport,
@@ -209,11 +214,11 @@ function BookingWindow({
   }
 
   // ---- OTP-gated wallet collection — identical mechanics to
-  // BillEditorModal's own (see that file's doc): sendOtp only asks Firebase
+  // BillEditorModal's own (see that file's doc): sendOtp only asks MSG91
   // to text the member's phone a code; verifyAndCollect is the one place
-  // that actually calls collectLabBillWithWallet, and only once Firebase has
-  // confirmed the code staff typed in matches.
-  const [otpConfirmation, setOtpConfirmation] = useState<ConfirmationResult | null>(null);
+  // that actually calls collectLabBillWithWallet, and only once the backend
+  // has confirmed the code staff typed in matches (see lib/msg91Otp.ts).
+  const [otpConfirmation, setOtpConfirmation] = useState<OtpConfirmation | null>(null);
   const [otpCode, setOtpCode] = useState('');
   const [otpBusy, setOtpBusy] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
@@ -265,7 +270,7 @@ function BookingWindow({
     setOtpBusy(true);
     setOtpError(null);
     try {
-      await confirmDeliveryOtp(otpConfirmation, otpCode);
+      await confirmDeliveryOtp(otpConfirmation, otpCode, accessToken);
       if (session !== otpSession.current) return;
       setOtpConfirmation(null);
       setOtpCode('');
@@ -811,7 +816,6 @@ function BookingWindow({
               )}
             </>
           )}
-          <div id={recaptchaContainerId} />
         </section>
       </Modal>
 
