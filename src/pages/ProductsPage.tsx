@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
@@ -17,6 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 import { canManageCatalogue } from '@/config/permissions';
 import { useAsync } from '@/lib/useAsync';
 import { useConfirmDialog } from '@/lib/useConfirmDialog';
+import { useUnsavedChangesGuard } from '@/context/UnsavedChangesContext';
 import {
   listProducts,
   listCategories,
@@ -165,6 +166,16 @@ export default function ProductsPage() {
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [draft, setDraft] = useState<NewProduct>(EMPTY_NEW);
   const [addError, setAddError] = useState<string | null>(null);
+  // The draft as it stood the moment the add/edit page opened — EMPTY_NEW for
+  // a new product, the existing product's own fields for an edit. Compared
+  // against the live draft below to tell "actually changed something" from
+  // "opened the page and left it alone".
+  const initialDraftRef = useRef<NewProduct>(EMPTY_NEW);
+  const isDraftDirty = adding && JSON.stringify(draft) !== JSON.stringify(initialDraftRef.current);
+  useUnsavedChangesGuard(isDraftDirty, {
+    label: editingProductId ? 'this product' : 'the new product',
+    onSave: saveNew,
+  });
 
   // Add/remove a product from a home-feed section (Popular Items / Deals
   // You Love / Offer of the Day) — the replacement for picking a section at
@@ -202,6 +213,7 @@ export default function ProductsPage() {
     if (!canManage) return;
     setEditingProductId(null);
     setDraft(EMPTY_NEW);
+    initialDraftRef.current = EMPTY_NEW;
     setAddError(null);
     setAdding(true);
   }
@@ -222,7 +234,7 @@ export default function ProductsPage() {
     } catch {
       // Fall back to a blank detail block; the core fields are still editable.
     }
-    setDraft({
+    const prefilled: NewProduct = {
       categorySlug: product.categorySlug,
       subcategoryId: product.subcategoryId,
       name: product.name,
@@ -241,7 +253,9 @@ export default function ProductsPage() {
       isDeal: product.isDeal,
       isOfferOfDay: product.isOfferOfDay,
       detail,
-    });
+    };
+    setDraft(prefilled);
+    initialDraftRef.current = prefilled;
     setAdding(true);
   }
 
@@ -262,13 +276,25 @@ export default function ProductsPage() {
     [subcategories.data, draft.categorySlug],
   );
 
-  async function saveNew() {
-    if (!draft.categorySlug) return setAddError('Pick a category first.');
-    if (draftSubOptions.length > 0 && !draft.subcategoryId)
-      return setAddError('Pick a sub-category.');
-    if (!draft.name.trim()) return setAddError('Give the product a name.');
-    if (!(draft.price >= 0) || !(draft.mrp >= 0))
-      return setAddError('Offer price and MRP must be zero or more.');
+  /** Returns whether it actually saved — the unsaved-changes guard's "Save
+   *  and continue later" needs to know before it navigates away. */
+  async function saveNew(): Promise<boolean> {
+    if (!draft.categorySlug) {
+      setAddError('Pick a category first.');
+      return false;
+    }
+    if (draftSubOptions.length > 0 && !draft.subcategoryId) {
+      setAddError('Pick a sub-category.');
+      return false;
+    }
+    if (!draft.name.trim()) {
+      setAddError('Give the product a name.');
+      return false;
+    }
+    if (!(draft.price >= 0) || !(draft.mrp >= 0)) {
+      setAddError('Offer price and MRP must be zero or more.');
+      return false;
+    }
     setSaving(true);
     setAddError(null);
     try {
@@ -276,6 +302,7 @@ export default function ProductsPage() {
       else await createProduct(draft);
       setAdding(false);
       reload();
+      return true;
     } catch (err) {
       setAddError(
         err instanceof Error
@@ -284,6 +311,7 @@ export default function ProductsPage() {
             ? 'Could not save the product.'
             : 'Could not add the product.',
       );
+      return false;
     } finally {
       setSaving(false);
     }

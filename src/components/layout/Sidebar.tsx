@@ -1,7 +1,8 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { allowedModules, ROLE_LABELS } from '@/config/permissions';
 import { Icon } from '@/components/ui/Icon';
+import { useUnsavedChanges } from '@/context/UnsavedChangesContext';
 
 export function Sidebar({
   mobileOpen,
@@ -11,6 +12,8 @@ export function Sidebar({
   onClose: () => void;
 }) {
   const { user } = useAuth();
+  const { guardedNavigate } = useUnsavedChanges();
+  const location = useLocation();
   if (!user) return null;
 
   const items = allowedModules(user.role);
@@ -46,7 +49,16 @@ export function Sidebar({
             <NavLink
               key={item.key}
               to={item.path}
-              onClick={onClose}
+              onClick={(e) => {
+                // A different section while something unsaved is open on this
+                // one — ask first (Save and continue later / Leave without
+                // saving / Stay here) instead of silently losing it.
+                if (item.path !== location.pathname) {
+                  e.preventDefault();
+                  guardedNavigate(item.path);
+                }
+                onClose();
+              }}
               className={({ isActive }) =>
                 `flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
                   isActive
