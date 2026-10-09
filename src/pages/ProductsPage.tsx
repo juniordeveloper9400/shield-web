@@ -102,6 +102,12 @@ export default function ProductsPage() {
   const [draft, setDraft] = useState<NewProduct>(EMPTY_NEW);
   const [addError, setAddError] = useState<string | null>(null);
 
+  // Search-and-add to a home-feed section (Popular Items / Deals You Love /
+  // Offer of the Day) — the replacement for picking a section at product
+  // creation. Only meaningful on one of the three section tabs.
+  const [sectionQuery, setSectionQuery] = useState('');
+  const [addingToSectionId, setAddingToSectionId] = useState<string | null>(null);
+
   // The selected product's detail-page content, loaded lazily when its modal
   // opens. `undefined` = not loaded yet, `null` = loaded and there is none.
   const [selectedDetail, setSelectedDetail] = useState<
@@ -217,6 +223,41 @@ export default function ProductsPage() {
       return matchesQuery && matchesStatus && matchesCategory;
     });
   }, [rows, search, status, category, section]);
+
+  // Candidates for "add to this section" — every product not already in it,
+  // matching the search box; capped so the list stays scannable. Reset
+  // whenever the tab changes, so a stale query from one section doesn't
+  // leak into another.
+  const sectionCandidates = useMemo(() => {
+    if (section === 'all') return [];
+    const q = sectionQuery.trim().toLowerCase();
+    if (!q) return [];
+    return rows
+      .filter((p) => !p[section])
+      .filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.brand.toLowerCase().includes(q) ||
+          p.code.toLowerCase().includes(q),
+      )
+      .slice(0, 20);
+  }, [rows, sectionQuery, section]);
+
+  async function addToSection(product: Product) {
+    if (section === 'all') return;
+    setAddingToSectionId(product.id);
+    try {
+      await updateProductSections(product.id, {
+        isPopular: section === 'isPopular' ? true : product.isPopular,
+        isDeal: section === 'isDeal' ? true : product.isDeal,
+        isOfferOfDay: section === 'isOfferOfDay' ? true : product.isOfferOfDay,
+      });
+      setSectionQuery('');
+      reload();
+    } finally {
+      setAddingToSectionId(null);
+    }
+  }
 
   function open(id: string) {
     const product = rows.find((r) => r.id === id);
@@ -543,39 +584,6 @@ export default function ProductsPage() {
             />
             Active (visible in the app straight away)
           </label>
-          <div className="rounded-lg border border-slate-200 p-3">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Home feed rows
-            </p>
-            <div className="space-y-1.5">
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={draft.isPopular}
-                  onChange={(e) => setDraft({ ...draft, isPopular: e.target.checked })}
-                />
-                Popular Items
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={draft.isDeal}
-                  onChange={(e) => setDraft({ ...draft, isDeal: e.target.checked })}
-                />
-                Deals You Love
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={draft.isOfferOfDay}
-                  onChange={(e) =>
-                    setDraft({ ...draft, isOfferOfDay: e.target.checked })
-                  }
-                />
-                Offer of the Day
-              </label>
-            </div>
-          </div>
 
           <div className="rounded-lg border border-slate-200 p-3">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -802,9 +810,68 @@ export default function ProductsPage() {
           <Tabs
             items={sectionTabs}
             active={section}
-            onChange={(key) => setSection(key as SectionTab)}
+            onChange={(key) => {
+              setSection(key as SectionTab);
+              setSectionQuery('');
+            }}
           />
         </div>
+        {section !== 'all' && (
+          <div className="border-b border-slate-200 bg-slate-50 p-4">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Add a product to “{SECTION_TABS.find((t) => t.key === section)?.label}”
+            </p>
+            <SearchInput
+              value={sectionQuery}
+              onChange={setSectionQuery}
+              placeholder="Search product, brand, code to add…"
+            />
+            {sectionQuery.trim() && (
+              <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-slate-200 bg-white">
+                {sectionCandidates.length === 0 ? (
+                  <p className="p-3 text-sm text-slate-400">
+                    No matching product outside this section.
+                  </p>
+                ) : (
+                  sectionCandidates.map((p) => (
+                    <div
+                      key={p.id}
+                      className="flex items-center justify-between gap-3 border-b border-slate-100 p-2.5 last:border-0"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        {p.image ? (
+                          <img
+                            src={p.image}
+                            alt=""
+                            className="h-8 w-8 shrink-0 rounded-md border border-slate-200 object-cover"
+                          />
+                        ) : (
+                          <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-dashed border-slate-200 text-slate-300">
+                            <Icon name="products" className="h-3.5 w-3.5" />
+                          </div>
+                        )}
+                        <div className="min-w-0">
+                          <p className="truncate text-sm text-slate-800">{p.name}</p>
+                          <p className="truncate text-xs text-slate-400">
+                            {p.brand} · {p.pack}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={addingToSectionId === p.id}
+                        onClick={() => addToSection(p)}
+                      >
+                        {addingToSectionId === p.id ? 'Adding…' : 'Add'}
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        )}
         <div className="flex flex-col gap-3 border-b border-slate-200 p-4 lg:flex-row lg:items-center lg:justify-between">
           <SearchInput
             value={search}
