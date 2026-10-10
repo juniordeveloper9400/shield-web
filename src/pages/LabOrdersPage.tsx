@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
-import { Badge } from '@/components/ui/Badge';
+import { Badge, type Tone } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
@@ -14,12 +15,38 @@ import { useAsync } from '@/lib/useAsync';
 import { listLabBookings } from '@/api/labBookings';
 import type { LabBooking, LabBookingStatus } from '@/types';
 
-const STATUS_LABEL: Record<LabBookingStatus, string> = {
+/** Where a booking actually stands, at a glance — the raw `status` column
+ *  plus one milestone the column doesn't carry: whether it's been converted
+ *  to a bill (`billAmount > 0`, the same check `LabBillsPage` itself uses).
+ *  Mirrors `orderLifecycleStatus` in `lib/orderLifecycle.ts`: cancelled and
+ *  report-ready (the lab equivalent of "delivered" — the booking's whole job
+ *  is done) both still win outright, but a bill sent in between reads as
+ *  "Billed" rather than whatever raw status it happened to be sitting on. */
+type LabOrderDisplayStatus = LabBookingStatus | 'billed';
+
+function labOrderDisplayStatus(row: LabBooking): LabOrderDisplayStatus {
+  if (row.status === 'cancelled') return 'cancelled';
+  if (row.status === 'report_ready') return 'report_ready';
+  if (row.billAmount > 0) return 'billed';
+  return row.status;
+}
+
+const STATUS_LABEL: Record<LabOrderDisplayStatus, string> = {
   requested: 'Requested',
   confirmed: 'Confirmed',
   sample_collected: 'Sample collected',
+  billed: 'Billed',
   report_ready: 'Report ready',
   cancelled: 'Cancelled',
+};
+
+const STATUS_TONE: Record<LabOrderDisplayStatus, Tone> = {
+  requested: 'amber',
+  confirmed: 'blue',
+  sample_collected: 'violet',
+  billed: 'violet',
+  report_ready: 'green',
+  cancelled: 'red',
 };
 
 const STATUS_OPTIONS = [
@@ -27,11 +54,13 @@ const STATUS_OPTIONS = [
   { value: 'requested', label: 'Requested' },
   { value: 'confirmed', label: 'Confirmed' },
   { value: 'sample_collected', label: 'Sample collected' },
+  { value: 'billed', label: 'Billed' },
   { value: 'report_ready', label: 'Report ready' },
   { value: 'cancelled', label: 'Cancelled' },
 ];
 
 export default function LabOrdersPage() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { data, loading, error, reload } = useAsync(listLabBookings, []);
   const rows = useMemo(() => data ?? [], [data]);
@@ -74,7 +103,7 @@ export default function LabOrdersPage() {
           (row.memberName.toLowerCase().includes(q) ||
             row.packageName.toLowerCase().includes(q) ||
             row.memberPhone.includes(q)));
-      const matchesStatus = status === 'all' || row.status === status;
+      const matchesStatus = status === 'all' || labOrderDisplayStatus(row) === status;
       const matchesStore =
         branchBound ||
         store === 'all' ||
@@ -87,6 +116,7 @@ export default function LabOrdersPage() {
     requested: scoped.filter((r) => r.status === 'requested').length,
     confirmed: scoped.filter((r) => r.status === 'confirmed').length,
     collected: scoped.filter((r) => r.status === 'sample_collected').length,
+    billed: scoped.filter((r) => labOrderDisplayStatus(r) === 'billed').length,
     ready: scoped.filter((r) => r.status === 'report_ready').length,
   };
 
@@ -164,9 +194,26 @@ export default function LabOrdersPage() {
     {
       key: 'status',
       header: 'Status',
-      render: (row) => (
-        <Badge tone={toneForStatus(row.status)}>{STATUS_LABEL[row.status]}</Badge>
-      ),
+      render: (row) => {
+        const displayStatus = labOrderDisplayStatus(row);
+        const badge = <Badge tone={STATUS_TONE[displayStatus]}>{STATUS_LABEL[displayStatus]}</Badge>;
+        // Only once it's actually billed is there anywhere to jump to — the
+        // same `?open=` hand-off "Convert to bill →" already uses.
+        if (displayStatus !== 'billed' || redacted) return badge;
+        return (
+          <button
+            type="button"
+            title="Open this booking's bill"
+            onClick={(e) => {
+              e.stopPropagation();
+              navigate(`/lab-bills?open=${row.id}`);
+            }}
+            className="cursor-pointer"
+          >
+            {badge}
+          </button>
+        );
+      },
     },
     // A store admin only ever looks — managing the lab workflow (schedule,
     // notes, the report itself) isn't theirs to do from here.
@@ -199,10 +246,11 @@ export default function LabOrdersPage() {
         }
       />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         <StatCard label="Requested" value={counts.requested} icon="alert" tone="amber" />
         <StatCard label="Confirmed" value={counts.confirmed} icon="labs" tone="blue" />
         <StatCard label="Sample collected" value={counts.collected} tone="violet" />
+        <StatCard label="Billed" value={counts.billed} icon="receipt" tone="violet" />
         <StatCard label="Report ready" value={counts.ready} icon="check" tone="green" />
       </div>
 
