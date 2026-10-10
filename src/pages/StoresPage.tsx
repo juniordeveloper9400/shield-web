@@ -14,6 +14,7 @@ import { Icon } from '@/components/ui/Icon';
 import { formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { useAuth } from '@/context/AuthContext';
+import { api, ApiError } from '@/lib/api';
 import {
   listStores,
   setStoreActive,
@@ -123,7 +124,11 @@ function coordProblem(latRaw: string, lngRaw: string): string | null {
 }
 
 export default function StoresPage() {
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
+  // Creating a branch's own login (POST /v1/staff/admins) is SUPERADMIN-only
+  // — same guard the Admins page itself sits behind — so a plain admin
+  // opening "Add branch" never sees fields they'd just get a 403 from.
+  const isSuperAdmin = user?.role === 'superadmin';
   const { data, loading, error, reload } = useAsync(
     () => listStores(accessToken),
     [accessToken],
@@ -162,6 +167,11 @@ export default function StoresPage() {
   const [addError, setAddError] = useState<string | null>(null);
   /** True once the admin has typed a code by hand — stop auto-suggesting it. */
   const [codeTouched, setCodeTouched] = useState(false);
+  // The branch's own login, created alongside it (POST /v1/staff/admins,
+  // role PHARMACY) when a SUPERADMIN fills both in — optional, so a branch
+  // can still be added with no login and one set up later from Admins.
+  const [addLoginId, setAddLoginId] = useState('');
+  const [addPassword, setAddPassword] = useState('');
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -169,6 +179,8 @@ export default function StoresPage() {
     setDraft(EMPTY_NEW);
     setAddLat('');
     setAddLng('');
+    setAddLoginId('');
+    setAddPassword('');
     setAddError(null);
     setCodeTouched(false);
     setAdding(true);
@@ -196,6 +208,17 @@ export default function StoresPage() {
     if (coordBad) return setAddError(coordBad);
     const bankBad = bankProblem(draft);
     if (bankBad) return setAddError(bankBad);
+    // Login id and password are a pair — either both are given (create one)
+    // or neither is (add the branch with no login, same as today).
+    const wantsLogin = isSuperAdmin && (addLoginId.trim() || addPassword);
+    if (wantsLogin) {
+      if (addLoginId.trim().length < 3) {
+        return setAddError('Login id must be at least 3 characters.');
+      }
+      if (addPassword.length < 8) {
+        return setAddError('Password must be at least 8 characters.');
+      }
+    }
     setSaving(true);
     setAddError(null);
     try {
@@ -212,6 +235,36 @@ export default function StoresPage() {
           `The code ${draft.code.trim().toUpperCase()} is already in use.`,
         );
         return;
+      }
+      if (wantsLogin) {
+        try {
+          await api.post(
+            '/v1/staff/admins',
+            {
+              loginId: addLoginId.trim(),
+              name: draft.name.trim(),
+              password: addPassword,
+              role: 'PHARMACY',
+              storeId: Number(id),
+            },
+            accessToken,
+          );
+        } catch (err) {
+          // The branch itself was created either way — only the login
+          // failed (e.g. the id is already taken). Leave the modal open on
+          // the error instead of closing over it, so it isn't silently
+          // lost; reload so the new branch already shows in the table
+          // underneath. A second "Create branch" click would just report
+          // the code as taken, which is true now — closing and adding the
+          // login from Admins instead is the way out.
+          reload();
+          setAddError(
+            `Branch created, but the login could not be: ${
+              err instanceof ApiError ? err.message : 'please add it from Admins.'
+            }`,
+          );
+          return;
+        }
       }
       setAdding(false);
       reload();
@@ -798,6 +851,38 @@ export default function StoresPage() {
             values={draft}
             onChange={(patch) => patchDraft(patch)}
           />
+          {isSuperAdmin && (
+            <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+              <p className="text-sm font-medium text-slate-700">
+                Branch login — optional
+              </p>
+              <p className="-mt-2 text-xs text-slate-400">
+                Give this branch a sign-in (Pharmacy access) now, or leave it
+                blank and add one later from Admins.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <EditField label="Login id">
+                  <input
+                    value={addLoginId}
+                    onChange={(e) => setAddLoginId(e.target.value)}
+                    className={inputClass}
+                    placeholder="pharmacy_mel"
+                    autoComplete="off"
+                  />
+                </EditField>
+                <EditField label="Password">
+                  <input
+                    type="password"
+                    value={addPassword}
+                    onChange={(e) => setAddPassword(e.target.value)}
+                    className={inputClass}
+                    placeholder="At least 8 characters"
+                    autoComplete="new-password"
+                  />
+                </EditField>
+              </div>
+            </div>
+          )}
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
