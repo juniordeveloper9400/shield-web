@@ -239,9 +239,19 @@ export function BillEditorModal({
   /** Opens the OTP popover and fires the code off in the same action —
    *  what "Send/Resend cash redemption request" now does right after the
    *  bill itself is saved, and what "Collect payment" re-does by hand if
-   *  the admin closed the popover before finishing. */
+   *  the admin closed the popover before finishing.
+   *
+   *  Skips the OTP step entirely when the wallet has nothing to actually
+   *  cover (`walletCoverage <= 0` — no balance, no Health Pass allowance
+   *  left, or both) — there is nothing to verify a debit against, so this
+   *  jumps straight to the same "collected" screen a real wallet debit
+   *  would land on, with `walletAmount: 0`, ready for Manual cash. */
   async function startCollection() {
     setShowOtpPopover(true);
+    if (walletCoverage <= 0) {
+      setCollected({ walletAmount: 0, cashAmount: cashOwed, settled: cashOwed <= 0 });
+      return;
+    }
     await sendOtp();
   }
 
@@ -1022,7 +1032,9 @@ export function BillEditorModal({
       // summary page behind it. Before collection, it just hides itself —
       // the admin may still be mid-verification.
       onClose={() => (collected ? onClose() : setShowOtpPopover(false))}
-      title="Verify OTP to collect payment"
+      // Only ever an OTP step when there was something in the wallet to
+      // verify a debit against — see startCollection's own doc.
+      title={walletCoverage > 0 ? 'Verify OTP to collect payment' : 'Collect payment'}
       footer={
         collected ? (
           collected.settled ? (

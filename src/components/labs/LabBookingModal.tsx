@@ -255,9 +255,42 @@ function BookingWindow({
     }
   }
 
+  /** Opens the collection panel. Skips the OTP step entirely when the
+   *  wallet has nothing to actually cover (`walletCoverage <= 0` — no
+   *  balance, no Health Pass allowance left, or both): there is nothing
+   *  digital being drawn from the member to verify a code against, so this
+   *  just shows a plain "Collect as cash" button — see `collectCashOnly`
+   *  below — instead of sending a code nobody needs to read out. */
   async function startCollection() {
     setShowOtpPopover(true);
+    if (walletCoverage <= 0) return;
     await sendOtp();
+  }
+
+  /** The no-wallet-involved path `startCollection` opens into: calls the
+   *  same `collectLabBillWithWallet` endpoint directly (it draws `0` from
+   *  the wallet and marks the bill paid against cash collected at the
+   *  counter — identical to what a real OTP collection would do here when
+   *  the wallet has nothing to give), just without ever sending a code. */
+  async function collectCashOnly() {
+    if (otpInFlight.current) return;
+    otpInFlight.current = true;
+    setOtpBusy(true);
+    setOtpError(null);
+    try {
+      const result = await collectLabBillWithWallet(booking.id, accessToken);
+      if (!result.ok) {
+        setOtpError(result.reason);
+        return;
+      }
+      setCollected({ walletAmount: result.walletAmount, cashAmount: result.cashAmount });
+      onChanged();
+    } catch (err) {
+      setOtpError(describeOtpError(err));
+    } finally {
+      otpInFlight.current = false;
+      setOtpBusy(false);
+    }
   }
 
   async function verifyAndCollect() {
@@ -781,7 +814,16 @@ function BookingWindow({
                     format={formatCurrency}
                   />
                   {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
-                  {otpBusy && !otpConfirmation ? (
+                  {walletCoverage <= 0 ? (
+                    // Nothing in the wallet to draw on — no code for the
+                    // member to read out, so no OTP step at all. Just
+                    // confirm the cash was collected at the counter.
+                    <div className="mt-2 flex justify-end">
+                      <Button size="sm" disabled={otpBusy} onClick={() => void collectCashOnly()}>
+                        {otpBusy ? 'Collecting…' : `Collect ${formatCurrency(cashOwed)} as cash`}
+                      </Button>
+                    </div>
+                  ) : otpBusy && !otpConfirmation ? (
                     <p className="mt-2 text-xs text-slate-500">Sending the code to {booking.memberPhone}…</p>
                   ) : otpConfirmation ? (
                     <div className="mt-2 flex items-center gap-2">
