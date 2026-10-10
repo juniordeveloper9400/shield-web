@@ -211,6 +211,9 @@ export default function ProductsPage() {
   const [adding, setAdding] = useState(false);
   // Set while the add page is being used to edit an existing product.
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  // The Add/Edit product form is tabbed — Basic info and Additional info
+  // never show at once, only whichever tab is open.
+  const [addFormTab, setAddFormTab] = useState<'basic' | 'additional'>('basic');
   const [draft, setDraft] = useState<NewProduct>(EMPTY_NEW);
   const [addError, setAddError] = useState<string | null>(null);
   // The draft as it stood the moment the add/edit page opened — EMPTY_NEW for
@@ -262,6 +265,7 @@ export default function ProductsPage() {
     setDraft(EMPTY_NEW);
     initialDraftRef.current = EMPTY_NEW;
     setAddError(null);
+    setAddFormTab('basic');
     setAdding(true);
   }
 
@@ -303,6 +307,7 @@ export default function ProductsPage() {
     };
     setDraft(prefilled);
     initialDraftRef.current = prefilled;
+    setAddFormTab('basic');
     setAdding(true);
   }
 
@@ -625,11 +630,15 @@ export default function ProductsPage() {
   // The Add product form is a page of its own, not a pop-up.
   const addFields = (
         <div className="space-y-4">
-          <div className="grid gap-6 lg:grid-cols-2">
-          <div className="space-y-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Basic info
-            </p>
+          <Tabs
+            items={[
+              { key: 'basic', label: 'Basic info' },
+              { key: 'additional', label: 'Additional info' },
+            ]}
+            active={addFormTab}
+            onChange={(key) => setAddFormTab(key as 'basic' | 'additional')}
+          />
+          <div className={addFormTab === 'basic' ? 'space-y-4' : 'hidden'}>
           <EditField label="Category">
             <select
               value={draft.categorySlug}
@@ -1008,10 +1017,7 @@ export default function ProductsPage() {
           </label>
           </div>
 
-          <div className="space-y-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Additional info
-            </p>
+          <div className={addFormTab === 'additional' ? 'space-y-4' : 'hidden'}>
           <div className="rounded-lg border border-slate-200 p-3">
             <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
               Detail page (optional)
@@ -1175,7 +1181,6 @@ export default function ProductsPage() {
                 </div>
               </div>
             </div>
-          </div>
           </div>
           </div>
 
