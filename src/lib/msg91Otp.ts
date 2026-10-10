@@ -67,7 +67,7 @@ async function ensureWidget(): Promise<void> {
     );
   }
   await loadWidgetScript();
-  if (!window.initSendOTP || !window.sendOtp || !window.verifyOtp) {
+  if (!window.initSendOTP) {
     throw otpError('msg91/script-missing', 'The OTP verification script did not load correctly.');
   }
   if (!widgetInitialized) {
@@ -78,8 +78,29 @@ async function ensureWidget(): Promise<void> {
       success: () => {},
       failure: () => {},
     });
+    // initSendOTP defers its own setup (it waits for DOMContentLoaded, or a
+    // 1ms setTimeout when the document is already ready — confirmed by
+    // reading the real minified function body in a browser console) before
+    // actually attaching window.sendOtp/verifyOtp. They are deliberately
+    // NOT checked synchronously right after this call — that was the exact
+    // bug behind "The OTP verification script did not load correctly"
+    // firing on every real attempt, confirmed 2026-10-10: initSendOTP
+    // itself was always present, sendOtp/verifyOtp just were not yet.
+    await waitForExposedMethods();
     widgetInitialized = true;
   }
+}
+
+/** Polls for `window.sendOtp`/`window.verifyOtp` to appear after
+ *  `initSendOTP` runs — see `ensureWidget`'s own doc on why this can't be
+ *  a single synchronous check. */
+async function waitForExposedMethods(): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (Date.now() < deadline) {
+    if (window.sendOtp && window.verifyOtp) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw otpError('msg91/script-missing', 'The OTP verification script did not load correctly.');
 }
 
 export function normalizeDeliveryPhone(phone: string): string {
