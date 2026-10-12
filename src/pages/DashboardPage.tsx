@@ -43,8 +43,8 @@ export default function DashboardPage() {
     [show.labOrders],
   );
   const appts = useAsync(
-    () => (show.appointments ? listAppointments() : Promise.resolve([])),
-    [show.appointments],
+    () => (show.appointments ? listAppointments(accessToken) : Promise.resolve([])),
+    [show.appointments, accessToken],
   );
 
   if (!user) return null;

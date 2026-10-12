@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
@@ -32,7 +33,11 @@ const TYPE_OPTIONS = [
 ];
 
 export default function AppointmentsPage() {
-  const { data, loading, error, reload } = useAsync(listAppointments, []);
+  const { accessToken } = useAuth();
+  const { data, loading, error, reload } = useAsync(
+    () => listAppointments(accessToken),
+    [accessToken],
+  );
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
@@ -62,7 +67,7 @@ export default function AppointmentsPage() {
   async function changeStatus(id: string, next: AppointmentStatus) {
     setSaving(true);
     try {
-      await setAppointmentStatus(id, next);
+      await setAppointmentStatus(id, next, accessToken);
       setSelectedId(null);
       reload();
     } finally {
