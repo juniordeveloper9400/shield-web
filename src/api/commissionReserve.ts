@@ -1,6 +1,5 @@
-import { sql } from '@/lib/db';
+import { api } from '@/lib/api';
 import { iso, num } from '@/lib/mappers';
-import { reserveByStore } from '@/lib/reserveByStore';
 
 type Row = Record<string, unknown>;
 
@@ -57,48 +56,44 @@ export interface CommissionReserveSummary {
  * activation, plus whatever an agent sale's commission pool left unspent — see
  * `app.commission_reserve_entry`'s own doc (migrations 0032/0033/0053). `total`
  * sums the ledger, never a separately kept counter. Each row is attributed to
- * the store its activation was made at (`wallet_card.store_id`). Callers scope
- * what they show with `scopeToStore`; this returns every store.
+ * the store its activation was made at (`wallet_card.store_id`), and the
+ * split by store, scoped to this staff member's role/branch, is computed by
+ * backend/api (WalletService.getCommissionReserve) — the browser no longer
+ * reads the ledger or does that grouping itself.
  */
-export async function getCommissionReserve(): Promise<CommissionReserveSummary> {
-  const rows = (await sql`
-    SELECT
-      cre.id, cre.wallet_card_id, cre.amount, cre.source, cre.created_at,
-      m.name AS member_name, m.phone AS member_phone,
-      mt.name AS tier_name,
-      wc.store_id, s.code AS store_code, s.name AS store_name
-    FROM app.commission_reserve_entry cre
-    JOIN app.wallet_card wc ON wc.id = cre.wallet_card_id
-    JOIN app.wallet w       ON w.id  = wc.wallet_id
-    JOIN app.users m        ON m.id  = w.member_id
-    JOIN app.membership_tier mt ON mt.id = wc.tier_id
-    LEFT JOIN app.shield_store s ON s.id = wc.store_id
-    ORDER BY cre.created_at DESC
-  `) as Row[];
+export async function getCommissionReserve(
+  token: string | null,
+): Promise<CommissionReserveSummary> {
+  const data = await api.get<Row>('/v1/staff/wallet-cards/reserve', token);
 
-  const entries: CommissionReserveEntry[] = rows.map((r) => ({
+  const entries: CommissionReserveEntry[] = (data.entries as Row[]).map((r) => ({
     id: String(r.id),
-    walletCardId: String(r.wallet_card_id),
+    walletCardId: String(r.walletCardId),
     amount: num(r.amount),
     source: (r.source === 'COMPANY_SHARE' ? 'COMPANY_SHARE' : 'POOL_LEFTOVER') as ReserveSource,
-    createdAt: iso(r.created_at) ?? new Date(0).toISOString(),
-    memberName: String(r.member_name ?? '—'),
-    memberPhone: String(r.member_phone ?? ''),
-    tierName: String(r.tier_name ?? '—'),
-    storeId: r.store_id == null ? '' : String(r.store_id),
-    storeCode: String(r.store_code ?? ''),
-    storeName: r.store_id == null ? 'Unassigned' : String(r.store_name ?? '—'),
+    createdAt: iso(r.createdAt) ?? new Date(0).toISOString(),
+    memberName: String(r.memberName ?? '—'),
+    memberPhone: String(r.memberPhone ?? ''),
+    tierName: String(r.tierName ?? '—'),
+    storeId: r.storeId == null ? '' : String(r.storeId),
+    storeCode: String(r.storeCode ?? ''),
+    storeName: String(r.storeName ?? '—'),
   }));
 
-  const sumOf = (source: ReserveSource, list: CommissionReserveEntry[] = entries) =>
-    list.filter((e) => e.source === source).reduce((sum, e) => sum + e.amount, 0);
-
-  const byStore = reserveByStore(entries);
+  const byStore: CommissionReserveStore[] = (data.byStore as Row[]).map((b) => ({
+    id: String(b.id),
+    storeId: b.storeId == null ? '' : String(b.storeId),
+    storeCode: String(b.storeCode ?? ''),
+    storeName: String(b.storeName ?? '—'),
+    total: num(b.total),
+    companyShare: num(b.companyShare),
+    poolLeftover: num(b.poolLeftover),
+  }));
 
   return {
-    total: entries.reduce((sum, e) => sum + e.amount, 0),
-    companyShare: sumOf('COMPANY_SHARE'),
-    poolLeftover: sumOf('POOL_LEFTOVER'),
+    total: num(data.total),
+    companyShare: num(data.companyShare),
+    poolLeftover: num(data.poolLeftover),
     byStore,
     entries,
   };

@@ -25,8 +25,8 @@ import {
  * its store's reserve, with that store's figures as the totals.
  */
 export default function CommissionReservePage() {
-  const { user } = useAuth();
-  const reserve = useAsync(getCommissionReserve, []);
+  const { user, accessToken } = useAuth();
+  const reserve = useAsync(() => getCommissionReserve(accessToken), [accessToken]);
 
   const scopedEntries = useMemo(
     () => scopeToStore(reserve.data?.entries ?? [], user),
