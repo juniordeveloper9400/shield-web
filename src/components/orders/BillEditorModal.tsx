@@ -152,8 +152,8 @@ export function BillEditorModal({
   // drawn on collection agree, including for a member who's already used
   // up this month's allowance despite still holding a real balance.
   const { data: walletBalance } = useAsync(
-    () => getWalletBalanceForOrder(order.id),
-    [order.id],
+    () => getWalletBalanceForOrder(order.id, accessToken),
+    [order.id, accessToken],
   );
 
   // Also caps `walletCoverage` below, for a member who actually has a
@@ -162,18 +162,21 @@ export function BillEditorModal({
   // and adds any carry-forward) here on screen, before this bill is ever
   // priced/sent. A member with no Health Pass at all isn't capped by it —
   // see `hasMonthlyAllowance` below.
-  const { data: availableAllowance } = useAsync(() => getAvailableAllowanceForOrder(order.id), [order.id]);
+  const { data: availableAllowance } = useAsync(
+    () => getAvailableAllowanceForOrder(order.id, accessToken),
+    [order.id, accessToken],
+  );
   const { data: monthlyRedeemable } = useAsync(
-    () => getMonthlyRedeemableForOrder(order.id),
-    [order.id],
+    () => getMonthlyRedeemableForOrder(order.id, accessToken),
+    [order.id, accessToken],
   );
 
   // How much of that allowance the member has already drawn this month — with
   // it, the "Monthly balance" (what's left) the member sees on their own
   // wallet card. Same informational status as the line above.
   const { data: redeemedThisMonth } = useAsync(
-    () => getRedeemedThisMonthForOrder(order.id),
-    [order.id],
+    () => getRedeemedThisMonthForOrder(order.id, accessToken),
+    [order.id, accessToken],
   );
 
   // --- OTP-gated wallet collection ----------------------------------------

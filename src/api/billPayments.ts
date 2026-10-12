@@ -1,66 +1,41 @@
-import { query } from '@/lib/db';
 import { api } from '@/lib/api';
 import { num } from '@/lib/mappers';
-import { redeemedThisMonth, availablePlanAllowance, redeemableAllowance } from '@/lib/walletMonth';
-
-export async function getAvailableAllowanceForOrder(orderId: string): Promise<number> {
-  const [cards, entries, balance] = await Promise.all([
-    query<Row>(`SELECT wc.amount + wc.bonus + wc.recharged_extra AS loaded, wc.issued_on::text AS issued_on
-      FROM app."order" o JOIN app.wallet w ON w.member_id = o.member_id
-      JOIN app.wallet_card wc ON wc.wallet_id = w.id AND wc.status = 'APPROVED' WHERE o.id = $1`, [orderId]),
-    query<Row>(`SELECT we.kind::text AS kind, we.amount, we.occurred_on::text AS occurred_on
-      FROM app."order" o JOIN app.wallet w ON w.member_id = o.member_id
-      JOIN app.wallet_entry we ON we.wallet_id = w.id WHERE o.id = $1 ORDER BY we.created_at, we.id`, [orderId]),
-    getWalletBalanceForOrder(orderId),
-  ]);
-  return availablePlanAllowance(
-    cards.map(r => ({ loaded: num(r.loaded), issuedOn: String(r.issued_on) })),
-    entries.map(r => ({ kind: String(r.kind), amount: num(r.amount), occurredOn: String(r.occurred_on) })),
-    new Date(), balance,
-  );
-}
 
 type Row = Record<string, unknown>;
 
 /**
- * The wallet balance of whichever member placed [orderId], read-only — `0`
- * for a member with no wallet row at all (never activated one), same as
- * `collectBillWithWallet`'s own `COALESCE(w.balance, 0)` treats it, and the
- * same join it uses (`app."order" → app.wallet` on `member_id`) rather than
- * needing the member's id on hand separately. Lets `BillEditorModal` show
- * what collecting a given total would actually draw from the wallet, and
- * what's left over for cash, before the reviewer commits to anything — the
- * same `LEAST(balance, amount)` split `collectBillWithWallet` performs,
- * worked out here ahead of time against whatever total is on screen right
- * now rather than what's saved on `app.bill` yet.
+ * The four Health Pass figures `BillEditorModal` shows before a reviewer
+ * commits to collecting a bill — balance, what's actually drawable right
+ * now (capped at this month's allowance, same as `collectBillWithWallet`
+ * would draw), the month's whole allowance, and what it has already drawn
+ * this month. One call (`GET /v1/staff/orders/:id/wallet-preview`,
+ * `OrderService.getWalletPreview`) rather than four separate direct-SQL
+ * reads, now that the figures themselves live on the backend.
  */
-export async function getWalletBalanceForOrder(orderId: string): Promise<number> {
-  const rows = await query<Row>(
-    `SELECT COALESCE(w.balance, 0) AS balance
-       FROM app."order" o
-       LEFT JOIN app.wallet w ON w.member_id = o.member_id
-      WHERE o.id = $1`,
-    [orderId],
-  );
-  return rows.length > 0 ? num(rows[0].balance) : 0;
+async function getWalletPreview(orderId: string, token: string | null) {
+  return api.get<Row>(`/v1/staff/orders/${orderId}/wallet-preview`, token);
+}
+
+export async function getAvailableAllowanceForOrder(orderId: string, token: string | null): Promise<number> {
+  return num((await getWalletPreview(orderId, token)).availableAllowance);
+}
+
+/**
+ * The wallet balance of whichever member placed [orderId], read-only — `0`
+ * for a member with no wallet row at all (never activated one). Lets
+ * `BillEditorModal` show what collecting a given total would actually draw
+ * from the wallet, and what's left over for cash, before the reviewer
+ * commits to anything.
+ */
+export async function getWalletBalanceForOrder(orderId: string, token: string | null): Promise<number> {
+  return num((await getWalletPreview(orderId, token)).balance);
 }
 
 /**
  * "Health Pass monthly redeemable": everything the member's wallet has
  * released so far across every approved card — carry-forward from earlier
- * months included, the same cumulative "a twelfth per instalment that's come
- * due" rule `WalletCard.releasedBy` applies in the Flutter app
- * (`lib/module/wallet/wallet_service.dart`) — less whatever plan spending
- * happened before this month began. Ported here (via [redeemableAllowance])
- * since none of it is persisted as a column: `app.wallet.balance` carries a
- * card's full load the moment it's approved (see
- * `approve_wallet_card_activation`), not released in instalments.
- *
- * Previously summed only the cards whose own due-day had already come round
- * *today* — correct for "has a fresh twelfth opened up this exact day", but
- * not for "Health Pass monthly redeemable", which left a card showing ₹0
- * here for most of a month even with real, released, unspent carry-forward
- * from an earlier one.
+ * months included — less whatever plan spending happened before this month
+ * began.
  *
  * Informational only: this does NOT change what `collectBillWithWallet`
  * actually draws (the full balance, same as it always has) — a member's
@@ -70,20 +45,8 @@ export async function getWalletBalanceForOrder(orderId: string): Promise<number>
  * alongside the real balance before deciding how to collect, not to gate
  * the collection itself.
  */
-export async function getMonthlyRedeemableForOrder(orderId: string): Promise<number> {
-  const [cards, entries] = await Promise.all([
-    query<Row>(`SELECT wc.amount + wc.bonus + wc.recharged_extra AS loaded, wc.issued_on::text AS issued_on
-      FROM app."order" o JOIN app.wallet w ON w.member_id = o.member_id
-      JOIN app.wallet_card wc ON wc.wallet_id = w.id AND wc.status = 'APPROVED' WHERE o.id = $1`, [orderId]),
-    query<Row>(`SELECT we.kind::text AS kind, we.amount, we.occurred_on::text AS occurred_on
-      FROM app."order" o JOIN app.wallet w ON w.member_id = o.member_id
-      JOIN app.wallet_entry we ON we.wallet_id = w.id WHERE o.id = $1 ORDER BY we.created_at, we.id`, [orderId]),
-  ]);
-  return redeemableAllowance(
-    cards.map(r => ({ loaded: num(r.loaded), issuedOn: String(r.issued_on) })),
-    entries.map(r => ({ kind: String(r.kind), amount: num(r.amount), occurredOn: String(r.occurred_on) })),
-    new Date(),
-  );
+export async function getMonthlyRedeemableForOrder(orderId: string, token: string | null): Promise<number> {
+  return num((await getWalletPreview(orderId, token)).monthlyRedeemable);
 }
 
 /**
@@ -142,29 +105,11 @@ export async function collectBillWithWallet(
 /**
  * How much of this month's Health Pass allowance the member of [orderId] has
  * already drawn — the "Redeemed this month" line on their own wallet card.
- * Read from the ledger (`app.wallet_entry`, oldest first) and worked out by the
- * same rule the app uses; see `redeemedThisMonth` in `lib/walletMonth.ts`.
  * `0` for a member with no wallet or nothing drawn yet.
  *
  * Together with [getMonthlyRedeemableForOrder] this gives the "Monthly
  * balance" — what is left this month — shown when collecting a bill.
  */
-export async function getRedeemedThisMonthForOrder(orderId: string): Promise<number> {
-  const rows = await query<Row>(
-    `SELECT we.kind::text AS kind, we.amount, we.occurred_on::text AS occurred_on
-       FROM app."order" o
-       JOIN app.wallet w         ON w.member_id = o.member_id
-       JOIN app.wallet_entry we  ON we.wallet_id = w.id
-      WHERE o.id = $1
-      ORDER BY we.created_at ASC, we.id ASC`,
-    [orderId],
-  );
-  return redeemedThisMonth(
-    rows.map((r) => ({
-      kind: String(r.kind),
-      amount: num(r.amount),
-      occurredOn: String(r.occurred_on),
-    })),
-    new Date(),
-  );
+export async function getRedeemedThisMonthForOrder(orderId: string, token: string | null): Promise<number> {
+  return num((await getWalletPreview(orderId, token)).redeemedThisMonth);
 }
