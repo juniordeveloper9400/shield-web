@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { reserveByStore } from '../src/lib/reserveByStore.ts';
+import { reserveByStore, filterReserveEntries } from '../src/lib/reserveByStore.ts';
+
+test('selecting a store limits reserve entries and totals to that store', () => {
+  const entries = [e('1', 'A', 'COMPANY_SHARE', 80), e('1', 'A', 'POOL_LEFTOVER', 20), e('2', 'B', 'COMPANY_SHARE', 160), e(null, 'Unassigned', 'COMPANY_SHARE', 40)];
+  const selected = filterReserveEntries(entries, '1');
+  assert.deepEqual(selected, entries.slice(0, 2));
+  assert.equal(reserveByStore(selected)[0].total, 100);
+  assert.deepEqual(filterReserveEntries(entries, 'all'), entries);
+  assert.deepEqual(filterReserveEntries(entries, 'unassigned'), [entries[3]]);
+  assert.deepEqual(filterReserveEntries(entries, 'missing'), []);
+});
 
 const e = (storeId, storeName, source, amount) => ({
   storeId, storeCode: storeId ? `SHD-${storeId}` : '', storeName, source, amount,

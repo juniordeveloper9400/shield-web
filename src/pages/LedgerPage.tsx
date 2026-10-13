@@ -8,6 +8,7 @@ import { FilterSelect } from '@/components/ui/Filters';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { formatCurrency } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { ACCOUNT_EXPLANATIONS, movementBalance, ledgerReportCsv, type StoreLedgerRow } from '@/lib/ledgerReport';
 import {
   closeLedgerPeriod,
   getLedgerEntities,
@@ -56,6 +57,7 @@ export default function LedgerPage() {
   const [entityId, setEntityId] = useState<number | null>(null);
   const [period, setPeriod] = useState(currentPeriod());
   const [accountType, setAccountType] = useState('');
+  const [showStoreReport, setShowStoreReport] = useState(false);
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
 
@@ -68,6 +70,26 @@ export default function LedgerPage() {
     () => (entityId === null ? Promise.resolve([]) : getLedgerPeriods(accessToken, entityId)),
     [accessToken, entityId],
   );
+
+  const storeReport = useAsync(async () => {
+    if (!showStoreReport) return [] as StoreLedgerRow[];
+    const selected = (entities.data ?? []).filter((entity) => entityId === null || entity.id === entityId);
+    const reports = await Promise.all(selected.map(async (entity) => {
+      const rows = await getTrialBalance(accessToken, { entityId: entity.id, period, type: accountType || undefined });
+      return rows.map((row) => ({ ...row, id: `${entity.id}-${row.accountCode}`, entityName: entity.name, entityCode: entity.code }));
+    }));
+    return reports.flat();
+  }, [showStoreReport, entities.data, accessToken, entityId, period, accountType]);
+
+  function downloadStoreReport() {
+    const csv = ledgerReportCsv(storeReport.data ?? [], period.slice(0, 7));
+    const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `sahakar-store-ledger-${period.slice(0, 7)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   const currentPeriodRow = useMemo(
     () => periods.data?.find((p) => p.period.slice(0, 10) === period),
@@ -113,6 +135,7 @@ export default function LedgerPage() {
           <div>
             <p className="font-mono text-xs text-slate-400">{row.accountCode}</p>
             <p className="text-slate-800">{row.accountName}</p>
+            {ACCOUNT_EXPLANATIONS[row.accountCode] && <p className="text-xs text-slate-500">({ACCOUNT_EXPLANATIONS[row.accountCode]})</p>}
           </div>
           {row.isProvisional && <Badge tone="amber">Provisional</Badge>}
         </div>
@@ -137,12 +160,11 @@ export default function LedgerPage() {
     },
     {
       key: 'net',
-      header: 'Net (Dr − Cr)',
-      render: (row) => (
-        <span className={row.net >= 0 ? 'text-slate-900' : 'text-rose-600'}>
-          {formatCurrency(row.net)}
-        </span>
-      ),
+      header: 'Net movement (Debit / Credit)',
+      render: (row) => {
+        const movement = movementBalance(row.debit, row.credit);
+        return <span>{formatCurrency(movement.amount)} {movement.side}</span>;
+      },
       className: 'text-right font-semibold',
     },
   ];
@@ -150,7 +172,7 @@ export default function LedgerPage() {
   // Entity names already carry "(provisional entity)"/"(provisional)" in
   // their own text (migration 0074's backfill) — not appended again here.
   const entityOptions = [
-    { value: '', label: 'All entities' },
+    { value: '', label: 'All stores + Head Office' },
     ...(entities.data ?? []).map((e: LedgerEntity) => ({ value: String(e.id), label: e.name })),
   ];
 
@@ -160,6 +182,12 @@ export default function LedgerPage() {
         title="Ledger"
         subtitle="Double-entry journal underneath the money tables — one entity per shop, plus Head Office for commissions, wallets and reserves that aren't tied to any one store."
       />
+
+      <Card className="mb-6 p-4 text-sm text-slate-600">
+        Figures show movements during the selected month, not current cash in hand or the remaining wallet balance.
+        For wallet liability, Debit reduces what is owed and Credit increases it. Revenue is normally recorded as Credit; it is not a loss.
+        Provisional means the account rules await accountant review. Head Office holds shared company accounts separately from stores.
+      </Card>
 
       {(entities.error || balance.error) && (
         <Card className="mb-6 border-rose-200 bg-rose-50 p-4 text-sm text-rose-600">
@@ -178,7 +206,8 @@ export default function LedgerPage() {
             <input
               type="month"
               value={period.slice(0, 7)}
-              onChange={(e) => setPeriod(`${e.target.value}-01`)}
+              onChange={(e) => { if (e.target.value) setPeriod(`${e.target.value}-01`); }}
+              aria-label="Report month"
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             />
             <FilterSelect value={accountType} onChange={setAccountType} options={ACCOUNT_TYPES} />
@@ -205,8 +234,9 @@ export default function LedgerPage() {
 
         <CardHeader
           title="Trial balance"
-          subtitle="Every account with at least one posted line this month, for the selected entity."
+          subtitle="Monthly account movements for the selected store or Head Office. All stores combines their figures."
         />
+        {accountType && <p className="px-4 pb-3 text-xs text-slate-500">Only the selected account type is shown, so debit and credit totals may differ. Select every account type for the complete trial balance.</p>}
         <DataTable
           columns={columns}
           rows={balanceRows}
@@ -224,6 +254,26 @@ export default function LedgerPage() {
             </span>
           </div>
         )}
+      </Card>
+
+      <Card>
+        <CardHeader title="Store-wise monthly ledger report" subtitle="Each store and Head Office shown separately. Uses the month, store and account-type filters above." />
+        <div className="flex gap-3 p-4">
+          <Button variant="secondary" onClick={() => setShowStoreReport(!showStoreReport)}>
+            {showStoreReport ? 'Hide report' : 'Show store-wise report'}
+          </Button>
+          {showStoreReport && <Button variant="secondary" onClick={downloadStoreReport} disabled={storeReport.loading || entities.loading || Boolean(storeReport.error || entities.error) || !storeReport.data?.length}>Download CSV</Button>}
+        </div>
+        {showStoreReport && <DataTable<StoreLedgerRow>
+          columns={[
+            { key: 'entity', header: 'Store / Head Office', render: (row) => <div>{row.entityName}<p className="text-xs text-slate-400">{row.entityCode}</p></div> },
+            ...columns,
+          ]}
+          rows={storeReport.loading ? [] : storeReport.data ?? []}
+          loading={storeReport.loading || entities.loading}
+          error={storeReport.error || entities.error}
+          empty="No ledger movements for this selection and month."
+        />}
       </Card>
     </>
   );

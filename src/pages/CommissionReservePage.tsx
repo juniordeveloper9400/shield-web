@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -8,6 +8,8 @@ import { Badge } from '@/components/ui/Badge';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { filterReserveEntries } from '@/lib/reserveByStore';
+import { FilterSelect } from '@/components/ui/Filters';
 import {
   getCommissionReserve,
   type CommissionReserveEntry,
@@ -17,7 +19,7 @@ import {
 /**
  * The company's own money from Health Pass activations — never shown to a
  * member or an agent anywhere in the app itself, only here. Every approved
- * activation adds 8% of its load; an agent sale can also leave part of its
+ * member-referral activation adds 8% of its load; an agent sale can leave part of its
  * commission pool unspent. Each amount is held against the store its
  * activation was made at.
  *
@@ -27,6 +29,9 @@ import {
 export default function CommissionReservePage() {
   const { user, accessToken } = useAuth();
   const reserve = useAsync(() => getCommissionReserve(accessToken), [accessToken]);
+  const [store, setStore] = useState('all');
+  const canSelectStore = user?.role === 'admin' || user?.role === 'superadmin';
+  const selectedStore = canSelectStore ? store : 'all';
 
   const scopedEntries = useMemo(
     () => scopeToStore(reserve.data?.entries ?? [], user),
@@ -36,18 +41,25 @@ export default function CommissionReservePage() {
     () => scopeToStore(reserve.data?.byStore ?? [], user),
     [reserve.data, user],
   );
+  const entries = useMemo(
+    () => filterReserveEntries(scopedEntries, selectedStore),
+    [scopedEntries, selectedStore],
+  );
+  const stores = useMemo(
+    () => selectedStore === 'all' ? scopedStores : scopedStores.filter((row) => row.id === selectedStore),
+    [scopedStores, selectedStore],
+  );
   const totals = useMemo(() => {
     const sum = (list: { amount?: number; total?: number; companyShare?: number; poolLeftover?: number }[], key: 'amount' | 'companyShare' | 'poolLeftover' | 'total') =>
       list.reduce((s, x) => s + (Number(x[key]) || 0), 0);
     const entriesSum = (source: 'COMPANY_SHARE' | 'POOL_LEFTOVER') =>
-      scopedEntries.filter((e) => e.source === source).reduce((s, e) => s + e.amount, 0);
+      entries.filter((e) => e.source === source).reduce((s, e) => s + e.amount, 0);
     return {
-      total: sum(scopedStores, 'total'),
+      total: sum(stores, 'total'),
       companyShare: entriesSum('COMPANY_SHARE'),
       poolLeftover: entriesSum('POOL_LEFTOVER'),
     };
-  }, [scopedEntries, scopedStores]);
-  const entries = scopedEntries;
+  }, [entries, stores]);
 
   const storeColumns: Column<CommissionReserveStore>[] = [
     {
@@ -83,6 +95,16 @@ export default function CommissionReservePage() {
   ];
 
   const columns: Column<CommissionReserveEntry>[] = [
+    {
+      key: 'store',
+      header: 'Store',
+      render: (row) => (
+        <div>
+          <p className="text-slate-800">{row.storeName || 'Unassigned'}</p>
+          {row.storeCode && <p className="text-xs text-slate-400">{row.storeCode}</p>}
+        </div>
+      ),
+    },
     {
       key: 'when',
       header: 'Date',
@@ -149,7 +171,7 @@ export default function CommissionReservePage() {
         <StatCard
           label="Company share (8%)"
           value={reserve.data ? formatCurrency(totals.companyShare) : '—'}
-          hint="8% of every approved Health Pass activation"
+          hint="8% of approved member-referral Health Pass activations"
           icon="wallet"
           tone="green"
         />
@@ -162,6 +184,25 @@ export default function CommissionReservePage() {
         />
       </div>
 
+      {canSelectStore && (
+        <div className="mb-4 flex items-center gap-3">
+          <label className="text-sm font-medium text-slate-700">
+            Store{' '}
+            <FilterSelect
+              value={store}
+              onChange={setStore}
+              options={[
+                { value: 'all', label: 'All stores' },
+                ...scopedStores.map((row) => ({
+                  value: row.id,
+                  label: row.storeCode ? `${row.storeName} (${row.storeCode})` : row.storeName || 'Unassigned',
+                })),
+              ]}
+            />
+          </label>
+        </div>
+      )}
+
       <Card className="mb-6">
         <CardHeader
           title="Reserve by store"
@@ -169,7 +210,7 @@ export default function CommissionReservePage() {
         />
         <DataTable
           columns={storeColumns}
-          rows={scopedStores}
+          rows={stores}
           loading={reserve.loading}
           error={reserve.error}
           empty="No store has reserve yet."
@@ -186,7 +227,7 @@ export default function CommissionReservePage() {
           rows={entries}
           loading={reserve.loading}
           error={reserve.error}
-          empty="No Health Pass activation has been approved yet."
+          empty="No reserve entries for the selected store."
         />
       </Card>
     </>

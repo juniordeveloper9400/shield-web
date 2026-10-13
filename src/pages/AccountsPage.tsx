@@ -124,7 +124,7 @@ export default function AccountsPage() {
     },
     {
       key: 'in',
-      header: 'Money in',
+      header: 'Money in (recorded collections)',
       render: (row) => (
         <div>
           <span className="font-semibold text-emerald-600">
@@ -139,7 +139,7 @@ export default function AccountsPage() {
     },
     {
       key: 'out',
-      header: 'Money out',
+      header: 'Money out (completed payouts)',
       render: (row) =>
         row.moneyOut > 0 ? (
           <div>
@@ -157,7 +157,7 @@ export default function AccountsPage() {
     },
     {
       key: 'wallet',
-      header: 'Wallet balance',
+      header: 'Wallet balance (still spendable)',
       render: (row) => (
         <span className="font-semibold text-slate-800">
           {formatCurrency(row.walletBalance)}
@@ -264,14 +264,14 @@ export default function AccountsPage() {
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Total revenue"
+          label="Total money in (collections and plan loads)"
           value={s ? formatCurrency(s.revenue.total) : '—'}
           hint="Orders, labs, appointments & plan loads"
           icon="accounts"
           tone="green"
         />
         <StatCard
-          label="Paid out"
+          label="Paid out (completed payouts)"
           value={s ? formatCurrency(s.payouts.total) : '—'}
           hint={
             s && s.pendingAgentWithdrawalsCount > 0
@@ -282,14 +282,14 @@ export default function AccountsPage() {
           tone="rose"
         />
         <StatCard
-          label="Net money flow"
+          label="Net money flow (money in minus payouts)"
           value={s ? formatCurrency(s.net) : '—'}
           hint="Revenue minus payouts"
           icon="dashboard"
           tone="blue"
         />
         <StatCard
-          label="Wallet balances outstanding"
+          label="Wallet balances outstanding (unused member wallet value)"
           value={s ? formatCurrency(s.walletLiability) : '—'}
           hint="Held in member wallets, still spendable"
           icon="wallet"
@@ -302,14 +302,14 @@ export default function AccountsPage() {
           <CardHeader title="Revenue in" subtitle="Money collected, by source" />
           <div className="divide-y divide-slate-100">
             <BreakdownRow
-              label="Orders"
+              label="Orders (collected order payments)"
               count={s?.revenue.ordersCount ?? 0}
               amount={s?.revenue.ordersTotal ?? 0}
               share={s && s.revenue.total > 0 ? (s.revenue.ordersTotal / s.revenue.total) * 100 : 0}
               barClassName="bg-brand-600"
             />
             <BreakdownRow
-              label="Lab tests"
+              label="Lab tests (collected lab payments)"
               count={s?.revenue.labBookingsCount ?? 0}
               amount={s?.revenue.labBookingsTotal ?? 0}
               share={
@@ -318,7 +318,7 @@ export default function AccountsPage() {
               barClassName="bg-violet-500"
             />
             <BreakdownRow
-              label="Appointments"
+              label="Appointments (collected consultation fees)"
               count={s?.revenue.appointmentsCount ?? 0}
               amount={s?.revenue.appointmentsTotal ?? 0}
               share={
@@ -329,7 +329,7 @@ export default function AccountsPage() {
               barClassName="bg-emerald-500"
             />
             <BreakdownRow
-              label="Health Pass plan loads"
+              label="Health Pass plan loads (approved wallet funding)"
               count={s?.revenue.privilegeLoadsCount ?? 0}
               amount={s?.revenue.privilegeLoadsTotal ?? 0}
               share={
@@ -346,7 +346,7 @@ export default function AccountsPage() {
           <CardHeader title="Paid out" subtitle="Money that has actually left the business" />
           <div className="divide-y divide-slate-100">
             <BreakdownRow
-              label="Agent commission withdrawals"
+              label="Agent commission withdrawals (paid to agents)"
               count={s?.payouts.agentWithdrawalsCount ?? 0}
               amount={s?.payouts.agentWithdrawalsTotal ?? 0}
               share={100}

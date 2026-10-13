@@ -1,6 +1,20 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ROLE_PERMISSIONS, STORE_BOUND_ROLES, canAccess, scopeToStore } from '../src/config/permissions.ts';
+import { ROLE_PERMISSIONS, STORE_BOUND_ROLES, canAccess, scopeToStore, scopeUsersToStore } from '../src/config/permissions.ts';
+
+test('store admins can open Users', () => {
+  assert.equal(canAccess('pharmacy', 'users'), true);
+});
+
+test('store admins see only users whose home branch matches their own', () => {
+  const users = [{ id: 'a', homeStoreCode: 'SHD-TIR' }, { id: 'b', homeStoreCode: 'SHD-PON' }, { id: 'c', homeStoreCode: '' }];
+  assert.deepEqual(scopeUsersToStore(users, { role: 'pharmacy', storeCode: 'SHD-TIR' }).map(u => u.id), ['a']);
+  assert.deepEqual(scopeUsersToStore(users, { role: 'pharmacy' }), []);
+  assert.deepEqual(scopeUsersToStore(users, null), []);
+  for (const role of ['admin', 'superadmin']) {
+    assert.deepEqual(scopeUsersToStore(users, { role }), users);
+  }
+});
 
 const rows = [
   { id: '1', storeCode: 'SHD-TIR' },

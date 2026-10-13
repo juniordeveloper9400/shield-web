@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Icon } from '@/components/ui/Icon';
@@ -52,7 +53,8 @@ export function LabPackageBuilderModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const { data: categoryRows } = useAsync(listLabCategories, []);
+  const { accessToken } = useAuth();
+  const { data: categoryRows } = useAsync(() => listLabCategories(accessToken), [accessToken]);
   const { data: testRows } = useAsync(listLabTestsForPicker, []);
   const categories = categoryRows ?? [];
   const tests = testRows ?? [];

@@ -1,5 +1,15 @@
 import type { CommissionReserveEntry, CommissionReserveStore } from '@/api/commissionReserve';
 
+/** A missing branch stays in its own Unassigned bucket. */
+export function filterReserveEntries<T extends { storeId: string | null }>(
+  entries: T[],
+  store: string,
+): T[] {
+  return store === 'all'
+    ? entries
+    : entries.filter((entry) => (entry.storeId || 'unassigned') === store);
+}
+
 /**
  * Groups reserve ledger entries by the store their activation was made at —
  * each store's company 8%, its agent-pool leftover, and its total — largest

@@ -1,69 +1,60 @@
-import { query } from '@/lib/db';
-import { num } from '@/lib/mappers';
+import { api } from '@/lib/api';
 import type { LabCategory, NewLabCategory } from '@/types';
 
-type Row = Record<string, unknown>;
+/** A `GET /v1/staff/lab-categories` row — `id` comes back as a JSON number
+ *  (a bigint identity column), not the string {@link LabCategory.id}. */
+interface LabCategoryApiRow {
+  id: number;
+  name: string;
+  image: string | null;
+  sort: number;
+  isActive: boolean;
+  testCount: number;
+}
 
-function toCategory(r: Row): LabCategory {
+function toCategory(r: LabCategoryApiRow): LabCategory {
   return {
     id: String(r.id),
-    name: String(r.name ?? ''),
-    image: String(r.image ?? ''),
-    sort: num(r.sort),
-    isActive: r.is_active === true,
-    testCount: num(r.test_count),
+    name: r.name,
+    image: r.image ?? '',
+    sort: r.sort,
+    isActive: r.isActive,
+    testCount: r.testCount,
   };
 }
 
 /** Every category, active or not — the console shows all of them; the
  *  category grid in both apps only ever reads the active ones. [testCount]
  *  is a live count of active `lab_package` rows, the same figure Member
- *  packages itself would show for that category, never a stored total. */
-export async function listLabCategories(): Promise<LabCategory[]> {
-  const rows = await query<Row>(
-    `SELECT c.id, c.name, c.image, c.sort, c.is_active,
-            (SELECT count(*) FROM app.lab_package p
-              WHERE p.category_id = c.id AND p.is_active = true) AS test_count
-       FROM app.lab_category c
-      ORDER BY c.sort, c.name`,
-  );
+ *  packages itself would show for that category, never a stored total.
+ *  Reads through backend/api's staff care routes now, not Neon directly. */
+export async function listLabCategories(token: string | null): Promise<LabCategory[]> {
+  const rows = await api.get<LabCategoryApiRow[]>('/v1/staff/lab-categories', token);
   return rows.map(toCategory);
 }
 
 /** Creates a category. Returns null when the name is already taken
  *  (case-insensitively), same collision contract as a lab test's own name. */
-export async function createLabCategory(input: NewLabCategory): Promise<string | null> {
-  try {
-    const rows = await query<Row>(
-      `INSERT INTO app.lab_category (name, image, sort, is_active)
-       VALUES ($1, $2, $3, $4) RETURNING id`,
-      [input.name.trim(), input.image || null, input.sort, input.isActive],
-    );
-    return String(rows[0].id);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '';
-    if (message.includes('lab_category_name_uidx')) return null;
-    throw error;
-  }
+export async function createLabCategory(input: NewLabCategory, token: string | null): Promise<string | null> {
+  const result = await api.post<{ category: { id: number } | null }>(
+    '/v1/staff/lab-categories',
+    { ...input, name: input.name.trim(), image: input.image || '' },
+    token,
+  );
+  return result.category ? String(result.category.id) : null;
 }
 
-export async function updateLabCategory(id: string, input: NewLabCategory): Promise<boolean> {
-  try {
-    await query(
-      `UPDATE app.lab_category SET name = $2, image = $3, sort = $4, is_active = $5
-        WHERE id = $1`,
-      [id, input.name.trim(), input.image || null, input.sort, input.isActive],
-    );
-    return true;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : '';
-    if (message.includes('lab_category_name_uidx')) return false;
-    throw error;
-  }
+export async function updateLabCategory(id: string, input: NewLabCategory, token: string | null): Promise<boolean> {
+  const result = await api.patch<{ category: { id: number } | null }>(
+    `/v1/staff/lab-categories/${id}`,
+    { ...input, name: input.name.trim(), image: input.image || '' },
+    token,
+  );
+  return result.category !== null;
 }
 
-export async function setLabCategoryActive(id: string, isActive: boolean): Promise<void> {
-  await query('UPDATE app.lab_category SET is_active = $2 WHERE id = $1', [id, isActive]);
+export async function setLabCategoryActive(id: string, isActive: boolean, token: string | null): Promise<void> {
+  await api.patch(`/v1/staff/lab-categories/${id}/active`, { isActive }, token);
 }
 
 /** Refused (throws, with a plain-English reason) while a test or a package
@@ -72,20 +63,8 @@ export async function setLabCategoryActive(id: string, isActive: boolean): Promi
  *  `category_id` is `ON DELETE SET NULL`, so the database itself would not
  *  block this; the console still asks the admin to clear it deliberately
  *  rather than silently uncategorising everything under it. */
-export async function deleteLabCategory(id: string, name: string): Promise<void> {
-  const [{ n }] = await query<{ n: number }>(
-    `SELECT (
-       (SELECT count(*) FROM app.lab_test WHERE category_id = $1) +
-       (SELECT count(*) FROM app.lab_package WHERE category_id = $1)
-     )::int AS n`,
-    [id],
-  );
-  if (Number(n) > 0) {
-    throw new Error(
-      `"${name}" is still set on ${n} test${Number(n) === 1 ? '' : 's'}/package${Number(n) === 1 ? '' : 's'} — change their category before deleting it.`,
-    );
-  }
-  await query('DELETE FROM app.lab_category WHERE id = $1', [id]);
+export async function deleteLabCategory(id: string, token: string | null): Promise<void> {
+  await api.delete(`/v1/staff/lab-categories/${id}`, token);
 }
 
 /** Moves [id] one step up or down the sort order among [rows] — swaps `sort`
@@ -94,6 +73,7 @@ export async function moveLabCategory(
   id: string,
   direction: 'up' | 'down',
   rows: LabCategory[],
+  token: string | null,
 ): Promise<void> {
   const index = rows.findIndex((r) => r.id === id);
   if (index === -1) return;
@@ -101,6 +81,6 @@ export async function moveLabCategory(
   if (swapWith < 0 || swapWith >= rows.length) return;
   const a = rows[index];
   const b = rows[swapWith];
-  await query('UPDATE app.lab_category SET sort = $2 WHERE id = $1', [a.id, b.sort]);
-  await query('UPDATE app.lab_category SET sort = $2 WHERE id = $1', [b.id, a.sort]);
+  await api.patch(`/v1/staff/lab-categories/${a.id}/sort`, { sort: b.sort }, token);
+  await api.patch(`/v1/staff/lab-categories/${b.id}/sort`, { sort: a.sort }, token);
 }

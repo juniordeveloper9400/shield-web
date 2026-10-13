@@ -50,11 +50,14 @@ const USER_COLUMNS = `
  * Super Admin has granted them — `member`, `agent` (an `app.agent` row) or
  * `investor` (an `app.investor` row).
  */
-export async function listUsers(): Promise<AppUser[]> {
+export async function listUsers(storeCode?: string): Promise<AppUser[]> {
+  if (storeCode === '') return [];
   const rows = await query<Row>(
     `SELECT ${USER_COLUMNS}
      WHERE u.deleted_at IS NULL
+       ${storeCode === undefined ? '' : 'AND s.code = $1'}
      ORDER BY u.created_at DESC`,
+    storeCode === undefined ? [] : [storeCode],
   );
   return rows.map(toAppUser);
 }

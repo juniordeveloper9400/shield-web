@@ -245,7 +245,7 @@ export default function App() {
           path="/users/:id"
           element={
             <ProtectedRoute module="users">
-              <UserDetailPage />
+              {user?.role === 'pharmacy' ? <Navigate to="/users" replace /> : <UserDetailPage />}
             </ProtectedRoute>
           }
         />

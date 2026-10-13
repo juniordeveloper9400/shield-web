@@ -195,7 +195,7 @@ export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   // 'lab_orders' added so a branch's own admin can see that lab bookings
   // exist for their store, the same as any other order — LabOrdersPage
   // itself redacts the patient/test detail for this role; see its own doc.
-  pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries', 'lab_orders', 'commission_reserve'],
+  pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries', 'lab_orders', 'commission_reserve', 'users'],
   lab: ['dashboard', 'stores', 'lab_orders', 'lab_bills', 'lab_tests'],
   appointments: ['dashboard', 'appointments'],
   delivery: ['dashboard', 'deliveries'],
@@ -290,6 +290,20 @@ export function scopeToStore<T extends { storeCode: string }>(
 ): T[] {
   if (user && SCOPED_BY_STORE.includes(user.role) && user.storeCode) {
     return rows.filter((row) => row.storeCode === user.storeCode);
+  }
+  return rows;
+}
+
+/** Users are matched by home branch; an unassigned store admin sees none. */
+export function scopeUsersToStore<T extends { homeStoreCode: string }>(
+  rows: T[],
+  user: Pick<AuthUser, 'role' | 'storeCode'> | null,
+): T[] {
+  if (!user) return [];
+  if (user.role === 'pharmacy') {
+    return user.storeCode
+      ? rows.filter((row) => row.homeStoreCode === user.storeCode)
+      : [];
   }
   return rows;
 }

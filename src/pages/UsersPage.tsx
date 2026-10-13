@@ -9,6 +9,8 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { formatDateTime, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { listUsers } from '@/api/users';
+import { useAuth } from '@/context/AuthContext';
+import { scopeUsersToStore } from '@/config/permissions';
 import type { AppUser } from '@/types';
 
 const PERSONA_OPTIONS = [
@@ -21,9 +23,15 @@ const PERSONA_OPTIONS = [
 const PERSONA_TONE = { member: 'gray', agent: 'green', investor: 'violet' } as const;
 
 export default function UsersPage() {
-  const { data, loading, error } = useAsync(listUsers, []);
+  const { user } = useAuth();
+  const storeAdmin = user?.role === 'pharmacy';
+  const storeCode = storeAdmin ? user.storeCode ?? '' : undefined;
+  const { data, loading, error } = useAsync(
+    () => user ? listUsers(storeCode) : Promise.resolve([]),
+    [user?.id, user?.role, storeCode],
+  );
   const navigate = useNavigate();
-  const rows = useMemo(() => data ?? [], [data]);
+  const rows = useMemo(() => scopeUsersToStore(data ?? [], user), [data, user]);
 
   const [search, setSearch] = useState('');
   const [persona, setPersona] = useState('all');
@@ -102,7 +110,7 @@ export default function UsersPage() {
     <>
       <PageHeader
         title="Users"
-        subtitle="App members, and converting them to an agent or investor persona."
+        subtitle={storeAdmin ? (storeCode ? 'Members registered with your branch.' : 'Your account has no branch assigned. Ask a Super Admin to assign one.') : 'App members, and converting them to an agent or investor persona.'}
       />
 
       <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -122,12 +130,12 @@ export default function UsersPage() {
           <FilterSelect value={persona} onChange={setPersona} options={PERSONA_OPTIONS} />
         </div>
         <DataTable
-          columns={columns}
+          columns={storeAdmin ? columns.filter((column) => column.key !== 'go') : columns}
           rows={filtered}
           loading={loading}
           error={error}
           empty="No users match your filters."
-          onRowClick={(row) => navigate(`/users/${row.id}`)}
+          onRowClick={storeAdmin ? undefined : (row) => navigate(`/users/${row.id}`)}
         />
       </Card>
     </>

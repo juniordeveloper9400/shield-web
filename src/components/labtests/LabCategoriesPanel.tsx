@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -32,7 +33,11 @@ function blank(sort: number): NewLabCategory {
  * active packages, the same figure Member packages itself would show.
  */
 export function LabCategoriesPanel() {
-  const { data, loading, error, reload } = useAsync(listLabCategories, []);
+  const { accessToken } = useAuth();
+  const { data, loading, error, reload } = useAsync(
+    () => listLabCategories(accessToken),
+    [accessToken],
+  );
   const rows = useMemo(() => data ?? [], [data]);
 
   const [adding, setAdding] = useState(false);
@@ -81,8 +86,8 @@ export function LabCategoriesPanel() {
     setFormError(null);
     try {
       const ok = editingId
-        ? await updateLabCategory(editingId, draft)
-        : (await createLabCategory(draft)) !== null;
+        ? await updateLabCategory(editingId, draft, accessToken)
+        : (await createLabCategory(draft, accessToken)) !== null;
       if (!ok) {
         setFormError(`A category named "${draft.name.trim()}" already exists.`);
         return;
@@ -97,19 +102,19 @@ export function LabCategoriesPanel() {
   }
 
   async function toggleActive(row: LabCategory) {
-    await setLabCategoryActive(row.id, !row.isActive);
+    await setLabCategoryActive(row.id, !row.isActive, accessToken);
     reload();
   }
 
   async function move(row: LabCategory, direction: 'up' | 'down') {
-    await moveLabCategory(row.id, direction, rows);
+    await moveLabCategory(row.id, direction, rows, accessToken);
     reload();
   }
 
   async function remove(row: LabCategory) {
     setRowError(null);
     try {
-      await deleteLabCategory(row.id, row.name);
+      await deleteLabCategory(row.id, accessToken);
       reload();
     } catch (err) {
       setRowError({
