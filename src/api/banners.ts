@@ -1,6 +1,36 @@
 import { api } from '@/lib/api';
 import type { BannerPlacement, HomeBanner, NewHomeBanner } from '@/types';
 
+/** A `GET /v1/staff/catalogue/banners` row — `id` comes back as a JSON
+ *  number (the column is a bigint identity), not the string `HomeBanner.id`
+ *  calls for; mapped below, the same as this module's old direct-SQL
+ *  `toBanner` always did. */
+interface BannerApiRow {
+  id: number;
+  title: string | null;
+  subtitle: string | null;
+  image: string | null;
+  cta: string | null;
+  target: string | null;
+  isActive: boolean;
+  sort: number;
+  createdAt: string;
+}
+
+function toBanner(r: BannerApiRow): HomeBanner {
+  return {
+    id: String(r.id),
+    title: r.title ?? '',
+    subtitle: r.subtitle ?? '',
+    image: r.image ?? '',
+    cta: r.cta ?? '',
+    target: r.target ?? '',
+    isActive: r.isActive,
+    sort: r.sort,
+    createdAt: r.createdAt,
+  };
+}
+
 /**
  * Every banner on one placement's strip, active and not — the console's
  * own Banners page, which shows everything (the app and web build only
@@ -9,7 +39,8 @@ import type { BannerPlacement, HomeBanner, NewHomeBanner } from '@/types';
  * directly.
  */
 export async function listBanners(placement: BannerPlacement, token: string | null): Promise<HomeBanner[]> {
-  return api.get<HomeBanner[]>(`/v1/staff/catalogue/banners?placement=${placement}`, token);
+  const rows = await api.get<BannerApiRow[]>(`/v1/staff/catalogue/banners?placement=${placement}`, token);
+  return rows.map(toBanner);
 }
 
 /** Inserts a banner after the current last one on [placement]'s own strip,

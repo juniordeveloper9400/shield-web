@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -77,7 +78,11 @@ function blankSub(sort: number): SubDraft {
  * [../../components/banners/HomeBannerPanel].
  */
 export function CategoryBannerPanel() {
-  const { data, loading, error, reload } = useAsync(listCategoryGroups, []);
+  const { accessToken } = useAuth();
+  const { data, loading, error, reload } = useAsync(
+    () => listCategoryGroups(accessToken),
+    [accessToken],
+  );
   const rows = useMemo(() => data ?? [], [data]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -210,9 +215,9 @@ export function CategoryBannerPanel() {
     try {
       let categoryId = editingId;
       if (categoryId) {
-        await updateCategory(categoryId, draft);
+        await updateCategory(categoryId, draft, accessToken);
       } else {
-        const id = await createCategory(draft);
+        const id = await createCategory(draft, accessToken);
         if (!id) {
           setFormError(`The slug "${draft.slug}" is already in use.`);
           return;
@@ -221,7 +226,7 @@ export function CategoryBannerPanel() {
       }
 
       for (const id of removedSubIds) {
-        await deleteSubcategory(id);
+        await deleteSubcategory(id, accessToken);
       }
       for (const [index, sub] of subDrafts.entries()) {
         const input: NewSubcategory = {
@@ -232,9 +237,9 @@ export function CategoryBannerPanel() {
           sort: index,
         };
         if (sub.id) {
-          await updateSubcategory(sub.id, input);
+          await updateSubcategory(sub.id, input, accessToken);
         } else {
-          await createSubcategory(categoryId, input);
+          await createSubcategory(categoryId, input, accessToken);
         }
       }
 
@@ -248,12 +253,12 @@ export function CategoryBannerPanel() {
   }
 
   async function toggleActive(group: CategoryGroupAdmin) {
-    await setCategoryActive(group.id, !group.isActive);
+    await setCategoryActive(group.id, !group.isActive, accessToken);
     reload();
   }
 
   async function move(group: CategoryGroupAdmin, direction: 'up' | 'down') {
-    await moveCategory(group.id, direction, rows);
+    await moveCategory(group.id, direction, rows, accessToken);
     reload();
   }
 

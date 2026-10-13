@@ -1,64 +1,70 @@
-import { query } from '@/lib/db';
-import { num } from '@/lib/mappers';
+import { api } from '@/lib/api';
 import type { CategoryGroupAdmin, NewCategoryGroup, NewSubcategory, SubcategoryAdmin } from '@/types';
 
-type Row = Record<string, unknown>;
+/** A `GET /v1/staff/catalogue/categories` subcategory row — `id`/
+ *  `categoryId` come back as JSON numbers (bigint identity columns), not
+ *  the string ids {@link SubcategoryAdmin}/{@link CategoryGroupAdmin} call
+ *  for; mapped below, same as this module's old direct-SQL mappers did. */
+interface SubcategoryApiRow {
+  id: number;
+  categoryId: number;
+  label: string;
+  iconName: string | null;
+  image: string | null;
+  offer: string | null;
+  sort: number;
+}
 
-function toSubcategory(r: Row): SubcategoryAdmin {
+interface CategoryGroupApiRow {
+  id: number;
+  slug: string;
+  title: string;
+  tabLabel: string;
+  iconName: string | null;
+  image: string | null;
+  bannerImage: string | null;
+  panelTint: string | null;
+  offer: string;
+  sort: number;
+  isActive: boolean;
+  subcategories: SubcategoryApiRow[];
+}
+
+function toSubcategory(r: SubcategoryApiRow): SubcategoryAdmin {
   return {
     id: String(r.id),
-    label: String(r.label ?? ''),
-    iconName: String(r.icon_name ?? ''),
-    image: String(r.image ?? ''),
-    offer: String(r.offer ?? ''),
-    sort: num(r.sort),
+    label: r.label,
+    iconName: r.iconName ?? '',
+    image: r.image ?? '',
+    offer: r.offer ?? '',
+    sort: r.sort,
   };
 }
 
-function toCategoryGroup(r: Row, subcategories: SubcategoryAdmin[]): CategoryGroupAdmin {
+function toCategoryGroup(r: CategoryGroupApiRow): CategoryGroupAdmin {
   return {
     id: String(r.id),
-    slug: String(r.slug ?? ''),
-    title: String(r.title ?? ''),
-    tabLabel: String(r.tab_label ?? ''),
-    iconName: String(r.icon_name ?? ''),
-    image: String(r.image ?? ''),
-    bannerImage: String(r.banner_image ?? ''),
-    panelTint: String(r.panel_tint ?? ''),
-    offer: String(r.offer ?? ''),
-    sort: num(r.sort),
-    isActive: r.is_active === true,
-    subcategories,
+    slug: r.slug,
+    title: r.title,
+    tabLabel: r.tabLabel,
+    iconName: r.iconName ?? '',
+    image: r.image ?? '',
+    bannerImage: r.bannerImage ?? '',
+    panelTint: r.panelTint ?? '',
+    offer: r.offer,
+    sort: r.sort,
+    isActive: r.isActive,
+    subcategories: r.subcategories.map(toSubcategory),
   };
 }
 
 /** Every category, active or not, with its sub-categories nested — the
- *  console shows everything; the app only ever reads the active ones. */
-export async function listCategoryGroups(): Promise<CategoryGroupAdmin[]> {
-  const categoryRows = await query<Row>(
-    `SELECT id, slug, title, tab_label, icon_name, image, banner_image,
-            panel_tint, offer, sort, is_active
-     FROM app.product_category
-     ORDER BY sort, id`,
-  );
-  const subRows = await query<Row>(
-    `SELECT id, category_id, label, icon_name, image, offer, sort
-     FROM app.product_subcategory
-     ORDER BY sort, id`,
-  );
-  const byCategory = new Map<string, SubcategoryAdmin[]>();
-  for (const r of subRows) {
-    const key = String(r.category_id);
-    let list = byCategory.get(key);
-    if (!list) {
-      list = [];
-      byCategory.set(key, list);
-    }
-    list.push(toSubcategory(r));
-  }
-  return categoryRows.map((r) =>
-    toCategoryGroup(r, byCategory.get(String(r.id)) ?? []),
-  );
+ *  console shows everything; the app only ever reads the active ones.
+ *  Reads through backend/api's staff catalogue routes now, not Neon
+ *  directly. */
+export async function listCategoryGroups(token: string | null): Promise<CategoryGroupAdmin[]> {
+  const rows = await api.get<CategoryGroupApiRow[]>('/v1/staff/catalogue/categories', token);
+  return rows.map(toCategoryGroup);
 }
 
 /** `"Skin Care"` → `"skin-care"` — a starting slug suggestion, made unique by
@@ -71,60 +77,29 @@ export function suggestCategorySlug(title: string): string {
     .replace(/^-+|-+$/g, '');
 }
 
-export async function createCategory(input: NewCategoryGroup): Promise<string | null> {
-  const rows = await query<Row>(
-    `INSERT INTO app.product_category
-       (slug, title, tab_label, icon_name, image, banner_image, panel_tint,
-        offer, sort, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-     ON CONFLICT (slug) DO NOTHING
-     RETURNING id`,
-    [
-      input.slug.trim(),
-      input.title.trim(),
-      input.tabLabel.trim() || input.title.trim(),
-      input.iconName,
-      input.image,
-      input.bannerImage,
-      input.panelTint,
-      input.offer.trim(),
-      input.sort,
-      input.isActive,
-    ],
+/** Null when [input]'s slug is already taken. */
+export async function createCategory(input: NewCategoryGroup, token: string | null): Promise<string | null> {
+  const result = await api.post<{ category: { id: number } | null }>(
+    '/v1/staff/catalogue/categories',
+    { ...input, slug: input.slug.trim(), title: input.title.trim(), tabLabel: input.tabLabel.trim() || input.title.trim() },
+    token,
   );
-  return rows.length > 0 ? String(rows[0].id) : null;
+  return result.category ? String(result.category.id) : null;
 }
 
-export async function updateCategory(
-  id: string,
-  input: NewCategoryGroup,
-): Promise<void> {
-  await query(
-    `UPDATE app.product_category
-        SET title = $2, tab_label = $3, icon_name = $4, image = $5,
-            banner_image = $6, panel_tint = $7, offer = $8, sort = $9,
-            is_active = $10, updated_at = now()
-      WHERE id = $1`,
-    [
-      id,
-      input.title.trim(),
-      input.tabLabel.trim() || input.title.trim(),
-      input.iconName,
-      input.image,
-      input.bannerImage,
-      input.panelTint,
-      input.offer.trim(),
-      input.sort,
-      input.isActive,
-    ],
+export async function updateCategory(id: string, input: NewCategoryGroup, token: string | null): Promise<void> {
+  // slug is immutable server-side (the route ignores it even if sent) —
+  // left out here too so nobody mistakes this for a working rename.
+  const { slug: _slug, ...rest } = input;
+  await api.patch(
+    `/v1/staff/catalogue/categories/${id}`,
+    { ...rest, title: rest.title.trim(), tabLabel: rest.tabLabel.trim() || rest.title.trim() },
+    token,
   );
 }
 
-export async function setCategoryActive(id: string, active: boolean): Promise<void> {
-  await query(`UPDATE app.product_category SET is_active = $2 WHERE id = $1`, [
-    id,
-    active,
-  ]);
+export async function setCategoryActive(id: string, active: boolean, token: string | null): Promise<void> {
+  await api.patch(`/v1/staff/catalogue/categories/${id}/active`, { isActive: active }, token);
 }
 
 /**
@@ -136,6 +111,7 @@ export async function moveCategory(
   id: string,
   direction: 'up' | 'down',
   order: CategoryGroupAdmin[],
+  token: string | null,
 ): Promise<void> {
   const index = order.findIndex((c) => c.id === id);
   const swapWith = direction === 'up' ? index - 1 : index + 1;
@@ -144,52 +120,34 @@ export async function moveCategory(
   }
   const a = order[index];
   const b = order[swapWith];
-  await query(`UPDATE app.product_category SET sort = $2 WHERE id = $1`, [
-    a.id,
-    b.sort,
-  ]);
-  await query(`UPDATE app.product_category SET sort = $2 WHERE id = $1`, [
-    b.id,
-    a.sort,
-  ]);
+  await api.patch(`/v1/staff/catalogue/categories/${a.id}/sort`, { sort: b.sort }, token);
+  await api.patch(`/v1/staff/catalogue/categories/${b.id}/sort`, { sort: a.sort }, token);
 }
 
 export async function createSubcategory(
   categoryId: string,
   input: NewSubcategory,
+  token: string | null,
 ): Promise<string> {
-  const rows = await query<Row>(
-    `INSERT INTO app.product_subcategory
-       (category_id, label, icon_name, image, offer, sort)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING id`,
-    [
-      categoryId,
-      input.label.trim(),
-      input.iconName,
-      input.image,
-      input.offer.trim(),
-      input.sort,
-    ],
+  const created = await api.post<{ id: number }>(
+    `/v1/staff/catalogue/categories/${categoryId}/subcategories`,
+    { ...input, label: input.label.trim(), offer: input.offer.trim() },
+    token,
   );
-  return String(rows[0].id);
+  return String(created.id);
 }
 
-export async function updateSubcategory(
-  id: string,
-  input: NewSubcategory,
-): Promise<void> {
-  await query(
-    `UPDATE app.product_subcategory
-        SET label = $2, icon_name = $3, image = $4, offer = $5, sort = $6
-      WHERE id = $1`,
-    [id, input.label.trim(), input.iconName, input.image, input.offer.trim(), input.sort],
+export async function updateSubcategory(id: string, input: NewSubcategory, token: string | null): Promise<void> {
+  await api.patch(
+    `/v1/staff/catalogue/subcategories/${id}`,
+    { ...input, label: input.label.trim(), offer: input.offer.trim() },
+    token,
   );
 }
 
 /** Deleting a sub-category clears it from any product filed under it
  *  (`app.product.subcategory_id` is `ON DELETE SET NULL`) rather than
  *  failing. */
-export async function deleteSubcategory(id: string): Promise<void> {
-  await query(`DELETE FROM app.product_subcategory WHERE id = $1`, [id]);
+export async function deleteSubcategory(id: string, token: string | null): Promise<void> {
+  await api.delete(`/v1/staff/catalogue/subcategories/${id}`, token);
 }
