@@ -132,10 +132,10 @@ function suggestions(base: string[], extra: string[]): string[] {
  * the Set Grouptest tab from other saved tests).
  */
 export function LabTestMaster() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(listLabTests, []);
   const list = useMemo(() => data ?? [], [data]);
-  const { data: categoryRows } = useAsync(listLabCategories, []);
+  const { data: categoryRows } = useAsync(() => listLabCategories(accessToken), [accessToken]);
   const categoryOptions = useMemo(
     () => [
       { value: '', label: 'No category' },
