@@ -105,13 +105,13 @@ export default function DeliveriesPage() {
   const available = useAsync(
     () =>
       isDeliveryBoy && user?.storeCode
-        ? listAvailableForDelivery(user.storeCode)
+        ? listAvailableForDelivery(user.storeCode, accessToken)
         : Promise.resolve([]),
-    [isDeliveryBoy, user?.storeCode],
+    [isDeliveryBoy, user?.storeCode, accessToken],
   );
   const mine = useAsync(
-    () => (isDeliveryBoy && user?.id ? listAssignedToMe(user.id) : Promise.resolve([])),
-    [isDeliveryBoy, user?.id],
+    () => (isDeliveryBoy ? listAssignedToMe(accessToken) : Promise.resolve([])),
+    [isDeliveryBoy, accessToken],
   );
 
   // --- Everyone else's simple store-scoped assignment view -------------
@@ -132,16 +132,16 @@ export default function DeliveriesPage() {
   const adminAvailable = useAsync(
     () =>
       !isDeliveryBoy && scopedStoreCode
-        ? listAvailableForDelivery(scopedStoreCode)
+        ? listAvailableForDelivery(scopedStoreCode, accessToken)
         : Promise.resolve([]),
-    [isDeliveryBoy, scopedStoreCode],
+    [isDeliveryBoy, scopedStoreCode, accessToken],
   );
   const deliveryBoys = useAsync(
     () =>
       !isDeliveryBoy && scopedStoreCode
-        ? listDeliveryBoys(scopedStoreCode)
+        ? listDeliveryBoys(scopedStoreCode, accessToken)
         : Promise.resolve([]),
-    [isDeliveryBoy, scopedStoreCode],
+    [isDeliveryBoy, scopedStoreCode, accessToken],
   );
 
   const storeOptions = useMemo(
@@ -153,14 +153,14 @@ export default function DeliveriesPage() {
     if (!user) return;
     await runAction(
       orderId,
-      () => assignDeliveryBoy(orderId, user.id),
+      () => assignDeliveryBoy(orderId, user.id, accessToken),
       available.reload,
       mine.reload,
     );
   }
 
   async function collectCash(orderId: string) {
-    await runAction(orderId, () => markCashCollected(orderId), mine.reload);
+    await runAction(orderId, () => markCashCollected(orderId, accessToken), mine.reload);
   }
 
   async function advanceStatus(orderId: string, next: OrderStatus) {
@@ -168,7 +168,7 @@ export default function DeliveriesPage() {
   }
 
   async function assignFromDropdown(orderId: string, deliveryBoyId: string) {
-    await runAction(orderId, () => assignDeliveryBoy(orderId, deliveryBoyId), adminAvailable.reload);
+    await runAction(orderId, () => assignDeliveryBoy(orderId, deliveryBoyId, accessToken), adminAvailable.reload);
   }
 
   const availableColumns: Column<DeliveryOrder>[] = [

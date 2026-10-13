@@ -109,7 +109,7 @@ export function OrderReviewModal({
       return;
     }
     let alive = true;
-    listDeliveryBoys(order.storeCode || undefined)
+    listDeliveryBoys(order.storeCode || undefined, accessToken)
       .then((boys) => {
         if (alive) setDeliveryBoys(boys);
       })
@@ -119,7 +119,7 @@ export function OrderReviewModal({
     return () => {
       alive = false;
     };
-  }, [needsDeliveryBoy, order.storeCode]);
+  }, [needsDeliveryBoy, order.storeCode, accessToken]);
 
   // A delivered or cancelled order is finished — it can still be looked at,
   // but there's nothing left to review or bill.
@@ -343,7 +343,7 @@ export function OrderReviewModal({
     setAssignError(null);
     setAssigning(true);
     try {
-      await assignDeliveryBoy(order.id, boyId || null);
+      await assignDeliveryBoy(order.id, boyId || null, accessToken);
       onSaved();
     } catch (err) {
       setAssignError(err instanceof Error ? err.message : 'Could not assign a delivery boy.');
