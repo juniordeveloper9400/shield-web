@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
@@ -78,10 +79,11 @@ const KIND_TONE: Record<MoneyFlowKind, Tone> = {
 
 export default function AccountsPage() {
   const navigate = useNavigate();
-  const summary = useAsync(getMoneyFlowSummary, []);
-  const monthly = useAsync(() => getMonthlyMoneyFlow(6), []);
-  const ledger = useAsync(() => listMoneyFlowEntries(200), []);
-  const members = useAsync(listMemberMoneyFlowSummaries, []);
+  const { accessToken } = useAuth();
+  const summary = useAsync(() => getMoneyFlowSummary(accessToken), [accessToken]);
+  const monthly = useAsync(() => getMonthlyMoneyFlow(6, accessToken), [accessToken]);
+  const ledger = useAsync(() => listMoneyFlowEntries(200, accessToken), [accessToken]);
+  const members = useAsync(() => listMemberMoneyFlowSummaries(accessToken), [accessToken]);
 
   const [search, setSearch] = useState('');
   const [kind, setKind] = useState('all');

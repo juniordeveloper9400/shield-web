@@ -1,5 +1,4 @@
-import { sql, query } from '@/lib/db';
-import { iso, num } from '@/lib/mappers';
+import { api } from '@/lib/api';
 import type {
   MemberMoneyFlowSummary,
   MoneyFlowEntry,
@@ -8,65 +7,15 @@ import type {
   MonthlyMoneyFlow,
 } from '@/types';
 
-type Row = Record<string, unknown>;
-
 /**
- * The Accounts page's headline numbers, in one round trip. Every subquery
- * excludes rows where nothing actually changed hands yet:
- * `CANCELLED` orders/bookings/appointments, and privilege-plan activations
- * that are still `PENDING` — those are counted only once a Super Admin
- * approves them, same as {@link listMoneyFlowEntries}.
+ * The Accounts page's headline numbers — built by backend/api
+ * (AccountsService) under the signed-in staff member's session; the
+ * browser no longer reads these straight from the database. See that
+ * service's own doc for the exclusion rules (CANCELLED orders/bookings/
+ * appointments, PENDING activations don't count until approved).
  */
-export async function getMoneyFlowSummary(): Promise<MoneyFlowSummary> {
-  const rows = (await sql`
-    SELECT
-      COALESCE((SELECT SUM(paid_total) FROM app."order" WHERE status <> 'CANCELLED'), 0) AS orders_total,
-      COALESCE((SELECT COUNT(*) FROM app."order" WHERE status <> 'CANCELLED'), 0) AS orders_count,
-      COALESCE((SELECT SUM(total_price) FROM app.lab_booking WHERE status <> 'CANCELLED'), 0) AS lab_total,
-      COALESCE((SELECT COUNT(*) FROM app.lab_booking WHERE status <> 'CANCELLED'), 0) AS lab_count,
-      COALESCE((SELECT SUM(fee) FROM app.appointment WHERE status <> 'CANCELLED' AND fee IS NOT NULL), 0) AS appt_total,
-      COALESCE((SELECT COUNT(*) FROM app.appointment WHERE status <> 'CANCELLED' AND fee IS NOT NULL AND fee > 0), 0) AS appt_count,
-      COALESCE((SELECT SUM(amount) FROM app.wallet_card WHERE status = 'APPROVED'), 0) AS privilege_total,
-      COALESCE((SELECT COUNT(*) FROM app.wallet_card WHERE status = 'APPROVED'), 0) AS privilege_count,
-      COALESCE((SELECT SUM(amount) FROM app.agent_withdrawal WHERE status = 'PAID'), 0) AS agent_paid_total,
-      COALESCE((SELECT COUNT(*) FROM app.agent_withdrawal WHERE status = 'PAID'), 0) AS agent_paid_count,
-      COALESCE((SELECT SUM(amount) FROM app.agent_withdrawal WHERE status = 'PENDING'), 0) AS agent_pending_total,
-      COALESCE((SELECT COUNT(*) FROM app.agent_withdrawal WHERE status = 'PENDING'), 0) AS agent_pending_count,
-      COALESCE((SELECT SUM(balance) FROM app.wallet), 0) AS wallet_liability
-  `) as Row[];
-
-  const r = rows[0] ?? {};
-  const revenue = {
-    ordersTotal: num(r.orders_total),
-    ordersCount: num(r.orders_count),
-    labBookingsTotal: num(r.lab_total),
-    labBookingsCount: num(r.lab_count),
-    appointmentsTotal: num(r.appt_total),
-    appointmentsCount: num(r.appt_count),
-    privilegeLoadsTotal: num(r.privilege_total),
-    privilegeLoadsCount: num(r.privilege_count),
-    total: 0,
-  };
-  revenue.total =
-    revenue.ordersTotal +
-    revenue.labBookingsTotal +
-    revenue.appointmentsTotal +
-    revenue.privilegeLoadsTotal;
-
-  const payouts = {
-    agentWithdrawalsTotal: num(r.agent_paid_total),
-    agentWithdrawalsCount: num(r.agent_paid_count),
-    total: num(r.agent_paid_total),
-  };
-
-  return {
-    revenue,
-    payouts,
-    net: revenue.total - payouts.total,
-    walletLiability: num(r.wallet_liability),
-    pendingAgentWithdrawalsTotal: num(r.agent_pending_total),
-    pendingAgentWithdrawalsCount: num(r.agent_pending_count),
-  };
+export async function getMoneyFlowSummary(token: string | null): Promise<MoneyFlowSummary> {
+  return api.get<MoneyFlowSummary>('/v1/staff/accounts/money-flow-summary', token);
 }
 
 const KIND_LABEL: Record<MoneyFlowKind, string> = {
@@ -101,270 +50,37 @@ export function moneyFlowKindTone(kind: MoneyFlowKind): 'blue' | 'violet' | 'gre
  * approved privilege-plan loads (all money in), and paid agent withdrawals
  * (money out) — merged into one timeline, newest first.
  */
-export async function listMoneyFlowEntries(limit = 50): Promise<MoneyFlowEntry[]> {
-  const rows = await query<Row>(
-    `
-    SELECT * FROM (
-      SELECT o.id::text AS id, 'order' AS kind, 'in' AS direction,
-             o.paid_total AS amount, o.placed_at AS occurred_at,
-             o.code AS label, COALESCE(m.name, '—') AS detail
-        FROM app."order" o
-        LEFT JOIN app.users m ON m.id = o.member_id
-       WHERE o.status <> 'CANCELLED'
-
-      UNION ALL
-
-      SELECT lb.id::text, 'lab_booking', 'in',
-             lb.total_price, lb.created_at,
-             'LB-' || lpad(lb.id::text, 4, '0'), COALESCE(m.name, '—')
-        FROM app.lab_booking lb
-        LEFT JOIN app.users m ON m.id = lb.member_id
-       WHERE lb.status <> 'CANCELLED' AND lb.total_price > 0
-
-      UNION ALL
-
-      SELECT a.id::text, 'appointment', 'in',
-             a.fee, a.created_at,
-             COALESCE(a.doctor_name, 'Appointment'), COALESCE(m.name, '—')
-        FROM app.appointment a
-        LEFT JOIN app.users m ON m.id = a.member_id
-       WHERE a.status <> 'CANCELLED' AND a.fee IS NOT NULL AND a.fee > 0
-
-      UNION ALL
-
-      SELECT wc.id::text, 'privilege_load', 'in',
-             wc.amount, COALESCE(wc.reviewed_at, wc.submitted_at),
-             mt.name, COALESCE(m.name, '—')
-        FROM app.wallet_card wc
-        JOIN app.wallet w      ON w.id  = wc.wallet_id
-        JOIN app.users m       ON m.id  = w.member_id
-        JOIN app.membership_tier mt ON mt.id = wc.tier_id
-       WHERE wc.status = 'APPROVED'
-
-      UNION ALL
-
-      SELECT aw.id::text, 'agent_payout', 'out',
-             aw.amount, COALESCE(aw.processed_on::timestamptz, aw.created_at),
-             'Agent payout', COALESCE(ag.name, '—')
-        FROM app.agent_withdrawal aw
-        JOIN app.agent ag ON ag.id = aw.agent_id
-       WHERE aw.status = 'PAID'
-    ) flow
-    ORDER BY occurred_at DESC
-    LIMIT $1
-    `,
-    [limit],
-  );
-
-  return rows.map(toMoneyFlowEntry);
+export async function listMoneyFlowEntries(limit: number, token: string | null): Promise<MoneyFlowEntry[]> {
+  return api.get<MoneyFlowEntry[]>(`/v1/staff/accounts/money-flow-entries?limit=${limit}`, token);
 }
 
 /**
  * One member's own transaction history — the same five sources as
- * {@link listMoneyFlowEntries} (order payments, lab and appointment fees,
- * approved privilege-plan loads, and — when this member is also an agent —
- * their paid commission withdrawals), scoped to just their rows. Used by the
+ * {@link listMoneyFlowEntries}, scoped to just their rows. Used by the
  * "Transaction history" tab on the user detail page.
- *
- * [detail] carries a short kind descriptor here rather than a name — the
- * member is already the page it's on, so naming them again on every row
- * would say nothing the "who" doesn't already answer.
  */
 export async function listMemberTransactions(
   memberId: string,
+  token: string | null,
   limit = 200,
 ): Promise<MoneyFlowEntry[]> {
-  const rows = await query<Row>(
-    `
-    SELECT * FROM (
-      SELECT o.id::text AS id, 'order' AS kind, 'in' AS direction,
-             o.paid_total AS amount, o.placed_at AS occurred_at,
-             o.code AS label,
-             CASE o.kind WHEN 'PRESCRIPTION' THEN 'Prescription order' ELSE 'Standard order' END AS detail
-        FROM app."order" o
-       WHERE o.status <> 'CANCELLED' AND o.member_id = $1
-
-      UNION ALL
-
-      SELECT lb.id::text, 'lab_booking', 'in',
-             lb.total_price, lb.created_at,
-             'LB-' || lpad(lb.id::text, 4, '0'), 'Lab test booking'
-        FROM app.lab_booking lb
-       WHERE lb.status <> 'CANCELLED' AND lb.total_price > 0 AND lb.member_id = $1
-
-      UNION ALL
-
-      SELECT a.id::text, 'appointment', 'in',
-             a.fee, a.created_at,
-             COALESCE(a.doctor_name, 'Appointment'), 'Consultation fee'
-        FROM app.appointment a
-       WHERE a.status <> 'CANCELLED' AND a.fee IS NOT NULL AND a.fee > 0 AND a.member_id = $1
-
-      UNION ALL
-
-      SELECT wc.id::text, 'privilege_load', 'in',
-             wc.amount, COALESCE(wc.reviewed_at, wc.submitted_at),
-             mt.name, 'Health Pass plan load'
-        FROM app.wallet_card wc
-        JOIN app.wallet w            ON w.id  = wc.wallet_id
-        JOIN app.membership_tier mt  ON mt.id = wc.tier_id
-       WHERE wc.status = 'APPROVED' AND w.member_id = $1
-
-      UNION ALL
-
-      SELECT aw.id::text, 'agent_payout', 'out',
-             aw.amount, COALESCE(aw.processed_on::timestamptz, aw.created_at),
-             'Agent payout', 'Commission withdrawal'
-        FROM app.agent_withdrawal aw
-        JOIN app.agent ag ON ag.id = aw.agent_id
-       WHERE aw.status = 'PAID' AND ag.member_id = $1
-    ) flow
-    ORDER BY occurred_at DESC
-    LIMIT $2
-    `,
-    [memberId, limit],
-  );
-
-  return rows.map(toMoneyFlowEntry);
-}
-
-function toMoneyFlowEntry(r: Row): MoneyFlowEntry {
-  return {
-    id: `${r.kind}-${r.id}`,
-    kind: r.kind as MoneyFlowKind,
-    direction: r.direction as 'in' | 'out',
-    amount: num(r.amount),
-    label: String(r.label),
-    detail: String(r.detail),
-    occurredAt: iso(r.occurred_at) ?? new Date(0).toISOString(),
-  };
+  return api.get<MoneyFlowEntry[]>(`/v1/staff/accounts/member-transactions/${memberId}?limit=${limit}`, token);
 }
 
 /**
  * Revenue in vs. payouts out, grouped by calendar month, for the trailing
  * `months` months (default the current month plus the 5 before it).
  */
-export async function getMonthlyMoneyFlow(months = 6): Promise<MonthlyMoneyFlow[]> {
-  const rows = await query<Row>(
-    `
-    SELECT month, direction, SUM(amount) AS total FROM (
-      SELECT date_trunc('month', d)::date AS month, 'in' AS direction, amt AS amount
-        FROM (
-          SELECT placed_at AS d, paid_total AS amt FROM app."order" WHERE status <> 'CANCELLED'
-          UNION ALL
-          SELECT created_at, total_price FROM app.lab_booking WHERE status <> 'CANCELLED'
-          UNION ALL
-          SELECT created_at, fee FROM app.appointment
-           WHERE status <> 'CANCELLED' AND fee IS NOT NULL AND fee > 0
-          UNION ALL
-          SELECT COALESCE(reviewed_at, submitted_at), amount
-            FROM app.wallet_card WHERE status = 'APPROVED'
-        ) sources
-
-      UNION ALL
-
-      SELECT date_trunc('month', COALESCE(processed_on::timestamptz, created_at))::date,
-             'out', amount
-        FROM app.agent_withdrawal WHERE status = 'PAID'
-    ) events
-    WHERE month >= date_trunc('month', now()) - ($1 - 1) * interval '1 month'
-    GROUP BY month, direction
-    `,
-    [months],
-  );
-
-  const buckets = new Map<string, { in: number; out: number }>();
-  const now = new Date();
-  const keyOf = (d: Date) => `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
-  const labelOf = (d: Date) =>
-    d.toLocaleDateString('en-IN', { month: 'short', year: 'numeric', timeZone: 'UTC' });
-
-  const order: { key: string; label: string }[] = [];
-  for (let i = months - 1; i >= 0; i -= 1) {
-    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
-    const key = keyOf(d);
-    order.push({ key, label: labelOf(d) });
-    buckets.set(key, { in: 0, out: 0 });
-  }
-
-  for (const r of rows) {
-    const d = new Date(String(r.month));
-    const key = keyOf(d);
-    const bucket = buckets.get(key);
-    if (!bucket) continue; // outside the requested window
-    if (r.direction === 'in') bucket.in = num(r.total);
-    else bucket.out = num(r.total);
-  }
-
-  return order.map(({ key, label }) => ({ month: label, ...buckets.get(key)! }));
+export async function getMonthlyMoneyFlow(months: number, token: string | null): Promise<MonthlyMoneyFlow[]> {
+  return api.get<MonthlyMoneyFlow[]>(`/v1/staff/accounts/monthly-money-flow?months=${months}`, token);
 }
 
 /**
- * Every member's own money-flow totals in one round trip — the same five
- * sources {@link listMoneyFlowEntries} covers (orders, lab tests,
- * appointments, approved Health Pass loads for money in; paid agent
- * withdrawals for money out), summed per member instead of listed event by
- * event, alongside their current wallet balance. Backs the Accounts page's
- * "All members" table; a row's own full history is
- * {@link listMemberTransactions}, on that member's own detail page.
- *
- * Only a member with at least one of these three ever non-zero is
- * returned — someone who has never transacted and never held a wallet
- * balance has nothing to show here.
+ * Every member's own money-flow totals in one round trip, alongside their
+ * current wallet balance. Backs the Accounts page's "All members" table; a
+ * row's own full history is {@link listMemberTransactions}, on that
+ * member's own detail page.
  */
-export async function listMemberMoneyFlowSummaries(): Promise<MemberMoneyFlowSummary[]> {
-  const rows = await query<Row>(
-    `
-    WITH money_in AS (
-      SELECT member_id, SUM(amt) AS total, COUNT(*) AS cnt
-        FROM (
-          SELECT member_id, paid_total AS amt
-            FROM app."order" WHERE status <> 'CANCELLED'
-          UNION ALL
-          SELECT member_id, total_price
-            FROM app.lab_booking WHERE status <> 'CANCELLED' AND total_price > 0
-          UNION ALL
-          SELECT member_id, fee
-            FROM app.appointment WHERE status <> 'CANCELLED' AND fee IS NOT NULL AND fee > 0
-          UNION ALL
-          SELECT w.member_id, wc.amount
-            FROM app.wallet_card wc
-            JOIN app.wallet w ON w.id = wc.wallet_id
-           WHERE wc.status = 'APPROVED'
-        ) sources
-       GROUP BY member_id
-    ),
-    money_out AS (
-      SELECT ag.member_id, SUM(aw.amount) AS total, COUNT(*) AS cnt
-        FROM app.agent_withdrawal aw
-        JOIN app.agent ag ON ag.id = aw.agent_id
-       WHERE aw.status = 'PAID'
-       GROUP BY ag.member_id
-    )
-    SELECT u.id, u.name, u.phone, u.email,
-           COALESCE(mi.total, 0) AS money_in, COALESCE(mi.cnt, 0) AS money_in_count,
-           COALESCE(mo.total, 0) AS money_out, COALESCE(mo.cnt, 0) AS money_out_count,
-           COALESCE(w.balance, 0) AS wallet_balance
-      FROM app.users u
-      LEFT JOIN money_in mi  ON mi.member_id = u.id
-      LEFT JOIN money_out mo ON mo.member_id = u.id
-      LEFT JOIN app.wallet w ON w.member_id = u.id
-     WHERE COALESCE(mi.total, 0) > 0
-        OR COALESCE(mo.total, 0) > 0
-        OR COALESCE(w.balance, 0) > 0
-     ORDER BY COALESCE(mi.total, 0) DESC
-    `,
-  );
-
-  return rows.map((r) => ({
-    id: String(r.id),
-    name: String(r.name ?? '—'),
-    phone: String(r.phone ?? ''),
-    email: String(r.email ?? ''),
-    moneyIn: num(r.money_in),
-    moneyInCount: num(r.money_in_count),
-    moneyOut: num(r.money_out),
-    moneyOutCount: num(r.money_out_count),
-    walletBalance: num(r.wallet_balance),
-  }));
+export async function listMemberMoneyFlowSummaries(token: string | null): Promise<MemberMoneyFlowSummary[]> {
+  return api.get<MemberMoneyFlowSummary[]>('/v1/staff/accounts/member-summaries', token);
 }

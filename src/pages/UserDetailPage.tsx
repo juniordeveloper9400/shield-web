@@ -158,7 +158,7 @@ export default function UserDetailPage() {
   const detail = useAsync(() => getUserDetail(id), [id]);
   const agents = useAsync(listAgentOptions, []);
   const plans = useAsync(() => listActivationsForMember(id, accessToken), [id, accessToken]);
-  const transactions = useAsync(() => listMemberTransactions(id), [id]);
+  const transactions = useAsync(() => listMemberTransactions(id, accessToken), [id, accessToken]);
   const prescriptions = useAsync(() => listPrescriptionsForMember(id), [id]);
   const selected = user.data;
   const planRows = plans.data ?? [];

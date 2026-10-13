@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { createPortal } from 'react-dom';
+import { useAuth } from '@/context/AuthContext';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -171,10 +172,11 @@ export function LedgerReportModal({
   open: boolean;
   onClose: () => void;
 }) {
+  const { accessToken } = useAuth();
   const memberId = member?.id ?? '';
   const transactions = useAsync(
-    () => (memberId ? listMemberTransactions(memberId, 500) : Promise.resolve([])),
-    [memberId],
+    () => (memberId ? listMemberTransactions(memberId, accessToken, 500) : Promise.resolve([])),
+    [memberId, accessToken],
   );
   const rows = transactions.data ?? [];
   const ledgerRows = useMemo(() => buildLedger(rows), [rows]);
