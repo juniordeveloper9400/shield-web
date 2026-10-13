@@ -401,7 +401,7 @@ export default function UserDetailPage() {
     setSaving(true);
     setFormError(null);
     try {
-      await deleteUser(id);
+      await deleteUser(id, accessToken);
       setConfirmDelete(false);
       // The user no longer appears in listUsers() — nothing left to show here.
       back();
@@ -1226,13 +1226,15 @@ export default function UserDetailPage() {
               <p>
                 This removes{' '}
                 <span className="font-medium text-slate-800">{selected.name}</span>{' '}
-                from the Users list and immediately blocks their sign-in on the
-                app — the next time they open Sahakar 360, or the next check while
-                they're already inside, they're signed out with no way back in.
+                and permanently erases their profile, wallet, orders, prescriptions,
+                patient records, referrals and agent/investor data. Their existing
+                sign-in sessions will stop working.
               </p>
               <p>
-                Their orders, prescriptions, wallet and other records are kept —
-                this does not erase their history.
+                Their related financial and ledger history is also removed, so
+                reports will change. Other users and shared branches are preserved.
+                The same phone number can register again as a new user with an
+                empty profile and wallet.
               </p>
               <p className="font-medium text-rose-600">
                 This cannot be undone from here.

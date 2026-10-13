@@ -1,4 +1,5 @@
 import { sql, query } from '@/lib/db';
+import { api } from '@/lib/api';
 import { fromEnum, iso, num, toEnum } from '@/lib/mappers';
 import { agentCodeForSlot, deriveParentAgentId, resyncGeoSlotAgent } from '@/api/geo';
 import type {
@@ -494,20 +495,10 @@ export async function revokePersona(userId: string): Promise<void> {
 }
 
 /**
- * Soft-deletes a member's account: sets `app.users.deleted_at`, the same
- * column `listUsers`/`getUser` already filter out. The row and every order,
- * prescription, wallet and address record under it are kept — nothing is
- * actually erased — but the member disappears from the console's Users list,
- * and `PersonaGate` on the app checks this same column at sign-in and on its
- * periodic re-check, so a deleted member is refused entry (or signed out of
- * an already-open session) with no further change needed on that side.
- *
- * Any `app.agent`/`app.investor` row underneath is left untouched — call
- * `revokePersona` first if that should go too.
+ * Permanently removes the member through the Admin/Super Admin-only backend
+ * endpoint. Migration 0089 purges owned data and sessions atomically; failures
+ * leave the member intact. Their phone may register again as a fresh account.
  */
-export async function deleteUser(userId: string): Promise<void> {
-  await query(
-    `UPDATE app.users SET deleted_at = now(), updated_at = now() WHERE id = $1 AND deleted_at IS NULL`,
-    [userId],
-  );
+export async function deleteUser(userId: string, token: string | null): Promise<void> {
+  await api.delete(`/v1/staff/users/${encodeURIComponent(userId)}`, token);
 }
