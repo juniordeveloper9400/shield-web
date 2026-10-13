@@ -30,8 +30,8 @@ const BILL_OPTIONS = [
  * already showing its Billing section since the booking is already billed.
  */
 export default function LabBillsPage() {
-  const { user } = useAuth();
-  const { data, loading, error, reload } = useAsync(listLabBookings, []);
+  const { user, accessToken } = useAuth();
+  const { data, loading, error, reload } = useAsync(() => listLabBookings(accessToken), [accessToken]);
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');

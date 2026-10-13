@@ -167,8 +167,8 @@ function BookingWindow({
   const netTotal = Math.max(booking.totalPrice - billDiscount, 0);
 
   const { data: walletBalance } = useAsync(
-    () => getWalletBalanceForLabBooking(booking.id),
-    [booking.id],
+    () => getWalletBalanceForLabBooking(booking.id, accessToken),
+    [booking.id, accessToken],
   );
 
   async function onPickBillImage(file: File | null) {
@@ -338,7 +338,7 @@ function BookingWindow({
   async function loadPages() {
     setPagesLoading(true);
     try {
-      setPages(await listLabReportPages(booking.id));
+      setPages(await listLabReportPages(booking.id, accessToken));
     } catch (err) {
       setError(dbErrorMessage(err));
     } finally {
@@ -376,7 +376,7 @@ function BookingWindow({
   }
 
   function changeStatus(to: LabBookingStatus) {
-    return run('status', () => setLabBookingStatus(booking.id, to));
+    return run('status', () => setLabBookingStatus(booking.id, to, accessToken));
   }
 
   function saveDetails() {
@@ -386,7 +386,7 @@ function BookingWindow({
           ? fromLocalInput(schedule)
           : booking.scheduledFor || null,
         note,
-      }),
+      }, accessToken),
     );
   }
 
@@ -404,13 +404,13 @@ function BookingWindow({
         // Legible at full screen on a phone, small enough to store as text.
         resized.push({ name: file.name, image: await fileToResizedDataUrl(file, 1600, 0.8) });
       }
-      await addLabReportPages(booking.id, resized);
+      await addLabReportPages(booking.id, resized, accessToken);
     });
     if (ok) await loadPages();
   }
 
   async function removePage(page: LabReportPage) {
-    const ok = await run('remove', () => removeLabReportPage(booking.id, page.id));
+    const ok = await run('remove', () => removeLabReportPage(booking.id, page.id, accessToken));
     if (ok) await loadPages();
   }
 

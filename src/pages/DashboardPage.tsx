@@ -39,8 +39,8 @@ export default function DashboardPage() {
     [show.prescriptions],
   );
   const bookings = useAsync(
-    () => (show.labOrders ? listLabBookings() : Promise.resolve([])),
-    [show.labOrders],
+    () => (show.labOrders ? listLabBookings(accessToken) : Promise.resolve([])),
+    [show.labOrders, accessToken],
   );
   const appts = useAsync(
     () => (show.appointments ? listAppointments(accessToken) : Promise.resolve([])),

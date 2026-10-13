@@ -61,8 +61,8 @@ const STATUS_OPTIONS = [
 
 export default function LabOrdersPage() {
   const navigate = useNavigate();
-  const { user } = useAuth();
-  const { data, loading, error, reload } = useAsync(listLabBookings, []);
+  const { user, accessToken } = useAuth();
+  const { data, loading, error, reload } = useAsync(() => listLabBookings(accessToken), [accessToken]);
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
