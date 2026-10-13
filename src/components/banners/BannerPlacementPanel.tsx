@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { useAuth } from '@/context/AuthContext';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -53,7 +54,11 @@ export function BannerPlacementPanel({
   /** The delete-confirmation dialog's body, given the banner's own title. */
   removalMessage: (title: string) => string;
 }) {
-  const { data, loading, error, reload } = useAsync(() => listBanners(placement), [placement]);
+  const { accessToken } = useAuth();
+  const { data, loading, error, reload } = useAsync(
+    () => listBanners(placement, accessToken),
+    [placement, accessToken],
+  );
   const rows = useMemo(() => data ?? [], [data]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -108,9 +113,9 @@ export function BannerPlacementPanel({
     setFormError(null);
     try {
       if (editingId) {
-        await updateBanner(editingId, draft);
+        await updateBanner(editingId, draft, accessToken);
       } else {
-        await createBanner(placement, draft);
+        await createBanner(placement, draft, accessToken);
       }
       closeForm();
       reload();
@@ -124,7 +129,7 @@ export function BannerPlacementPanel({
   async function remove(id: string) {
     setSaving(true);
     try {
-      await deleteBanner(id);
+      await deleteBanner(id, accessToken);
       closeForm();
       reload();
     } finally {
@@ -133,12 +138,12 @@ export function BannerPlacementPanel({
   }
 
   async function toggleActive(banner: HomeBanner) {
-    await setBannerActive(banner.id, !banner.isActive);
+    await setBannerActive(banner.id, !banner.isActive, accessToken);
     reload();
   }
 
   async function move(banner: HomeBanner, direction: 'up' | 'down') {
-    await moveBanner(banner.id, direction, rows);
+    await moveBanner(banner.id, direction, rows, accessToken);
     reload();
   }
 
