@@ -25,6 +25,33 @@ export interface LedgerPeriod {
   closedBy: string | null;
 }
 
+export interface ChartOfAccount {
+  code: string;
+  name: string;
+  type: 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE';
+  isProvisional: boolean;
+}
+
+export interface SubjectLedgerLine {
+  id: number;
+  postedOn: string;
+  description: string;
+  event: string;
+  debit: number;
+  credit: number;
+}
+
+export interface SubjectLedger {
+  accountCode: string;
+  accountName: string;
+  accountType: 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE';
+  openingBalance: number;
+  debit: number;
+  credit: number;
+  closingBalance: number;
+  lines: SubjectLedgerLine[];
+}
+
 /**
  * Backend/api's `/v1/staff/ledger/*` routes (migrations 0074–0077) — the
  * double-entry journal underneath the existing per-module money tables.
@@ -62,4 +89,24 @@ export function closeLedgerPeriod(
   period: string,
 ): Promise<LedgerPeriod> {
   return api.post(`/v1/staff/ledger/entities/${entityId}/periods/close`, { period }, token);
+}
+
+export function getChartOfAccounts(token: string | null): Promise<ChartOfAccount[]> {
+  return api.get('/v1/staff/ledger/accounts', token);
+}
+
+/** One subject's (member/agent/investor) Debit, Credit and running Closing
+ *  balance for one account, for one month — see migration 0090's own doc on
+ *  why this differs from `getTrialBalance`'s store-wide movement-only rows. */
+export function getSubjectLedger(
+  token: string | null,
+  params: { subjectType: string; subjectId: number; accountCode: string; period: string; entityId?: number },
+): Promise<SubjectLedger> {
+  const q = new URLSearchParams();
+  q.set('subjectType', params.subjectType);
+  q.set('subjectId', String(params.subjectId));
+  q.set('accountCode', params.accountCode);
+  q.set('period', params.period);
+  if (params.entityId !== undefined) q.set('entityId', String(params.entityId));
+  return api.get(`/v1/staff/ledger/subject-ledger?${q.toString()}`, token);
 }

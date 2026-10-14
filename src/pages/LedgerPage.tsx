@@ -5,18 +5,23 @@ import { Card, CardHeader } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { FilterSelect } from '@/components/ui/Filters';
+import { Combobox } from '@/components/ui/Combobox';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { formatCurrency } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
-import { ACCOUNT_EXPLANATIONS, movementBalance, ledgerReportCsv, type StoreLedgerRow } from '@/lib/ledgerReport';
+import { ACCOUNT_EXPLANATIONS, movementBalance, ledgerReportCsv, subjectLedgerCsv, type StoreLedgerRow } from '@/lib/ledgerReport';
 import {
   closeLedgerPeriod,
+  getChartOfAccounts,
   getLedgerEntities,
   getLedgerPeriods,
+  getSubjectLedger,
   getTrialBalance,
   type LedgerEntity,
+  type SubjectLedgerLine,
   type TrialBalanceRow,
 } from '@/api/ledger';
+import { listUsers } from '@/api/users';
 
 const ACCOUNT_TYPES = [
   { value: '', label: 'Every account type' },
@@ -87,6 +92,78 @@ export default function LedgerPage() {
     const link = document.createElement('a');
     link.href = url;
     link.download = `sahakar-store-ledger-${period.slice(0, 7)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // ---- Person ledger: one member/agent/investor's own Debit, Credit and
+  // running Closing balance for one account \u2014 see migration 0090's own doc
+  // on why this needs a different query than the store-wide trial balance
+  // above (that one has no person dimension at all).
+  const [showPersonLedger, setShowPersonLedger] = useState(false);
+  const [personAccountCode, setPersonAccountCode] = useState('2001');
+  const [personValue, setPersonValue] = useState(''); // "member:123" | "agent:45" | "investor:7"
+
+  const accounts = useAsync(() => (showPersonLedger ? getChartOfAccounts(accessToken) : Promise.resolve([])), [showPersonLedger, accessToken]);
+
+  // Narrowed to the selected store when one is picked (entity.code IS the
+  // store code for a real store entity \u2014 Head Office has no store to match,
+  // so it falls back to every member/agent/investor instead).
+  const selectedEntityCode = entityId === null ? undefined : entities.data?.find((e) => e.id === entityId)?.code;
+  const people = useAsync(
+    () => (showPersonLedger ? listUsers(selectedEntityCode && selectedEntityCode !== 'HQ' ? selectedEntityCode : undefined) : Promise.resolve([])),
+    [showPersonLedger, selectedEntityCode],
+  );
+
+  const personOptions = useMemo(() => {
+    return (people.data ?? []).flatMap((u) => {
+      if (u.persona === 'agent' && u.agentId) {
+        return [{ value: `agent:${u.agentId}`, label: `${u.name} \u2014 Agent ${u.agentCode} \u00B7 ${u.phone}` }];
+      }
+      if (u.persona === 'investor' && u.investorId) {
+        return [{ value: `investor:${u.investorId}`, label: `${u.name} \u2014 Investor ${u.investorCode} \u00B7 ${u.phone}` }];
+      }
+      return [{ value: `member:${u.id}`, label: `${u.name} \u2014 Member \u00B7 ${u.phone}` }];
+    });
+  }, [people.data]);
+
+  const [personSubjectType, personSubjectId] = personValue ? personValue.split(':') : ['', ''];
+
+  const subjectLedger = useAsync(
+    () =>
+      showPersonLedger && personSubjectType && personSubjectId
+        ? getSubjectLedger(accessToken, {
+            subjectType: personSubjectType,
+            subjectId: Number(personSubjectId),
+            accountCode: personAccountCode,
+            period,
+            entityId: entityId ?? undefined,
+          })
+        : Promise.resolve(null),
+    [showPersonLedger, personSubjectType, personSubjectId, personAccountCode, period, entityId, accessToken],
+  );
+
+  const accountOptions = [{ value: '', label: 'Choose an account' }, ...(accounts.data ?? []).map((a) => ({ value: a.code, label: `${a.code} \u00B7 ${a.name}` }))];
+
+  const lineColumns: Column<Omit<SubjectLedgerLine, 'id'> & { id: string }>[] = [
+    { key: 'postedOn', header: 'Date', render: (row) => row.postedOn },
+    { key: 'description', header: 'Description', render: (row) => <div>{row.description}<p className="text-xs text-slate-400">{row.event}</p></div> },
+    { key: 'debit', header: 'Debit', render: (row) => (row.debit > 0 ? formatCurrency(row.debit) : '\u2014'), className: 'text-right' },
+    { key: 'credit', header: 'Credit', render: (row) => (row.credit > 0 ? formatCurrency(row.credit) : '\u2014'), className: 'text-right' },
+  ];
+
+  function downloadSubjectLedger() {
+    if (!subjectLedger.data) return;
+    const personLabel = personOptions.find((p) => p.value === personValue)?.label ?? personValue;
+    const csv = subjectLedgerCsv(
+      { personName: personLabel, accountCode: subjectLedger.data.accountCode, accountName: subjectLedger.data.accountName, openingBalance: subjectLedger.data.openingBalance, closingBalance: subjectLedger.data.closingBalance },
+      subjectLedger.data.lines,
+      period.slice(0, 7),
+    );
+    const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8;' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `sahakar-person-ledger-${period.slice(0, 7)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -274,6 +351,75 @@ export default function LedgerPage() {
           error={storeReport.error || entities.error}
           empty="No ledger movements for this selection and month."
         />}
+      </Card>
+
+      <Card className="mt-6">
+        <CardHeader
+          title="Person ledger"
+          subtitle="One member, agent or investor's own Debit, Credit and running Closing balance for one account — not a store-wide total. Uses the month and store filters above."
+        />
+        <div className="flex gap-3 p-4">
+          <Button variant="secondary" onClick={() => setShowPersonLedger(!showPersonLedger)}>
+            {showPersonLedger ? 'Hide person ledger' : 'Show person ledger'}
+          </Button>
+          {showPersonLedger && subjectLedger.data && (
+            <Button variant="secondary" onClick={downloadSubjectLedger}>
+              Download CSV
+            </Button>
+          )}
+        </div>
+
+        {showPersonLedger && (
+          <>
+            <div className="flex flex-wrap gap-2 border-b border-slate-200 px-4 pb-4">
+              <FilterSelect value={personAccountCode} onChange={setPersonAccountCode} options={accountOptions} />
+              <Combobox
+                value={personValue}
+                onChange={setPersonValue}
+                options={personOptions}
+                placeholder="Choose a member, agent or investor…"
+                searchPlaceholder="Search by name or phone…"
+                className="min-w-[280px]"
+              />
+            </div>
+
+            {(accounts.error || people.error || subjectLedger.error) && (
+              <Card className="m-4 border-rose-200 bg-rose-50 p-4 text-sm text-rose-600">
+                {accounts.error ?? people.error ?? subjectLedger.error}
+              </Card>
+            )}
+
+            {!personValue || !personAccountCode ? (
+              <p className="px-4 pb-4 text-sm text-slate-500">Choose an account and a person to see their ledger.</p>
+            ) : subjectLedger.loading ? (
+              <p className="px-4 pb-4 text-sm text-slate-500">Loading…</p>
+            ) : subjectLedger.data ? (
+              <>
+                <div className="flex flex-wrap gap-6 px-4 py-3 text-sm">
+                  <span className="text-slate-500">
+                    Opening balance <span className="font-semibold text-slate-800">{formatCurrency(subjectLedger.data.openingBalance)}</span>
+                  </span>
+                  <span className="text-slate-500">
+                    Debit <span className="font-semibold text-slate-800">{formatCurrency(subjectLedger.data.debit)}</span>
+                  </span>
+                  <span className="text-slate-500">
+                    Credit <span className="font-semibold text-slate-800">{formatCurrency(subjectLedger.data.credit)}</span>
+                  </span>
+                  <span className="text-slate-500">
+                    Closing balance <span className="font-semibold text-slate-800">{formatCurrency(subjectLedger.data.closingBalance)}</span>
+                  </span>
+                </div>
+                <DataTable
+                  columns={lineColumns}
+                  rows={subjectLedger.data.lines.map((l) => ({ ...l, id: String(l.id) }))}
+                  loading={false}
+                  error={null}
+                  empty="No movement on this account for this person this month."
+                />
+              </>
+            ) : null}
+          </>
+        )}
       </Card>
     </>
   );

@@ -29,7 +29,9 @@ function toAppUser(r: Row): AppUser {
     persona: r.agent_code ? 'agent' : r.investor_code ? 'investor' : 'member',
     agentCode: String(r.agent_code ?? ''),
     agentLevel: r.agent_level ? fromEnum<AgentLevel>(String(r.agent_level)) : '',
+    agentId: r.agent_id != null ? String(r.agent_id) : '',
     investorCode: String(r.investor_code ?? ''),
+    investorId: r.investor_id != null ? String(r.investor_id) : '',
   };
 }
 
@@ -38,8 +40,8 @@ const USER_COLUMNS = `
     u.registration_completed_at IS NOT NULL AS registered,
     u.created_at, u.last_login_at,
     s.code AS home_store_code, s.name AS home_store_name,
-    a.code  AS agent_code,  a.level AS agent_level,
-    i.code  AS investor_code
+    a.id AS agent_id, a.code  AS agent_code,  a.level AS agent_level,
+    i.id AS investor_id, i.code  AS investor_code
   FROM app.users u
   LEFT JOIN app.shield_store s ON s.id = u.home_store_id
   LEFT JOIN app.agent a        ON a.member_id = u.id

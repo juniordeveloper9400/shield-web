@@ -621,8 +621,15 @@ export interface AppUser {
   /** e.g. `SHD-AGT-003`, set when `persona === 'agent'`. */
   agentCode: string;
   agentLevel: AgentLevel | '';
+  /** `app.agent.id` — the ledger's own `subject_id` for this person's
+   *  agent-side accounts (commission payable), set when `persona === 'agent'`.
+   *  Distinct from `id` (the member/`app.users` id) — see the Ledger page's
+   *  own per-person report for why the two can't be used interchangeably. */
+  agentId: string;
   /** e.g. `SHD-INV-002`, set when `persona === 'investor'`. */
   investorCode: string;
+  /** `app.investor.id` — same reasoning as `agentId`, investor side. */
+  investorId: string;
 }
 
 /** A pickable parent when converting a user to an agent. */
