@@ -1,5 +1,5 @@
-import { sql, query } from '@/lib/db';
-import { iso, num } from '@/lib/mappers';
+import { api } from '@/lib/api';
+import { fromEnum } from '@/lib/mappers';
 import type {
   Brand,
   NewProduct,
@@ -11,387 +11,176 @@ import type {
   ProductSubcategory,
 } from '@/types';
 
-type Row = Record<string, unknown>;
-
-/** Splits a textarea into trimmed, non-empty lines for a `text[]` column. */
-function lines(value: string): string[] {
-  return value
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
+/** A `GET /v1/staff/catalogue/products` row — several ids come back as
+ *  JSON numbers (bigint columns), not the string ids shieldweb's own
+ *  types use; mapped below. */
+interface ProductApiRow {
+  id: number;
+  code: string | null;
+  name: string;
+  pack: string;
+  brand: string | null;
+  categorySlug: string | null;
+  categoryTitle: string | null;
+  subcategoryId: number | null;
+  subcategoryLabel: string | null;
+  price: string | number;
+  mrp: string | number;
+  discountLabel: string | null;
+  isPrescriptionOnly: boolean;
+  status: string;
+  stockQuantity: string | number;
+  image: string | null;
+  isPopular: boolean;
+  isDeal: boolean;
+  isOfferOfDay: boolean;
+  createdAt: string;
 }
 
-/** True when the admin entered nothing in the detail block — skip the writes. */
-function detailIsBlank(d: ProductDetailInput): boolean {
-  return (
-    !d.form.trim() &&
-    !d.manufacturer.trim() &&
-    !d.description.trim() &&
-    !d.ingredients.trim() &&
-    !d.storage.trim() &&
-    !d.highlights.trim() &&
-    !d.benefits.trim() &&
-    !d.directions.trim() &&
-    !d.safety.trim() &&
-    d.faqs.every((f) => !f.question.trim() && !f.answer.trim())
-  );
-}
-
-/** Writes `app.product_detail` + `app.product_faq` for a product id. */
-async function writeProductDetail(
-  productId: string,
-  d: ProductDetailInput,
-): Promise<void> {
-  await query(
-    `
-    INSERT INTO app.product_detail
-      (product_id, form, manufacturer, description, ingredients, storage,
-       highlights, benefits, directions, safety)
-    VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8::text[], $9::text[], $10::text[])
-    ON CONFLICT (product_id) DO UPDATE SET
-      form = EXCLUDED.form,
-      manufacturer = EXCLUDED.manufacturer,
-      description = EXCLUDED.description,
-      ingredients = EXCLUDED.ingredients,
-      storage = EXCLUDED.storage,
-      highlights = EXCLUDED.highlights,
-      benefits = EXCLUDED.benefits,
-      directions = EXCLUDED.directions,
-      safety = EXCLUDED.safety,
-      updated_at = now()
-    `,
-    [
-      productId,
-      d.form.trim(),
-      d.manufacturer.trim(),
-      d.description.trim(),
-      d.ingredients.trim(),
-      d.storage.trim(),
-      lines(d.highlights),
-      lines(d.benefits),
-      lines(d.directions),
-      lines(d.safety),
-    ],
-  );
-
-  const faqs = d.faqs.filter((f) => f.question.trim() && f.answer.trim());
-  await query('DELETE FROM app.product_faq WHERE product_id = $1', [productId]);
-  for (let i = 0; i < faqs.length; i += 1) {
-    await query(
-      `INSERT INTO app.product_faq (product_id, question, answer, sort)
-       VALUES ($1, $2, $3, $4)`,
-      [productId, faqs[i].question.trim(), faqs[i].answer.trim(), i],
-    );
-  }
-}
-
-function toProduct(r: Row): Product {
+function toProduct(r: ProductApiRow): Product {
   return {
     id: String(r.id),
-    code: String(r.code ?? ''),
-    name: String(r.name),
-    pack: String(r.pack ?? ''),
-    brand: String(r.brand ?? ''),
-    categorySlug: String(r.category_slug ?? ''),
-    categoryTitle: String(r.category_title ?? ''),
-    subcategoryId: r.subcategory_id == null ? '' : String(r.subcategory_id),
-    subcategoryLabel: String(r.subcategory_label ?? ''),
-    price: num(r.price),
-    mrp: num(r.mrp),
-    discountLabel: String(r.discount_label ?? ''),
-    isPrescriptionOnly: Boolean(r.is_prescription_only),
-    status: String(r.status).toUpperCase() === 'ACTIVE' ? 'active' : 'inactive',
-    stockQuantity: num(r.stock_quantity),
-    image: String(r.image ?? ''),
-    isPopular: r.is_popular === true,
-    isDeal: r.is_deal === true,
-    isOfferOfDay: r.is_offer_of_day === true,
-    addedAt: iso(r.created_at) ?? new Date(0).toISOString(),
+    code: r.code ?? '',
+    name: r.name,
+    pack: r.pack,
+    brand: r.brand ?? '',
+    categorySlug: r.categorySlug ?? '',
+    categoryTitle: r.categoryTitle ?? '',
+    subcategoryId: r.subcategoryId == null ? '' : String(r.subcategoryId),
+    subcategoryLabel: r.subcategoryLabel ?? '',
+    price: Number(r.price),
+    mrp: Number(r.mrp),
+    discountLabel: r.discountLabel ?? '',
+    isPrescriptionOnly: r.isPrescriptionOnly,
+    status: fromEnum<ProductStatus>(r.status),
+    stockQuantity: Number(r.stockQuantity),
+    image: r.image ?? '',
+    isPopular: r.isPopular,
+    isDeal: r.isDeal,
+    isOfferOfDay: r.isOfferOfDay,
+    addedAt: r.createdAt,
   };
 }
 
-export async function listProducts(): Promise<Product[]> {
-  const rows = (await sql`
-    SELECT p.id, p.code, p.name, p.pack, p.brand,
-           c.slug  AS category_slug,
-           c.title AS category_title,
-           s.id    AS subcategory_id,
-           s.label AS subcategory_label,
-           p.price, p.mrp, p.discount_label, p.is_prescription_only,
-           p.status, p.stock_quantity, p.image,
-           p.is_popular, p.is_deal, p.is_offer_of_day, p.created_at
-    FROM app.product p
-    LEFT JOIN app.product_category    c ON c.id = p.category_id
-    LEFT JOIN app.product_subcategory s ON s.id = p.subcategory_id
-    ORDER BY p.name
-  `) as Row[];
+/** Every product, any status — the console's own catalogue table. Reads
+ *  through backend/api's staff catalogue routes now, not Neon directly. */
+export async function listProducts(token: string | null): Promise<Product[]> {
+  const rows = await api.get<ProductApiRow[]>('/v1/staff/catalogue/products', token);
   return rows.map(toProduct);
 }
 
-/** The storefront category groups the admin picks from when adding a product. */
-export async function listCategories(): Promise<ProductCategory[]> {
-  const rows = (await sql`
-    SELECT id, slug, title
-    FROM app.product_category
-    WHERE is_active
-    ORDER BY sort, title
-  `) as Row[];
-  return rows.map((r) => ({
-    id: String(r.id),
-    slug: String(r.slug),
-    title: String(r.title),
-  }));
+/** The storefront category groups the admin picks from when adding a
+ *  product — public, no auth required, same freebie `geo.ts`'s read
+ *  helpers found. */
+export async function listCategories(token: string | null): Promise<ProductCategory[]> {
+  const rows = await api.get<{ id: number; slug: string; title: string }[]>(
+    '/v1/public/catalogue/categories',
+    token,
+  );
+  return rows.map((r) => ({ id: String(r.id), slug: r.slug, title: r.title }));
 }
 
 /**
- * Every sub-category, with its parent category's slug — the second dropdown on
- * the "Add product" form filters this list by the chosen category. Seeded to
- * match the app's category browser by migration 0004.
+ * Every sub-category, with its parent category's slug — the second
+ * dropdown on the "Add product" form filters this list by the chosen
+ * category. Flattens the staff nested-categories route (every category,
+ * active or not, each with its subcategories inlined) rather than one
+ * request per category.
  */
-export async function listSubcategories(): Promise<ProductSubcategory[]> {
-  const rows = (await sql`
-    SELECT s.id, s.label, c.slug AS category_slug
-    FROM app.product_subcategory s
-    JOIN app.product_category c ON c.id = s.category_id
-    WHERE c.is_active
-    ORDER BY c.sort, s.sort, s.label
-  `) as Row[];
-  return rows.map((r) => ({
-    id: String(r.id),
-    categorySlug: String(r.category_slug),
-    label: String(r.label),
-  }));
+export async function listSubcategories(token: string | null): Promise<ProductSubcategory[]> {
+  const groups = await api.get<
+    { id: number; slug: string; isActive: boolean; subcategories: { id: number; label: string }[] }[]
+  >('/v1/staff/catalogue/categories', token);
+  return groups
+    .filter((c) => c.isActive)
+    .flatMap((c) => c.subcategories.map((s) => ({ id: String(s.id), categorySlug: c.slug, label: s.label })));
 }
 
-/** Every registered brand — the "Add product" form's Brand field picks from
- *  this instead of free text, so the same brand reads the same way twice. */
-export async function listBrands(): Promise<Brand[]> {
-  const rows = (await sql`SELECT id, name FROM app.brand ORDER BY name`) as Row[];
-  return rows.map((r) => ({ id: String(r.id), name: String(r.name) }));
+/** Every registered brand — the "Add product" form's Brand field picks
+ *  from this instead of free text, so the same brand reads the same way
+ *  twice. */
+export async function listBrands(token: string | null): Promise<Brand[]> {
+  const rows = await api.get<{ id: number; name: string }[]>('/v1/staff/catalogue/brands', token);
+  return rows.map((r) => ({ id: String(r.id), name: r.name }));
 }
 
-/**
- * Registers a new brand (or returns the existing one — matched
- * case-insensitively, so "Cetaphil" typed twice is one brand, not two).
- */
-export async function createBrand(name: string): Promise<Brand> {
-  const trimmed = name.trim();
-  const rows = (await sql`
-    INSERT INTO app.brand (name) VALUES (${trimmed})
-    ON CONFLICT (lower(name)) DO UPDATE SET name = app.brand.name
-    RETURNING id, name
-  `) as Row[];
-  return { id: String(rows[0].id), name: String(rows[0].name) };
+/** Registers a new brand (or returns the existing one — matched
+ *  case-insensitively, so "Cetaphil" typed twice is one brand, not two). */
+export async function createBrand(name: string, token: string | null): Promise<Brand> {
+  const r = await api.post<{ id: number; name: string }>('/v1/staff/catalogue/brands', { name }, token);
+  return { id: String(r.id), name: r.name };
 }
 
 /** Removes a brand from the list. Products keep their brand text as-is. */
-export async function deleteBrand(id: string): Promise<void> {
-  await query('DELETE FROM app.brand WHERE id = $1', [id]);
+export async function deleteBrand(id: string, token: string | null): Promise<void> {
+  await api.delete(`/v1/staff/catalogue/brands/${id}`, token);
+}
+
+/** Renames a registered brand. Existing products keep whatever brand text
+ *  they were saved with. */
+export async function renameBrand(id: string, name: string, token: string | null): Promise<Brand> {
+  const r = await api.patch<{ id: number; name: string }>(`/v1/staff/catalogue/brands/${id}`, { name }, token);
+  return { id: String(r.id), name: r.name };
 }
 
 /**
- * Renames a registered brand. Existing products keep whatever brand text
- * they were saved with — this only relabels the entry in the dropdown, same
- * as `createBrand` only ever writes to `app.brand`, never to `product.brand`.
+ * Adds a product to the catalogue under the chosen category. Available to
+ * the app and the web console the moment it is written. Returns the new id.
  */
-export async function renameBrand(id: string, name: string): Promise<Brand> {
-  const trimmed = name.trim();
-  const rows = (await sql`
-    UPDATE app.brand SET name = ${trimmed} WHERE id = ${id}
-    RETURNING id, name
-  `) as Row[];
-  return { id: String(rows[0].id), name: String(rows[0].name) };
+export async function createProduct(p: NewProduct, token: string | null): Promise<string> {
+  const r = await api.post<{ id: number }>('/v1/staff/catalogue/products', p, token);
+  return String(r.id);
 }
 
 /**
- * Adds a product to the catalogue under the chosen category. Available to the
- * app and the web console the moment it is written. Returns the new id.
- */
-export async function createProduct(p: NewProduct): Promise<string> {
-  const rows = await query<Row>(
-    `
-    INSERT INTO app.product
-      (name, pack, brand, category_id, subcategory_id, price, mrp,
-       discount_label, is_prescription_only, status, stock_quantity, code, image,
-       is_popular, is_deal, is_offer_of_day)
-    VALUES
-      ($1, $2, $3,
-       (SELECT id FROM app.product_category WHERE slug = $4),
-       $5::bigint,
-       $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-    RETURNING id
-    `,
-    [
-      p.name.trim(),
-      p.pack.trim(),
-      p.brand.trim(),
-      p.categorySlug,
-      p.subcategoryId || null,
-      p.price,
-      p.mrp,
-      p.discountLabel.trim(),
-      p.isPrescriptionOnly,
-      p.status === 'active' ? 'ACTIVE' : 'INACTIVE',
-      p.stockQuantity,
-      p.code.trim() || null,
-      p.image || null,
-      p.isPopular,
-      p.isDeal,
-      p.isOfferOfDay,
-    ],
-  );
-  const id = String(rows[0].id);
-
-  // The detail page + FAQs, when the admin filled any of that block in. A
-  // failure here should not lose the product that was just created, so it is
-  // reported but not rethrown past the returned id.
-  if (!detailIsBlank(p.detail)) {
-    try {
-      await writeProductDetail(id, p.detail);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Product created, but its detail page failed to save:', err);
-    }
-  }
-
-  // The full image gallery — primary (p.image) first, then any extras —
-  // mirrored into app.product_image so "Set as primary" has every image to
-  // reorder, not just the one app.product.image already carries. Same
-  // best-effort treatment as the detail page above.
-  const gallery = [p.image, ...p.extraImages].filter((img) => img.trim());
-  if (gallery.length > 0) {
-    try {
-      await writeProductImages(id, gallery);
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error('Product created, but its image gallery failed to save:', err);
-    }
-  }
-
-  return id;
-}
-
-/** Replaces a product's whole image gallery — index 0 is the primary,
- *  mirrored onto `app.product.image` by the caller. */
-async function writeProductImages(productId: string, images: string[]): Promise<void> {
-  await query('DELETE FROM app.product_image WHERE product_id = $1', [productId]);
-  for (let i = 0; i < images.length; i += 1) {
-    await query(
-      `INSERT INTO app.product_image (product_id, image, sort) VALUES ($1, $2, $3)`,
-      [productId, images[i], i],
-    );
-  }
-}
-
-/**
- * The detail-page content for a product, or `null` when none has been entered.
- * The list columns come back as JS arrays from the driver.
+ * The detail-page content for a product, or `null` when none has been
+ * entered.
  */
 export async function getProductDetail(
   id: string,
-): Promise<(ProductDetailInput & { hasDetail: boolean }) | null> {
-  const rows = (await query<Row>(
-    `
-    SELECT d.form, d.manufacturer, d.description, d.ingredients, d.storage,
-           d.highlights, d.benefits, d.directions, d.safety,
-           COALESCE((
-             SELECT json_agg(json_build_object('question', f.question, 'answer', f.answer)
-                             ORDER BY f.sort, f.id)
-             FROM app.product_faq f WHERE f.product_id = p.id
-           ), '[]') AS faqs
-    FROM app.product p
-    LEFT JOIN app.product_detail d ON d.product_id = p.id
-    WHERE p.id = $1
-    LIMIT 1
-    `,
-    [id],
-  )) as Row[];
-  if (rows.length === 0) return null;
-  const r = rows[0];
-  const arr = (v: unknown): string[] =>
-    Array.isArray(v) ? (v as unknown[]).map(String) : [];
-  const rawFaqs = r.faqs;
-  const faqs: ProductFaqInput[] = Array.isArray(rawFaqs)
-    ? (rawFaqs as ProductFaqInput[])
-    : typeof rawFaqs === 'string'
-      ? (JSON.parse(rawFaqs) as ProductFaqInput[])
-      : [];
-  const hasDetail =
-    r.form != null ||
-    r.manufacturer != null ||
-    Boolean(r.description) ||
-    faqs.length > 0;
-  return {
-    form: String(r.form ?? ''),
-    manufacturer: String(r.manufacturer ?? ''),
-    description: String(r.description ?? ''),
-    ingredients: String(r.ingredients ?? ''),
-    storage: String(r.storage ?? ''),
-    highlights: arr(r.highlights).join('\n'),
-    benefits: arr(r.benefits).join('\n'),
-    directions: arr(r.directions).join('\n'),
-    safety: arr(r.safety).join('\n'),
-    faqs,
-    hasDetail,
-  };
+  token: string | null,
+): Promise<(ProductDetailInput & { hasDetail: boolean; extraImages: string[] }) | null> {
+  const r = await api.get<{
+    form: string;
+    manufacturer: string;
+    description: string;
+    ingredients: string;
+    storage: string;
+    highlights: string;
+    benefits: string;
+    directions: string;
+    safety: string;
+    faqs: ProductFaqInput[];
+    hasDetail: boolean;
+    extraImages: string[];
+  } | null>(`/v1/staff/catalogue/products/${id}/detail`, token);
+  return r;
 }
 
 /** Removes a product from the catalogue. Order lines keep their text copy. */
-export async function deleteProduct(id: string): Promise<void> {
-  await query('DELETE FROM app.product WHERE id = $1', [id]);
+export async function deleteProduct(id: string, token: string | null): Promise<void> {
+  await api.delete(`/v1/staff/catalogue/products/${id}`, token);
 }
 
-export async function setProductStatus(id: string, status: ProductStatus): Promise<void> {
-  await query('UPDATE app.product SET status = $2 WHERE id = $1', [
-    id,
-    status === 'active' ? 'ACTIVE' : 'INACTIVE',
-  ]);
+export async function setProductStatus(id: string, status: ProductStatus, token: string | null): Promise<void> {
+  await api.patch(`/v1/staff/catalogue/products/${id}/status`, { status }, token);
 }
 
 export async function updateProduct(
   id: string,
   patch: { price: number; stockQuantity: number },
+  token: string | null,
 ): Promise<void> {
-  await query(
-    'UPDATE app.product SET price = $2, stock_quantity = $3 WHERE id = $1',
-    [id, patch.price, patch.stockQuantity],
-  );
+  await api.patch(`/v1/staff/catalogue/products/${id}`, patch, token);
 }
 
 /**
  * Rewrites every admin-editable field of a product (the "Edit" page) —
- * core fields plus the detail page and FAQs. Home-feed flags and status are
- * carried through unchanged from the form's values.
+ * core fields plus the detail page, FAQs and image gallery. Home-feed
+ * flags and status are carried through unchanged from the form's values.
  */
-export async function updateProductFull(id: string, p: NewProduct): Promise<void> {
-  await query(
-    `
-    UPDATE app.product SET
-      name = $2, pack = $3, brand = $4,
-      category_id = (SELECT id FROM app.product_category WHERE slug = $5),
-      subcategory_id = $6::bigint,
-      price = $7, mrp = $8, discount_label = $9, is_prescription_only = $10,
-      status = $11, stock_quantity = $12, code = $13, image = $14
-    WHERE id = $1
-    `,
-    [
-      id,
-      p.name.trim(),
-      p.pack.trim(),
-      p.brand.trim(),
-      p.categorySlug,
-      p.subcategoryId || null,
-      p.price,
-      p.mrp,
-      p.discountLabel.trim(),
-      p.isPrescriptionOnly,
-      p.status === 'active' ? 'ACTIVE' : 'INACTIVE',
-      p.stockQuantity,
-      p.code.trim() || null,
-      p.image || null,
-    ],
-  );
-  await writeProductDetail(id, p.detail);
+export async function updateProductFull(id: string, p: NewProduct, token: string | null): Promise<void> {
+  await api.put(`/v1/staff/catalogue/products/${id}`, p, token);
 }
 
 /**
@@ -402,11 +191,7 @@ export async function updateProductFull(id: string, p: NewProduct): Promise<void
 export async function updateProductSections(
   id: string,
   sections: { isPopular: boolean; isDeal: boolean; isOfferOfDay: boolean },
+  token: string | null,
 ): Promise<void> {
-  await query(
-    `UPDATE app.product
-        SET is_popular = $2, is_deal = $3, is_offer_of_day = $4
-      WHERE id = $1`,
-    [id, sections.isPopular, sections.isDeal, sections.isOfferOfDay],
-  );
+  await api.patch(`/v1/staff/catalogue/products/${id}/sections`, sections, token);
 }

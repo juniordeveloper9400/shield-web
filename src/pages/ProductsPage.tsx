@@ -93,14 +93,14 @@ const STATUS_OPTIONS = [
 ];
 
 export default function ProductsPage() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   // Only Admin / Super Admin manage the catalogue; every other role that can
   // open it (the store's Pharmacy Admin) is view-only.
   const canManage = user ? canManageCatalogue(user.role) : false;
-  const { data, loading, error, reload } = useAsync(listProducts, []);
-  const categories = useAsync(listCategories, []);
-  const subcategories = useAsync(listSubcategories, []);
-  const brands = useAsync(listBrands, []);
+  const { data, loading, error, reload } = useAsync(() => listProducts(accessToken), [accessToken]);
+  const categories = useAsync(() => listCategories(accessToken), [accessToken]);
+  const subcategories = useAsync(() => listSubcategories(accessToken), [accessToken]);
+  const brands = useAsync(() => listBrands(accessToken), [accessToken]);
 
   // Registering a new brand from the "Add product" form — a small inline
   // affordance next to the Brand dropdown, not a separate page.
@@ -135,7 +135,7 @@ export default function ProductsPage() {
     setBrandSaving(true);
     setBrandError(null);
     try {
-      const brand = await createBrand(newBrandName);
+      const brand = await createBrand(newBrandName, accessToken);
       setDraft((d) => ({ ...d, brand: brand.name }));
       setNewBrandName('');
       setAddingBrand(false);
@@ -163,7 +163,7 @@ export default function ProductsPage() {
     setBrandRowBusy(true);
     setBrandError(null);
     try {
-      const updated = await renameBrand(brand.id, trimmed);
+      const updated = await renameBrand(brand.id, trimmed, accessToken);
       setDraft((d) => (d.brand === brand.name ? { ...d, brand: updated.name } : d));
       setEditingBrandId(null);
       brands.reload();
@@ -188,7 +188,7 @@ export default function ProductsPage() {
       danger: true,
       onConfirm: async () => {
         try {
-          await deleteBrand(brand.id);
+          await deleteBrand(brand.id, accessToken);
           setDraft((d) => (d.brand === brand.name ? { ...d, brand: '' } : d));
           brands.reload();
         } catch (err) {
@@ -247,7 +247,7 @@ export default function ProductsPage() {
     }
     let cancelled = false;
     setSelectedDetail(undefined);
-    getProductDetail(selectedId)
+    getProductDetail(selectedId, accessToken)
       .then((d) => {
         if (!cancelled) setSelectedDetail(d);
       })
@@ -257,7 +257,7 @@ export default function ProductsPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId]);
+  }, [selectedId, accessToken]);
 
   function openAdd() {
     if (!canManage) return;
@@ -276,11 +276,13 @@ export default function ProductsPage() {
     setAddError(null);
     setSelectedId(null);
     let detail: ProductDetailInput = EMPTY_DETAIL;
+    let extraImages: string[] = [];
     try {
-      const d = await getProductDetail(product.id);
+      const d = await getProductDetail(product.id, accessToken);
       if (d) {
-        const { hasDetail: _hasDetail, ...rest } = d;
+        const { hasDetail: _hasDetail, extraImages: galleryExtras, ...rest } = d;
         detail = rest;
+        extraImages = galleryExtras;
       }
     } catch {
       // Fall back to a blank detail block; the core fields are still editable.
@@ -299,7 +301,7 @@ export default function ProductsPage() {
       stockQuantity: product.stockQuantity,
       status: product.status,
       image: product.image,
-      extraImages: [],
+      extraImages,
       isPopular: product.isPopular,
       isDeal: product.isDeal,
       isOfferOfDay: product.isOfferOfDay,
@@ -350,8 +352,8 @@ export default function ProductsPage() {
     setSaving(true);
     setAddError(null);
     try {
-      if (editingProductId) await updateProductFull(editingProductId, draft);
-      else await createProduct(draft);
+      if (editingProductId) await updateProductFull(editingProductId, draft, accessToken);
+      else await createProduct(draft, accessToken);
       setAdding(false);
       reload();
       return true;
@@ -372,7 +374,7 @@ export default function ProductsPage() {
   async function removeProduct(id: string) {
     setSaving(true);
     try {
-      await deleteProduct(id);
+      await deleteProduct(id, accessToken);
       setSelectedId(null);
       reload();
     } finally {
@@ -443,7 +445,7 @@ export default function ProductsPage() {
         isPopular: section === 'isPopular' ? true : product.isPopular,
         isDeal: section === 'isDeal' ? true : product.isDeal,
         isOfferOfDay: section === 'isOfferOfDay' ? true : product.isOfferOfDay,
-      });
+      }, accessToken);
       setSearch('');
       reload();
     } finally {
@@ -463,7 +465,7 @@ export default function ProductsPage() {
         isPopular: section === 'isPopular' ? false : product.isPopular,
         isDeal: section === 'isDeal' ? false : product.isDeal,
         isOfferOfDay: section === 'isOfferOfDay' ? false : product.isOfferOfDay,
-      });
+      }, accessToken);
       reload();
     } finally {
       setRemovingFromSectionId(null);
@@ -484,7 +486,7 @@ export default function ProductsPage() {
   async function changeStatus(id: string, next: ProductStatus) {
     setSaving(true);
     try {
-      await setProductStatus(id, next);
+      await setProductStatus(id, next, accessToken);
       setSelectedId(null);
       reload();
     } finally {
@@ -504,7 +506,7 @@ export default function ProductsPage() {
           Number.isFinite(stockQuantity) && stockQuantity >= 0
             ? stockQuantity
             : selected.stockQuantity,
-      });
+      }, accessToken);
       setEditing(false);
       reload();
     } finally {
@@ -1460,7 +1462,7 @@ export default function ProductsPage() {
                             isDeal: selected.isDeal,
                             isOfferOfDay: selected.isOfferOfDay,
                             [key]: e.target.checked,
-                          });
+                          }, accessToken);
                           reload();
                         } finally {
                           setSaving(false);
