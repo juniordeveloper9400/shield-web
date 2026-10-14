@@ -424,6 +424,13 @@ export function BillEditorModal({
   // nothing left for "Send/Resend cash redemption request" to do, so the
   // footer locks it instead of offering to resend an already-settled bill.
   const verifiedAndCompleted = effectiveBillStatus === 'paid' && completed;
+  // Both the receipt-book number and a picture of the bill are mandatory —
+  // "Send cash redemption request" stays disabled until both are filled in,
+  // so a bill can never go out with neither record of what was actually
+  // handed to the member.
+  const missingBillNumber = !billNumber.trim();
+  const missingBillImage = !pickedImage;
+  const missingRequired = missingBillNumber || missingBillImage;
 
   function patchLine(i: number, patch: Partial<BillLineDraft>) {
     setLines((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
@@ -571,6 +578,14 @@ export function BillEditorModal({
       setError('Enter the bill subtotal before sending.');
       return;
     }
+    if (!billNumber.trim()) {
+      setError('Enter the bill number before sending.');
+      return;
+    }
+    if (!pickedImage) {
+      setError('Upload a picture of the bill before sending.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -669,8 +684,19 @@ export function BillEditorModal({
             <Button
               size="sm"
               onClick={() => void submit()}
-              disabled={saving || verifiedAndCompleted}
-              title={verifiedAndCompleted ? 'This bill is already verified and completed' : undefined}
+              disabled={saving || verifiedAndCompleted || missingRequired}
+              title={
+                verifiedAndCompleted
+                  ? 'This bill is already verified and completed'
+                  : missingRequired
+                    ? [
+                        missingBillNumber && 'Enter the bill number',
+                        missingBillImage && 'upload a picture of the bill',
+                      ]
+                        .filter(Boolean)
+                        .join(' and ') + ' first.'
+                    : undefined
+              }
             >
               {verifiedAndCompleted
                 ? 'Verified & completed'
@@ -952,12 +978,20 @@ export function BillEditorModal({
               )}
               <div className="flex items-center gap-3">
                 <label
-                  className={`inline-flex items-center gap-1.5 rounded-lg border border-dashed border-brand-400 bg-brand-50/50 px-3 py-2 text-xs font-medium text-brand-700 ${
-                    saving || imageBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-brand-50'
+                  className={`inline-flex items-center gap-1.5 rounded-lg border border-dashed px-3 py-2 text-xs font-medium ${
+                    saving || imageBusy
+                      ? 'cursor-not-allowed border-brand-400 bg-brand-50/50 text-brand-700 opacity-50'
+                      : missingBillImage
+                        ? 'cursor-pointer border-rose-300 bg-rose-50/50 text-rose-600 hover:bg-rose-50'
+                        : 'cursor-pointer border-brand-400 bg-brand-50/50 text-brand-700 hover:bg-brand-50'
                   }`}
                 >
                   <span aria-hidden className="text-base leading-none">+</span>
-                  {imageBusy ? 'Reading picture…' : pickedImage ? 'Change picture' : 'Upload bill from gallery'}
+                  {imageBusy
+                    ? 'Reading picture…'
+                    : pickedImage
+                      ? 'Change picture'
+                      : 'Upload bill from gallery *'}
                   <input
                     type="file"
                     accept="image/*"
@@ -987,13 +1021,17 @@ export function BillEditorModal({
                 up to. */}
             <div className="mt-3 space-y-1.5 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-slate-600">Bill number</span>
+                <span className="text-slate-600">
+                  Bill number <span className="text-rose-500">*</span>
+                </span>
                 <input
                   value={billNumber}
                   onChange={(e) => setBillNumber(e.target.value)}
                   placeholder="e.g. receipt book no."
                   maxLength={100}
-                  className="w-40 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-right text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+                  className={`w-40 rounded-md border bg-white px-2.5 py-1 text-right text-sm text-slate-800 outline-none focus:ring-2 focus:ring-brand-100 ${
+                    missingBillNumber ? 'border-rose-300 focus:border-rose-400' : 'border-slate-300 focus:border-brand-500'
+                  }`}
                 />
               </div>
               <div className="flex items-center justify-between">
