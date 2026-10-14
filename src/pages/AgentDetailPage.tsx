@@ -45,8 +45,8 @@ export default function AgentDetailPage() {
   const canManage = user ? canApproveAgents(user.role) : false;
 
   const { data: agent, loading, error, reload } = useAsync(
-    () => getApprovedAgent(id),
-    [id],
+    () => getApprovedAgent(id, accessToken),
+    [id, accessToken],
   );
   const agentOptions = useAsync(() => listAgentOptions(accessToken), [accessToken]);
 
@@ -84,7 +84,7 @@ export default function AgentDetailPage() {
         parentId: parentId || null,
         area: position.area,
         areaId: position.areaId,
-      });
+      }, accessToken);
       setEditing(false);
       reload();
     } catch (err) {
@@ -99,7 +99,7 @@ export default function AgentDetailPage() {
     setSaving(true);
     setActionError(null);
     try {
-      await setAgentActive(agent.id, !agent.active);
+      await setAgentActive(agent.id, !agent.active, accessToken);
       reload();
     } catch (err) {
       setActionError(

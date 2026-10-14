@@ -11,6 +11,7 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { Tabs } from '@/components/ui/Tabs';
 import { formatDate, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import { listApprovedAgents, listPendingAgents } from '@/api/agents';
 import type { AgentRow, PendingAgent } from '@/types';
 
@@ -27,12 +28,13 @@ const LEVEL_OPTIONS: { value: string; label: string }[] = [
 
 export default function AgentApprovalsPage() {
   const navigate = useNavigate();
+  const { accessToken } = useAuth();
   const [tab, setTab] = useState<'pending' | 'all'>('pending');
 
-  const pending = useAsync(listPendingAgents, []);
+  const pending = useAsync(() => listPendingAgents(accessToken), [accessToken]);
   const pendingRows = useMemo(() => pending.data ?? [], [pending.data]);
 
-  const approved = useAsync(listApprovedAgents, []);
+  const approved = useAsync(() => listApprovedAgents(accessToken), [accessToken]);
   const approvedRows = useMemo(() => approved.data ?? [], [approved.data]);
 
   const [search, setSearch] = useState('');

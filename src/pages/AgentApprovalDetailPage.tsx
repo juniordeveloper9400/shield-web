@@ -36,8 +36,8 @@ export default function AgentApprovalDetailPage() {
   const canApprove = user ? canApproveAgents(user.role) : false;
 
   const { data: selected, loading, error, reload } = useAsync(
-    () => getPendingAgent(id),
-    [id],
+    () => getPendingAgent(id, accessToken),
+    [id, accessToken],
   );
   const agents = useAsync(() => listAgentOptions(accessToken), [accessToken]);
 
@@ -112,7 +112,7 @@ export default function AgentApprovalDetailPage() {
         // with whatever happens to be sitting in `position` unrelated.
         area: levelChanged ? position.area : selected?.area ?? '',
         areaId: levelChanged ? position.areaId : undefined,
-      });
+      }, accessToken);
       if (!ok) {
         setActionError('This agent is no longer pending — reloading.');
         reload();
@@ -138,7 +138,7 @@ export default function AgentApprovalDetailPage() {
     setSaving(true);
     setActionError(null);
     try {
-      const ok = await rejectAgent(id, note);
+      const ok = await rejectAgent(id, note, accessToken);
       if (!ok) {
         setActionError('This agent is no longer pending — reloading.');
         reload();
