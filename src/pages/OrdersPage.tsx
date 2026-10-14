@@ -40,7 +40,10 @@ export default function OrdersPage() {
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('all');
+  // Defaults to Pending — the orders actually needing attention — rather
+  // than every status at once; "All statuses" is still one click away in
+  // the filter itself.
+  const [status, setStatus] = useState('pending');
   const [fulfillment, setFulfillment] = useState('all');
   const [store, setStore] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
