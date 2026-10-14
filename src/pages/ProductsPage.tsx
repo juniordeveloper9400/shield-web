@@ -105,6 +105,22 @@ const STORAGE_OPTIONS = [
   'Keep out of reach and sight of children',
 ];
 
+/** Short labels for the catalogue-table tags — the same three sections the
+ *  "Home feed rows" panel and the section tabs use, just compact enough to
+ *  sit under a product's category. */
+const SECTION_TAGS: { key: 'isPopular' | 'isDeal' | 'isOfferOfDay'; untilKey: 'popularUntil' | 'dealUntil' | 'offerOfDayUntil'; label: string; tone: string }[] = [
+  { key: 'isPopular', untilKey: 'popularUntil', label: 'Popular', tone: 'bg-violet-50 text-violet-600' },
+  { key: 'isDeal', untilKey: 'dealUntil', label: 'Deal', tone: 'bg-amber-50 text-amber-700' },
+  { key: 'isOfferOfDay', untilKey: 'offerOfDayUntil', label: 'Offer of the day', tone: 'bg-sky-50 text-sky-700' },
+];
+
+/** Whether an "until" has already passed — the console still shows the raw
+ *  flag as set (see CatalogueService.withEffectiveSections), so the tag
+ *  itself needs its own expired marker rather than just disappearing. */
+function isPast(until: string | null): boolean {
+  return until != null && new Date(until).getTime() <= Date.now();
+}
+
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
   { value: 'active', label: 'Active' },
@@ -252,6 +268,16 @@ export default function ProductsPage() {
   // below: on a section tab it doubles as "find something to add".
   const [addingToSectionId, setAddingToSectionId] = useState<string | null>(null);
   const [removingFromSectionId, setRemovingFromSectionId] = useState<string | null>(null);
+
+  // Bulk "add to home-feed section" — checkboxes on the table let the admin
+  // pick several products at once, then assign them all to the same section
+  // (optionally with an expiry date) in one action, instead of opening each
+  // product's own Manage panel.
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkSection, setBulkSection] = useState<'isPopular' | 'isDeal' | 'isOfferOfDay'>('isPopular');
+  const [bulkUntil, setBulkUntil] = useState('');
+  const [bulkApplying, setBulkApplying] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   // The selected product's detail-page content, loaded lazily when its modal
   // opens. `undefined` = not loaded yet, `null` = loaded and there is none.
@@ -500,6 +526,52 @@ export default function ProductsPage() {
     }
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  /** Adds every checked product to `bulkSection`, all with the same
+   *  (optional) expiry date — one write per product, same as the single-row
+   *  Manage panel makes, just looped. A field already in the section keeps
+   *  its other two flags as they were; only the target section and its
+   *  expiry change. */
+  async function applyBulkSection() {
+    if (selectedIds.size === 0) return;
+    setBulkError(null);
+    setBulkApplying(true);
+    // End of the chosen day, in the admin's own timezone — a date picker
+    // only gives a calendar day, not a moment, and "expires at the start of
+    // the day I picked" would surprise nobody more than the admin who set it.
+    const untilIso = bulkUntil ? new Date(`${bulkUntil}T23:59:59`).toISOString() : null;
+    try {
+      const targets = rows.filter((r) => selectedIds.has(r.id));
+      await Promise.all(
+        targets.map((p) =>
+          updateProductSections(p.id, {
+            isPopular: bulkSection === 'isPopular' ? true : p.isPopular,
+            isDeal: bulkSection === 'isDeal' ? true : p.isDeal,
+            isOfferOfDay: bulkSection === 'isOfferOfDay' ? true : p.isOfferOfDay,
+            ...(bulkSection === 'isPopular' ? { popularUntil: untilIso } : {}),
+            ...(bulkSection === 'isDeal' ? { dealUntil: untilIso } : {}),
+            ...(bulkSection === 'isOfferOfDay' ? { offerOfDayUntil: untilIso } : {}),
+          }, accessToken),
+        ),
+      );
+      setSelectedIds(new Set());
+      setBulkUntil('');
+      reload();
+    } catch (err) {
+      setBulkError(err instanceof Error ? err.message : 'Could not update those products.');
+    } finally {
+      setBulkApplying(false);
+    }
+  }
+
   function open(id: string) {
     const product = rows.find((r) => r.id === id);
     if (!product) return;
@@ -551,6 +623,28 @@ export default function ProductsPage() {
 
   const columns: Column<Product>[] = [
     {
+      key: 'select',
+      header: (
+        <input
+          type="checkbox"
+          aria-label="Select all visible products"
+          checked={filtered.length > 0 && filtered.every((p) => selectedIds.has(p.id))}
+          onChange={(e) =>
+            setSelectedIds(e.target.checked ? new Set(filtered.map((p) => p.id)) : new Set())
+          }
+        />
+      ),
+      render: (row) => (
+        <input
+          type="checkbox"
+          aria-label={`Select ${row.name}`}
+          checked={selectedIds.has(row.id)}
+          onChange={() => toggleSelected(row.id)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ),
+    },
+    {
       key: 'name',
       header: 'Product',
       render: (row) => (
@@ -590,6 +684,26 @@ export default function ProductsPage() {
           <p className="text-slate-700">{row.categoryTitle || '—'}</p>
           {row.subcategoryLabel && (
             <p className="text-xs text-slate-400">{row.subcategoryLabel}</p>
+          )}
+          {SECTION_TAGS.some((t) => row[t.key]) && (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {SECTION_TAGS.filter((t) => row[t.key]).map((t) => {
+                const until = row[t.untilKey];
+                const expired = isPast(until);
+                return (
+                  <span
+                    key={t.key}
+                    title={until ? `Until ${formatDate(until)}` : 'No expiry'}
+                    className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                      expired ? 'bg-slate-100 text-slate-400' : t.tone
+                    }`}
+                  >
+                    {t.label}
+                    {expired ? ' · expired' : ''}
+                  </span>
+                );
+              })}
+            </div>
           )}
         </div>
       ),
@@ -1022,26 +1136,28 @@ export default function ProductsPage() {
               another image swaps it into that spot.
             </p>
           </EditField>
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={draft.isPrescriptionOnly}
-              onChange={(e) =>
-                setDraft({ ...draft, isPrescriptionOnly: e.target.checked })
-              }
-            />
-            Prescription required
-          </label>
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={draft.status === 'active'}
-              onChange={(e) =>
-                setDraft({ ...draft, status: e.target.checked ? 'active' : 'inactive' })
-              }
-            />
-            Active (visible in the app straight away)
-          </label>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={draft.isPrescriptionOnly}
+                onChange={(e) =>
+                  setDraft({ ...draft, isPrescriptionOnly: e.target.checked })
+                }
+              />
+              Prescription required
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={draft.status === 'active'}
+                onChange={(e) =>
+                  setDraft({ ...draft, status: e.target.checked ? 'active' : 'inactive' })
+                }
+              />
+              Active (visible in the app straight away)
+            </label>
+          </div>
           </div>
 
           <div className={addFormTab === 'additional' ? 'space-y-4' : 'hidden'}>
@@ -1330,6 +1446,53 @@ export default function ProductsPage() {
             </div>
           </div>
         )}
+        {canManage && selectedIds.size > 0 && (
+          <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-brand-200 bg-brand-50/60 p-3">
+            <span className="text-sm font-medium text-slate-700">
+              {selectedIds.size} selected
+            </span>
+            <select
+              value={bulkSection}
+              onChange={(e) => setBulkSection(e.target.value as typeof bulkSection)}
+              className={inputClass + ' w-auto'}
+            >
+              {SECTION_TABS.filter((t) => t.key !== 'all').map((t) => (
+                <option key={t.key} value={t.key}>
+                  Add to “{t.label}”
+                </option>
+              ))}
+            </select>
+            <label className="flex items-center gap-1.5 text-xs text-slate-500">
+              Expires
+              <input
+                type="date"
+                value={bulkUntil}
+                onChange={(e) => setBulkUntil(e.target.value)}
+                className={inputClass + ' w-auto'}
+              />
+            </label>
+            {bulkUntil && (
+              <button
+                type="button"
+                className="text-xs font-medium text-slate-500 underline"
+                onClick={() => setBulkUntil('')}
+              >
+                No expiry
+              </button>
+            )}
+            <Button size="sm" disabled={bulkApplying} onClick={applyBulkSection}>
+              {bulkApplying ? 'Applying…' : 'Apply'}
+            </Button>
+            <button
+              type="button"
+              className="text-xs font-medium text-slate-500"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Clear selection
+            </button>
+            {bulkError && <p className="w-full text-xs text-rose-600">{bulkError}</p>}
+          </div>
+        )}
         <DataTable
           columns={columns}
           rows={filtered}
@@ -1444,39 +1607,69 @@ export default function ProductsPage() {
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Home feed rows
               </p>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {(
                   [
-                    ['isPopular', 'Popular Items'],
-                    ['isDeal', 'Deals You Love'],
-                    ['isOfferOfDay', 'Offer of the Day'],
+                    ['isPopular', 'popularUntil', 'Popular Items'],
+                    ['isDeal', 'dealUntil', 'Deals You Love'],
+                    ['isOfferOfDay', 'offerOfDayUntil', 'Offer of the Day'],
                   ] as const
-                ).map(([key, label]) => (
-                  <label
-                    key={key}
-                    className="flex items-center gap-2 text-sm text-slate-700"
-                  >
-                    <input
-                      type="checkbox"
-                      disabled={saving || !canManage}
-                      checked={selected[key]}
-                      onChange={async (e) => {
-                        setSaving(true);
-                        try {
-                          await updateProductSections(selected.id, {
-                            isPopular: selected.isPopular,
-                            isDeal: selected.isDeal,
-                            isOfferOfDay: selected.isOfferOfDay,
-                            [key]: e.target.checked,
-                          }, accessToken);
-                          reload();
-                        } finally {
-                          setSaving(false);
-                        }
-                      }}
-                    />
-                    {label}
-                  </label>
+                ).map(([key, untilKey, label]) => (
+                  <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <label className="flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        disabled={saving || !canManage}
+                        checked={selected[key]}
+                        onChange={async (e) => {
+                          setSaving(true);
+                          try {
+                            await updateProductSections(selected.id, {
+                              isPopular: selected.isPopular,
+                              isDeal: selected.isDeal,
+                              isOfferOfDay: selected.isOfferOfDay,
+                              [key]: e.target.checked,
+                            }, accessToken);
+                            reload();
+                          } finally {
+                            setSaving(false);
+                          }
+                        }}
+                      />
+                      {label}
+                    </label>
+                    {selected[key] && (
+                      <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                        Expires
+                        <input
+                          type="date"
+                          disabled={saving || !canManage}
+                          value={selected[untilKey] ? selected[untilKey]!.slice(0, 10) : ''}
+                          onChange={async (e) => {
+                            setSaving(true);
+                            try {
+                              const until = e.target.value
+                                ? new Date(`${e.target.value}T23:59:59`).toISOString()
+                                : null;
+                              await updateProductSections(selected.id, {
+                                isPopular: selected.isPopular,
+                                isDeal: selected.isDeal,
+                                isOfferOfDay: selected.isOfferOfDay,
+                                [untilKey]: until,
+                              }, accessToken);
+                              reload();
+                            } finally {
+                              setSaving(false);
+                            }
+                          }}
+                          className="rounded border border-slate-200 px-1.5 py-0.5"
+                        />
+                        {isPast(selected[untilKey]) && (
+                          <span className="font-medium text-rose-500">expired</span>
+                        )}
+                      </label>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

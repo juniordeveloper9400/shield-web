@@ -322,6 +322,11 @@ export interface Product {
   isPopular: boolean;
   isDeal: boolean;
   isOfferOfDay: boolean;
+  /** When set, the matching flag above stops counting past this moment —
+   *  null means "no expiry". Only meaningful while its own flag is true. */
+  popularUntil: string | null;
+  dealUntil: string | null;
+  offerOfDayUntil: string | null;
   addedAt: string;
 }
 

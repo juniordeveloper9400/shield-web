@@ -34,6 +34,9 @@ interface ProductApiRow {
   isPopular: boolean;
   isDeal: boolean;
   isOfferOfDay: boolean;
+  popularUntil: string | null;
+  dealUntil: string | null;
+  offerOfDayUntil: string | null;
   createdAt: string;
 }
 
@@ -58,6 +61,9 @@ function toProduct(r: ProductApiRow): Product {
     isPopular: r.isPopular,
     isDeal: r.isDeal,
     isOfferOfDay: r.isOfferOfDay,
+    popularUntil: r.popularUntil,
+    dealUntil: r.dealUntil,
+    offerOfDayUntil: r.offerOfDayUntil,
     addedAt: r.createdAt,
   };
 }
@@ -187,10 +193,23 @@ export async function updateProductFull(id: string, p: NewProduct, token: string
  * Sets which home-feed rows a product appears in — "Popular Items",
  * "Deals You Love", "Offer of the Day". The app picks the change up on its
  * next catalogue load.
+ *
+ * `*Until` is only meaningful while its own flag is true — pass an ISO
+ * datetime to expire that row automatically, `null` for "no expiry", or
+ * leave it out to keep whatever expiry is already on record. Turning a
+ * flag off always clears its own expiry server-side, so turning it back on
+ * later starts fresh unless a new one is given.
  */
 export async function updateProductSections(
   id: string,
-  sections: { isPopular: boolean; isDeal: boolean; isOfferOfDay: boolean },
+  sections: {
+    isPopular: boolean;
+    isDeal: boolean;
+    isOfferOfDay: boolean;
+    popularUntil?: string | null;
+    dealUntil?: string | null;
+    offerOfDayUntil?: string | null;
+  },
   token: string | null,
 ): Promise<void> {
   await api.patch(`/v1/staff/catalogue/products/${id}/sections`, sections, token);
