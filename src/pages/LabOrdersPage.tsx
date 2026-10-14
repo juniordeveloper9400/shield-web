@@ -148,6 +148,15 @@ export default function LabOrdersPage() {
             ),
           },
           { key: 'package', header: 'Package', render: (row) => row.packageName },
+          {
+            key: 'fulfillment',
+            header: 'Service',
+            render: (row) => (
+              <Badge tone={row.fulfillmentType === 'store_visit' ? 'violet' : 'blue'}>
+                {row.fulfillmentType === 'store_visit' ? 'Store Visit' : 'Home Collection'}
+              </Badge>
+            ),
+          },
         ] as Column<LabBooking>[])),
     ...(branchBound
       ? []

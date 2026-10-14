@@ -513,6 +513,10 @@ function BookingWindow({
               ),
             })),
             { label: 'Package', value: booking.packageName },
+            {
+              label: 'Service',
+              value: booking.fulfillmentType === 'store_visit' ? 'Store Visit' : 'Home Collection',
+            },
             { label: 'Branch', value: booking.storeName || '—' },
             {
               label: `Patients (${booking.patientsCount})`,
@@ -532,12 +536,16 @@ function BookingWindow({
                   </ul>
                 ),
             },
-            {
-              label: 'Collection address',
-              value: booking.address || (
-                <span className="font-normal text-slate-400">No address on this booking</span>
-              ),
-            },
+            ...(booking.fulfillmentType === 'store_visit'
+              ? []
+              : [
+                  {
+                    label: 'Collection address',
+                    value: booking.address || (
+                      <span className="font-normal text-slate-400">No address on this booking</span>
+                    ),
+                  },
+                ]),
             { label: 'Unit price', value: formatCurrency(booking.unitPrice) },
             { label: 'Total', value: formatCurrency(booking.totalPrice) },
             { label: 'Booked', value: formatDateTime(booking.createdAt) },

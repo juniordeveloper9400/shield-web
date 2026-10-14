@@ -4,6 +4,7 @@ import type {
   LabBooking,
   LabBookingPatient,
   LabBookingStatus,
+  LabFulfillmentType,
   LabReportPage,
   PaymentStatus,
 } from '@/types';
@@ -21,6 +22,7 @@ interface LabBookingApiRow {
   storeName: string | null;
   patientsCount: number;
   patients: { name: string; age: number | null }[];
+  fulfillmentType: string;
   address: string;
   addressPhone: string | null;
   unitPrice: string | number;
@@ -50,6 +52,7 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
     storeName: r.storeName ?? '',
     patientsCount: r.patientsCount,
     patients: r.patients as LabBookingPatient[],
+    fulfillmentType: fromEnum<LabFulfillmentType>(r.fulfillmentType),
     address: r.address,
     addressPhone: r.addressPhone ?? '',
     unitPrice: Number(r.unitPrice),

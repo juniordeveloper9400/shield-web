@@ -784,6 +784,10 @@ export type LabBookingStatus =
   | 'report_ready'
   | 'cancelled';
 
+/** How the member's sample reaches the lab — `app.lab_booking.fulfillment_type`
+ *  (migration 0094). */
+export type LabFulfillmentType = 'home_collection' | 'store_visit';
+
 /** Someone a lab booking is for — one row of `app.lab_booking_patient`. */
 export interface LabBookingPatient {
   name: string;
@@ -814,6 +818,9 @@ export interface LabBooking {
   patientsCount: number;
   /** Who the tests are for (a saved patient's name, or a typed one). */
   patients: LabBookingPatient[];
+  /** How the sample reaches the lab — only `home_collection` ever has an
+   *  [address]/[addressPhone]; a `store_visit` has neither. */
+  fulfillmentType: LabFulfillmentType;
   /** The collection address on one line, or '' when the booking has none. */
   address: string;
   /** Contact number saved on that address, or ''. */
