@@ -4,6 +4,7 @@ import {
   MAX_REPORT_PAGES,
   canAttachReport,
   canBillBooking,
+  canEditBookingDetails,
   canEditNote,
   canRemoveReportPage,
   canReschedule,
@@ -59,6 +60,12 @@ test('rescheduling stops once a report is ready or the booking is cancelled', ()
 test('the note can be edited until the booking is cancelled', () => {
   assert.equal(canEditNote('report_ready'), true);
   assert.equal(canEditNote('cancelled'), false);
+});
+
+test('branch/address/patients can be edited until the booking is cancelled', () => {
+  assert.equal(canEditBookingDetails('requested'), true);
+  assert.equal(canEditBookingDetails('report_ready'), true);
+  assert.equal(canEditBookingDetails('cancelled'), false);
 });
 
 test('pages can be attached only from sample collection onward', () => {

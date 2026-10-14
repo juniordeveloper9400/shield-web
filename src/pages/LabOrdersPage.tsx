@@ -147,7 +147,7 @@ export default function LabOrdersPage() {
               </div>
             ),
           },
-          { key: 'package', header: 'Package', render: (row) => row.packageName },
+          { key: 'package', header: 'Test', render: (row) => row.packageName },
           {
             key: 'fulfillment',
             header: 'Service',

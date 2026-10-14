@@ -25,6 +25,8 @@ interface LabBookingApiRow {
   fulfillmentType: string;
   address: string;
   addressPhone: string | null;
+  assignedStaffId: number | null;
+  assignedStaffName: string | null;
   unitPrice: string | number;
   totalPrice: string | number;
   status: string;
@@ -55,6 +57,8 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
     fulfillmentType: fromEnum<LabFulfillmentType>(r.fulfillmentType),
     address: r.address,
     addressPhone: r.addressPhone ?? '',
+    assignedStaffId: r.assignedStaffId == null ? '' : String(r.assignedStaffId),
+    assignedStaffName: r.assignedStaffName ?? '',
     unitPrice: Number(r.unitPrice),
     totalPrice: Number(r.totalPrice),
     status: fromEnum<LabBookingStatus>(r.status),
@@ -148,15 +152,64 @@ export async function setLabBookingStatus(
 
 /**
  * The lab's edit of a booking: when it is scheduled for and the note shown to
- * the member. A blank date clears the schedule. Cancelled bookings, and
- * dates on a finished (Report ready) one, are left alone server-side.
+ * the member, plus (since migration 0095) its branch, collection address and
+ * patients. A blank date clears the schedule. Cancelled bookings, and dates
+ * on a finished (Report ready) one, are left alone server-side.
+ *
+ * `storeId`/`address`/`patients` are each omitted when unchanged — the
+ * server leaves whatever's already on record alone rather than clearing it.
+ * Editing patients recomputes the booking's total server-side from the new
+ * headcount (unit price × count) — never a number typed here.
  */
 export async function updateLabBookingDetails(
   id: string,
-  input: { scheduledFor: string | null; note: string },
+  input: {
+    scheduledFor: string | null;
+    note: string;
+    storeId?: number;
+    address?: string;
+    patients?: { patientId?: number; name?: string; age?: number }[];
+  },
   token: string | null,
 ): Promise<void> {
   await api.patch(`/v1/staff/lab-bookings/${id}/details`, input, token);
+}
+
+/** A LAB_TECHNICIAN-role staff account — who a home-collection booking's
+ *  sample can be assigned to. Same shape as `deliveries.ts`'s DeliveryBoy. */
+export interface LabStaff {
+  id: string;
+  name: string;
+  storeCode: string;
+}
+
+interface LabStaffApiRow {
+  id: number;
+  name: string;
+  storeCode: string | null;
+}
+
+/** Lab staff at one branch (or every branch when [storeCode] is omitted —
+ *  a Super Admin/Admin/Lab Admin's assignment picker, which isn't store-
+ *  bound). `GET /v1/staff/lab-staff`. */
+export async function listLabStaff(storeCode: string | undefined, token: string | null): Promise<LabStaff[]> {
+  const path = storeCode ? `/v1/staff/lab-staff?storeCode=${encodeURIComponent(storeCode)}` : '/v1/staff/lab-staff';
+  const rows = await api.get<LabStaffApiRow[]>(path, token);
+  return rows.map((r) => ({ id: String(r.id), name: r.name, storeCode: r.storeCode ?? '' }));
+}
+
+/**
+ * Assigns (or clears, passing null) who collects a home-collection booking's
+ * sample. The server refuses a LAB_TECHNICIAN caller handing a booking to
+ * anyone but themselves — see `BookingService.assignLabStaff`'s own doc. A
+ * home-collection booking cannot be confirmed until this is set.
+ */
+export async function assignLabStaff(id: string, staffId: string | null, token: string | null): Promise<void> {
+  await api.patch(
+    `/v1/staff/lab-bookings/${id}/staff`,
+    { staffId: staffId === null ? null : Number(staffId) },
+    token,
+  );
 }
 
 /** The pages of one booking's report, in order. Heavy — call it per booking. */

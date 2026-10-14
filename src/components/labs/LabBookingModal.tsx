@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -19,6 +19,7 @@ import {
   MAX_REPORT_PAGES,
   canAttachReport,
   canBillBooking,
+  canEditBookingDetails,
   canEditNote,
   canRemoveReportPage,
   canReschedule,
@@ -33,14 +34,17 @@ import { useAuth } from '@/context/AuthContext';
 import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import {
   addLabReportPages,
+  assignLabStaff,
   collectLabBillWithWallet,
   getWalletBalanceForLabBooking,
   listLabReportPages,
+  listLabStaff,
   removeLabReportPage,
   sendLabBookingBill,
   setLabBookingStatus,
   updateLabBookingDetails,
 } from '@/api/labBookings';
+import { listStores } from '@/api/stores';
 import type { LabBooking, LabBookingStatus, LabReportPage } from '@/types';
 
 const STATUS_LABEL: Record<LabBookingStatus, string> = {
@@ -117,8 +121,53 @@ function BookingWindow({
   onChanged: () => void;
   autoCollect: boolean;
 }) {
+  const { accessToken } = useAuth();
+  const navigate = useNavigate();
   const [schedule, setSchedule] = useState(toLocalInput(booking.scheduledFor));
   const [note, setNote] = useState(booking.note);
+  // ---- Editable branch / collection address / patients (migration 0095) —
+  // bundled into the same "Booking details" save as schedule/note below.
+  const [storeCode, setStoreCode] = useState(booking.storeCode);
+  const [address, setAddress] = useState(booking.address);
+  const [patients, setPatients] = useState(
+    booking.patients.map((p) => ({ name: p.name, age: p.age == null ? '' : String(p.age) })),
+  );
+  const [patientsError, setPatientsError] = useState<string | null>(null);
+  const stores = useAsync(() => listStores(accessToken), [accessToken]);
+  // Every branch still open for lab collection, plus the booking's own
+  // current branch even if it's since been switched off — so the dropdown
+  // never silently drops the value already on the booking.
+  const labStores = useMemo(() => {
+    const all = stores.data ?? [];
+    const eligible = all.filter((s) => s.offersLabCollection && s.isActive);
+    if (eligible.some((s) => s.code === booking.storeCode)) return eligible;
+    const current = all.find((s) => s.code === booking.storeCode);
+    return current ? [current, ...eligible] : eligible;
+  }, [stores.data, booking.storeCode]);
+
+  // ---- Assigned staff (migration 0095) — its own immediate-save control,
+  // not bundled into "Save changes": the same pattern DeliveriesPage's
+  // delivery-boy dropdown uses, since it's one field with its own endpoint
+  // rather than part of the batched details write.
+  const homeCollection = booking.fulfillmentType === 'home_collection';
+  const labStaff = useAsync(
+    () => (homeCollection ? listLabStaff(booking.storeCode || undefined, accessToken) : Promise.resolve([])),
+    [homeCollection, booking.storeCode, accessToken],
+  );
+  const [staffBusy, setStaffBusy] = useState(false);
+  const [staffError, setStaffError] = useState<string | null>(null);
+  async function onAssignStaff(staffId: string) {
+    setStaffBusy(true);
+    setStaffError(null);
+    try {
+      await assignLabStaff(booking.id, staffId || null, accessToken);
+      onChanged();
+    } catch (err) {
+      setStaffError(dbErrorMessage(err));
+    } finally {
+      setStaffBusy(false);
+    }
+  }
   const [pages, setPages] = useState<LabReportPage[]>([]);
   const [pagesLoading, setPagesLoading] = useState(booking.reportPages > 0);
   const [busy, setBusy] = useState<'status' | 'details' | 'upload' | 'remove' | null>(null);
@@ -126,8 +175,6 @@ function BookingWindow({
   const { ask, dialog: confirmDialog } = useConfirmDialog();
   const [preview, setPreview] = useState<LabReportPage | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
-  const { accessToken } = useAuth();
-  const navigate = useNavigate();
 
   const status = booking.status;
   const closed = status === 'cancelled';
@@ -354,11 +401,38 @@ function BookingWindow({
 
   const scheduleChanged = schedule !== toLocalInput(booking.scheduledFor);
   const noteChanged = note.trim() !== booking.note;
+  const storeCodeChanged = storeCode !== booking.storeCode;
+  const addressChanged = homeCollection && address.trim() !== booking.address.trim();
+  const originalPatients = booking.patients.map((p) => ({
+    name: p.name,
+    age: p.age == null ? '' : String(p.age),
+  }));
+  const patientsChanged = JSON.stringify(patients) !== JSON.stringify(originalPatients);
+  const detailsEditable = canEditBookingDetails(status);
   const dirty =
-    (canReschedule(status) && scheduleChanged) || (canEditNote(status) && noteChanged);
+    (canReschedule(status) && scheduleChanged) ||
+    (canEditNote(status) && noteChanged) ||
+    (detailsEditable && (storeCodeChanged || addressChanged || patientsChanged));
 
   const next = NEXT[status];
   const blocker = nextStepBlocker(status, pages.length || booking.reportPages);
+  // Mirrors the backend's own STAFF_REQUIRED gate (BookingService.
+  // updateLabBookingStatus) — caught here too so the button is disabled with
+  // a clear reason instead of a confirm click bouncing off a 409.
+  const staffRequiredBlocker =
+    next === 'confirmed' && homeCollection && !booking.assignedStaffId
+      ? 'Assign a staff member before confirming this home-collection booking.'
+      : null;
+
+  function addPatientRow() {
+    setPatients((rows) => [...rows, { name: '', age: '' }]);
+  }
+  function removePatientRow(i: number) {
+    setPatients((rows) => rows.filter((_, idx) => idx !== i));
+  }
+  function patchPatientRow(i: number, patch: Partial<{ name: string; age: string }>) {
+    setPatients((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
+  }
 
   async function run<T>(kind: NonNullable<typeof busy>, action: () => Promise<T>) {
     setBusy(kind);
@@ -380,12 +454,26 @@ function BookingWindow({
   }
 
   function saveDetails() {
+    setPatientsError(null);
+    const cleanedPatients = patients
+      .map((p) => ({ name: p.name.trim(), age: p.age.trim() ? Number(p.age) : undefined }))
+      .filter((p) => p.name);
+    if (patientsChanged && cleanedPatients.length === 0) {
+      setPatientsError('At least one patient is required.');
+      return Promise.resolve(false);
+    }
+    const chosenStoreId = storeCodeChanged
+      ? labStores.find((s) => s.code === storeCode)?.id
+      : undefined;
     return run('details', () =>
       updateLabBookingDetails(booking.id, {
         scheduledFor: canReschedule(status)
           ? fromLocalInput(schedule)
           : booking.scheduledFor || null,
         note,
+        ...(chosenStoreId !== undefined ? { storeId: Number(chosenStoreId) } : {}),
+        ...(addressChanged ? { address } : {}),
+        ...(patientsChanged ? { patients: cleanedPatients } : {}),
       }, accessToken),
     );
   }
@@ -454,10 +542,11 @@ function BookingWindow({
             {next && (
               <Button
                 variant="primary"
-                disabled={busy !== null || blocker !== null || dirty}
+                disabled={busy !== null || blocker !== null || staffRequiredBlocker !== null || dirty}
                 title={
                   blocker ??
-                  (dirty ? 'Save your changes to the schedule / note first.' : undefined)
+                  staffRequiredBlocker ??
+                  (dirty ? 'Save your changes to the booking details first.' : undefined)
                 }
                 onClick={() => void changeStatus(next)}
               >
@@ -512,7 +601,7 @@ function BookingWindow({
                 </div>
               ),
             })),
-            { label: 'Package', value: booking.packageName },
+            { label: 'Test', value: booking.packageName },
             {
               label: 'Service',
               value: booking.fulfillmentType === 'store_visit' ? 'Store Visit' : 'Home Collection',
@@ -546,13 +635,46 @@ function BookingWindow({
                     ),
                   },
                 ]),
+            ...(homeCollection
+              ? [{ label: 'Assigned staff', value: booking.assignedStaffName || <span className="font-normal text-rose-500">Not assigned</span> }]
+              : []),
             { label: 'Unit price', value: formatCurrency(booking.unitPrice) },
             { label: 'Total', value: formatCurrency(booking.totalPrice) },
             { label: 'Booked', value: formatDateTime(booking.createdAt) },
           ]}
         />
 
-        {/* ---- Schedule & note ---- */}
+        {/* ---- Assigned staff (home collection only) — its own immediate
+            save, separate from the batched "Booking details" edits below;
+            see onAssignStaff's own doc. Mandatory before this booking can be
+            confirmed (staffRequiredBlocker above gates the Confirm button). */}
+        {homeCollection && (
+          <section className="mt-4 rounded-lg border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-800">Assigned staff</h3>
+            <p className="mt-0.5 text-xs text-slate-400">
+              Who collects this booking's sample. Required before it can be confirmed.
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <select
+                value={booking.assignedStaffId}
+                disabled={staffBusy || closed}
+                onChange={(e) => void onAssignStaff(e.target.value)}
+                className={`${inputClass} max-w-xs`}
+              >
+                <option value="">— Not assigned —</option>
+                {(labStaff.data ?? []).map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+              {staffBusy && <span className="text-xs text-slate-400">Saving…</span>}
+            </div>
+            {staffError && <p className="mt-2 text-xs text-rose-600">{staffError}</p>}
+          </section>
+        )}
+
+        {/* ---- Booking details: schedule, note, branch, patients, address ---- */}
         <section className="mt-5 rounded-lg border border-slate-200 p-4">
           <button
             type="button"
@@ -560,7 +682,7 @@ function BookingWindow({
             className="flex w-full items-center justify-between gap-3 text-left"
           >
             <div className="min-w-0">
-              <h3 className="text-sm font-semibold text-slate-800">Schedule &amp; note</h3>
+              <h3 className="text-sm font-semibold text-slate-800">Booking details</h3>
               {!scheduleOpen && (
                 <p className="mt-0.5 truncate text-xs text-slate-400">
                   {booking.scheduledFor ? formatDateTime(booking.scheduledFor) : 'Not scheduled'}
@@ -586,6 +708,24 @@ function BookingWindow({
                     className={`${inputClass} mt-1`}
                   />
                 </label>
+                <label className="block text-xs font-medium text-slate-600">
+                  Branch
+                  <select
+                    value={storeCode}
+                    disabled={!detailsEditable || busy !== null}
+                    onChange={(e) => setStoreCode(e.target.value)}
+                    className={`${inputClass} mt-1`}
+                  >
+                    {!labStores.some((s) => s.code === storeCode) && (
+                      <option value={storeCode}>{booking.storeName || storeCode || '—'}</option>
+                    )}
+                    {labStores.map((s) => (
+                      <option key={s.id} value={s.code}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
                   Note to the member
                   <textarea
@@ -598,13 +738,79 @@ function BookingWindow({
                     className={`${inputClass} mt-1`}
                   />
                 </label>
+                {homeCollection && (
+                  <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
+                    Collection address
+                    <textarea
+                      value={address}
+                      rows={2}
+                      maxLength={500}
+                      disabled={!detailsEditable || busy !== null}
+                      onChange={(e) => setAddress(e.target.value)}
+                      placeholder="No address on this booking"
+                      className={`${inputClass} mt-1`}
+                    />
+                  </label>
+                )}
               </div>
+
+              <div className="mt-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-slate-600">
+                    Patients ({patients.length})
+                  </span>
+                  {detailsEditable && (
+                    <button
+                      type="button"
+                      disabled={busy !== null}
+                      onClick={addPatientRow}
+                      className="text-xs font-medium text-brand-600"
+                    >
+                      + Add patient
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 space-y-2">
+                  {patients.map((p, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        value={p.name}
+                        placeholder="Name"
+                        disabled={!detailsEditable || busy !== null}
+                        onChange={(e) => patchPatientRow(i, { name: e.target.value })}
+                        className={`${inputClass} flex-1`}
+                      />
+                      <input
+                        value={p.age}
+                        placeholder="Age"
+                        inputMode="numeric"
+                        disabled={!detailsEditable || busy !== null}
+                        onChange={(e) => patchPatientRow(i, { age: e.target.value.replace(/\D/g, '') })}
+                        className={`${inputClass} w-20`}
+                      />
+                      {detailsEditable && patients.length > 1 && (
+                        <button
+                          type="button"
+                          disabled={busy !== null}
+                          onClick={() => removePatientRow(i)}
+                          title="Remove this patient"
+                          className="rounded-md border border-slate-200 p-1.5 text-rose-500 hover:bg-rose-50"
+                        >
+                          <Icon name="close" className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {patientsError && <p className="mt-2 text-xs text-rose-600">{patientsError}</p>}
+              </div>
+
               <div className="mt-3 flex items-center justify-between gap-3">
                 <p className="text-xs text-slate-400">
                   {closed
                     ? 'A cancelled booking can no longer be edited.'
                     : status === 'report_ready'
-                      ? 'The date is fixed once the report is ready; the note can still change.'
+                      ? 'The date is fixed once the report is ready; the rest can still change.'
                       : 'The member sees the date and note beside this booking in the app.'}
                 </p>
                 <Button

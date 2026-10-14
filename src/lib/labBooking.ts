@@ -68,6 +68,13 @@ export function canEditNote(status: LabStatus): boolean {
   return status !== 'cancelled';
 }
 
+/** Whether the branch, collection address and patients can still be edited —
+ *  same boundary as the note (a cancelled booking is frozen), separate
+ *  export since a future rule could diverge from it. */
+export function canEditBookingDetails(status: LabStatus): boolean {
+  return status !== 'cancelled';
+}
+
 /** Whether pages can be attached: from sample collection onward, never once cancelled. */
 export function canAttachReport(status: LabStatus): boolean {
   return status === 'sample_collected' || status === 'report_ready';

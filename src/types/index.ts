@@ -823,6 +823,11 @@ export interface LabBooking {
   fulfillmentType: LabFulfillmentType;
   /** The collection address on one line, or '' when the booking has none. */
   address: string;
+  /** Who collects a home-collection booking's sample — '' until assigned.
+   *  Mandatory before a home-collection booking can be confirmed (see
+   *  LabBookingModal's own Confirm button). */
+  assignedStaffId: string;
+  assignedStaffName: string;
   /** Contact number saved on that address, or ''. */
   addressPhone: string;
   unitPrice: number;
