@@ -74,7 +74,6 @@ const EMPTY_NEW: NewProduct = {
   code: '',
   price: 0,
   mrp: 0,
-  discountLabel: '',
   isPrescriptionOnly: false,
   stockQuantity: 0,
   status: 'active',
@@ -85,6 +84,15 @@ const EMPTY_NEW: NewProduct = {
   isOfferOfDay: false,
   detail: EMPTY_DETAIL,
 };
+
+/** Live preview of the discount badge the backend will compute and save —
+ *  mirrors CatalogueService.discountLabelFor so what the admin sees while
+ *  typing matches what members actually get. */
+function discountLabelFor(price: number, mrp: number): string | null {
+  if (mrp <= 0 || mrp <= price) return null;
+  const percent = Math.round(((mrp - price) / mrp) * 100);
+  return percent > 0 ? `${percent}% off` : null;
+}
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
@@ -296,7 +304,6 @@ export default function ProductsPage() {
       code: product.code,
       price: product.price,
       mrp: product.mrp,
-      discountLabel: product.discountLabel,
       isPrescriptionOnly: product.isPrescriptionOnly,
       stockQuantity: product.stockQuantity,
       status: product.status,
@@ -884,13 +891,10 @@ export default function ProductsPage() {
               />
             </EditField>
           </div>
-          <EditField label="Discount label (optional)">
-            <input
-              value={draft.discountLabel}
-              onChange={(e) => setDraft({ ...draft, discountLabel: e.target.value })}
-              className={inputClass}
-              placeholder="20% off"
-            />
+          <EditField label="Discount">
+            <p className="text-sm text-slate-600">
+              {discountLabelFor(draft.price, draft.mrp) ?? 'No discount — set an MRP above the Offer Price'}
+            </p>
           </EditField>
           <EditField label="Product images (optional)">
             <div className="flex flex-wrap items-start gap-3">

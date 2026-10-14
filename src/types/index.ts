@@ -279,7 +279,6 @@ export interface NewProduct {
   code: string;
   price: number;
   mrp: number;
-  discountLabel: string;
   isPrescriptionOnly: boolean;
   stockQuantity: number;
   status: ProductStatus;
