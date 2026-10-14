@@ -174,7 +174,7 @@ export async function setProductStatus(id: string, status: ProductStatus, token:
 
 export async function updateProduct(
   id: string,
-  patch: { price: number; stockQuantity: number },
+  patch: { price: number; stockQuantity: number; image?: string },
   token: string | null,
 ): Promise<void> {
   await api.patch(`/v1/staff/catalogue/products/${id}`, patch, token);

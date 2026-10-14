@@ -240,7 +240,9 @@ export default function ProductsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ price: '', stockQuantity: '' });
+  const [form, setForm] = useState({ price: '', stockQuantity: '', image: '' });
+  const [formImageBusy, setFormImageBusy] = useState(false);
+  const [formImageError, setFormImageError] = useState<string | null>(null);
   const { ask, dialog: confirmDialog } = useConfirmDialog();
 
   const [adding, setAdding] = useState(false);
@@ -577,9 +579,11 @@ export default function ProductsPage() {
     if (!product) return;
     setSelectedId(id);
     setEditing(false);
+    setFormImageError(null);
     setForm({
       price: String(product.price),
       stockQuantity: String(product.stockQuantity),
+      image: product.image,
     });
   }
 
@@ -606,6 +610,7 @@ export default function ProductsPage() {
           Number.isFinite(stockQuantity) && stockQuantity >= 0
             ? stockQuantity
             : selected.stockQuantity,
+        ...(form.image !== selected.image ? { image: form.image } : {}),
       }, accessToken);
       setEditing(false);
       reload();
@@ -1716,6 +1721,50 @@ export default function ProductsPage() {
 
         {selected && editing && (
           <div className="space-y-4">
+            <EditField label="Image">
+              <div className="flex items-center gap-3">
+                {form.image ? (
+                  <img
+                    src={form.image}
+                    alt=""
+                    className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
+                  />
+                ) : (
+                  <div className="grid h-16 w-16 place-items-center rounded-lg border border-dashed border-slate-300 text-slate-300">
+                    <Icon name="products" className="h-6 w-6" />
+                  </div>
+                )}
+                <label
+                  className={`inline-flex items-center gap-1.5 rounded-lg border border-dashed border-brand-400 bg-brand-50/50 px-3 py-2 text-xs font-medium text-brand-700 ${
+                    formImageBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-brand-50'
+                  }`}
+                >
+                  {formImageBusy ? 'Reading…' : form.image ? 'Change image' : 'Add image'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    disabled={formImageBusy}
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!file) return;
+                      setFormImageError(null);
+                      setFormImageBusy(true);
+                      try {
+                        const url = await fileToResizedDataUrl(file);
+                        setForm((f) => ({ ...f, image: url }));
+                      } catch (err) {
+                        setFormImageError(err instanceof Error ? err.message : 'Could not load the image.');
+                      } finally {
+                        setFormImageBusy(false);
+                      }
+                    }}
+                  />
+                </label>
+              </div>
+              {formImageError && <p className="mt-1.5 text-xs text-rose-600">{formImageError}</p>}
+            </EditField>
             <EditField label="Offer Price (₹)">
               <input
                 inputMode="numeric"
