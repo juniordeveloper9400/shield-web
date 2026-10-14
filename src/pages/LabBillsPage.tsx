@@ -36,7 +36,9 @@ export default function LabBillsPage() {
 
   const [search, setSearch] = useState('');
   const [store, setStore] = useState('all');
-  const [billFilter, setBillFilter] = useState('all');
+  // Defaults to Pending — the bills actually awaiting payment — rather
+  // than every bill at once; "All bills" is still one click away.
+  const [billFilter, setBillFilter] = useState('pending');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Whether the booking now open got here by "Convert to bill →" just this
   // moment (autoCollectId) rather than a plain "Manage" click — see its own

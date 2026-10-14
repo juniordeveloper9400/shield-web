@@ -40,7 +40,9 @@ export default function BillsPage() {
 
   const [search, setSearch] = useState('');
   const [store, setStore] = useState('all');
-  const [billFilter, setBillFilter] = useState('all');
+  // Defaults to Pending — the bills actually needing attention — rather
+  // than every bill at once; "All bills" is still one click away.
+  const [billFilter, setBillFilter] = useState('pending');
   const [savingId, setSavingId] = useState<string | null>(null);
   const { ask, dialog: confirmDialog } = useConfirmDialog();
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(
