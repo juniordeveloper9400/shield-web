@@ -138,9 +138,9 @@ export function BillEditorModal({
   const { data: prescriptionMedicines } = useAsync(
     () =>
       order.kind === 'prescription'
-        ? getPrescriptionMedicinesForOrder(order.id)
+        ? getPrescriptionMedicinesForOrder(order.id, accessToken)
         : Promise.resolve(null),
-    [order.id, order.kind],
+    [order.id, order.kind, accessToken],
   );
 
   // What collecting the total on screen right now would draw from the

@@ -1162,7 +1162,7 @@ export function PrescriptionReviewModal({
     setRotations((r) => ({ ...r, [image.id]: next }));
     setRotating(true);
     try {
-      await setPrescriptionImageRotation(image.id, next as 0 | 90 | 180 | 270);
+      await setPrescriptionImageRotation(image.id, next as 0 | 90 | 180 | 270, prescription!.id, accessToken);
     } finally {
       setRotating(false);
     }
@@ -1210,12 +1210,13 @@ export function PrescriptionReviewModal({
         );
         return false;
       }
-      await updatePrescriptionPatient(prescription.id, patientId);
-      await updatePrescriptionBranch(prescription.id, storeId || null);
+      await updatePrescriptionPatient(prescription.id, patientId, accessToken);
+      await updatePrescriptionBranch(prescription.id, storeId || null, accessToken);
       if (prescription.orderId && fulfillment !== prescription.fulfillmentType) {
         const changed = await updatePrescriptionFulfillment(
           prescription.id,
           fulfillment === 'store_pickup' ? 'STORE_PICKUP' : 'HOME_DELIVERY',
+          accessToken,
         );
         if (!changed) {
           setDetailsError(
@@ -1229,8 +1230,8 @@ export function PrescriptionReviewModal({
         doctor,
         durationToken,
         customDays,
-      });
-      await savePrescriptionIntake(prescription.id, draft);
+      }, accessToken);
+      await savePrescriptionIntake(prescription.id, draft, accessToken);
       return true;
     } catch (err) {
       setDetailsError(
@@ -1312,6 +1313,7 @@ export function PrescriptionReviewModal({
               fulfillment === 'store_pickup'
                 ? 'STORE_PICKUP'
                 : 'HOME_DELIVERY',
+              accessToken,
             );
           }
           // The Bills page lists only orders stamped as converted, so
@@ -1362,7 +1364,7 @@ export function PrescriptionReviewModal({
     if (!prescription) return;
     setSaving(true);
     try {
-      await setPrescriptionStatus(prescription.id, next);
+      await setPrescriptionStatus(prescription.id, next, accessToken);
       onSaved();
       onClose();
     } finally {
@@ -1381,7 +1383,7 @@ export function PrescriptionReviewModal({
 
   async function removePrescription() {
     if (!prescription) return;
-    await deletePrescription(prescription.id);
+    await deletePrescription(prescription.id, accessToken);
     onSaved();
     onClose();
   }

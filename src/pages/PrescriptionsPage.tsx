@@ -37,9 +37,12 @@ const FULFILLMENT_OPTIONS = [
 ];
 
 export default function PrescriptionsPage() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const navigate = useNavigate();
-  const { data, loading, error, reload } = useAsync(listPrescriptions, []);
+  const { data, loading, error, reload } = useAsync(
+    () => listPrescriptions(accessToken),
+    [accessToken],
+  );
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
