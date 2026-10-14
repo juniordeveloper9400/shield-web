@@ -94,6 +94,17 @@ function discountLabelFor(price: number, mrp: number): string | null {
   return percent > 0 ? `${percent}% off` : null;
 }
 
+/** The storage instructions admins pick from — a fixed set rather than free
+ *  text, so the detail page always shows a real, consistent instruction. */
+const STORAGE_OPTIONS = [
+  'Store below 25°C in a cool, dry place',
+  'Store below 30°C in a cool, dry place',
+  'Store in a cool, dry place away from direct sunlight',
+  'Store at room temperature, away from moisture',
+  'Refrigerate between 2°C and 8°C. Do not freeze',
+  'Keep out of reach and sight of children',
+];
+
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All statuses' },
   { value: 'active', label: 'Active' },
@@ -289,6 +300,16 @@ export default function ProductsPage() {
       const d = await getProductDetail(product.id, accessToken);
       if (d) {
         const { hasDetail: _hasDetail, extraImages: galleryExtras, ...rest } = d;
+        // "Highlights" and "Key benefits" used to be two separate fields;
+        // the form now edits one combined "Key uses" field. Fold any
+        // pre-existing benefits lines into it (deduped) so older products
+        // don't lose that copy, then stop writing to benefits going forward.
+        const mergedUses = [
+          ...rest.highlights.split('\n').map((l) => l.trim()).filter(Boolean),
+          ...rest.benefits.split('\n').map((l) => l.trim()).filter(Boolean),
+        ];
+        rest.highlights = Array.from(new Set(mergedUses)).join('\n');
+        rest.benefits = '';
         detail = rest;
         extraImages = galleryExtras;
       }
@@ -1033,23 +1054,6 @@ export default function ProductsPage() {
               name and pack. List fields take one item per line.
             </p>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <EditField label="Form / kind">
-                  <input
-                    value={draft.detail.form}
-                    onChange={(e) => setDetail('form', e.target.value)}
-                    className={inputClass}
-                    placeholder="Tablet, Syrup, Cream, Device…"
-                  />
-                </EditField>
-                <EditField label="Manufacturer">
-                  <input
-                    value={draft.detail.manufacturer}
-                    onChange={(e) => setDetail('manufacturer', e.target.value)}
-                    className={inputClass}
-                  />
-                </EditField>
-              </div>
               <EditField label="Description">
                 <textarea
                   value={draft.detail.description}
@@ -1068,15 +1072,21 @@ export default function ProductsPage() {
                   />
                 </EditField>
                 <EditField label="Storage">
-                  <textarea
+                  <select
                     value={draft.detail.storage}
                     onChange={(e) => setDetail('storage', e.target.value)}
-                    className={textareaClass}
-                    rows={2}
-                  />
+                    className={inputClass}
+                  >
+                    <option value="">Select storage instructions…</option>
+                    {STORAGE_OPTIONS.map((o) => (
+                      <option key={o} value={o}>
+                        {o}
+                      </option>
+                    ))}
+                  </select>
                 </EditField>
               </div>
-              <EditField label="Highlights (one per line)">
+              <EditField label="Key uses (one per line)">
                 <textarea
                   value={draft.detail.highlights}
                   onChange={(e) => setDetail('highlights', e.target.value)}
@@ -1084,15 +1094,7 @@ export default function ProductsPage() {
                   rows={3}
                 />
               </EditField>
-              <EditField label="Key benefits (one per line)">
-                <textarea
-                  value={draft.detail.benefits}
-                  onChange={(e) => setDetail('benefits', e.target.value)}
-                  className={textareaClass}
-                  rows={3}
-                />
-              </EditField>
-              <EditField label="Directions for use (one per line)">
+              <EditField label="How to use (one per line)">
                 <textarea
                   value={draft.detail.directions}
                   onChange={(e) => setDetail('directions', e.target.value)}
