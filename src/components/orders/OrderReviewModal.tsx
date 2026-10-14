@@ -230,7 +230,7 @@ export function OrderReviewModal({
         const contactSaved = await updateMemberContact(order.memberId, {
           name: memberName,
           phone: memberPhone,
-        });
+        }, accessToken);
         if (!contactSaved) {
           setError(
             `${memberPhone.trim()} is already used by a different account — pick a different number.`,

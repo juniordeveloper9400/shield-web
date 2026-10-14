@@ -32,14 +32,14 @@ const fieldCls =
 export default function AgentApprovalDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const canApprove = user ? canApproveAgents(user.role) : false;
 
   const { data: selected, loading, error, reload } = useAsync(
     () => getPendingAgent(id),
     [id],
   );
-  const agents = useAsync(listAgentOptions, []);
+  const agents = useAsync(() => listAgentOptions(accessToken), [accessToken]);
 
   const [level, setLevel] = useState<AgentLevel>('ward');
   const [parentId, setParentId] = useState('');

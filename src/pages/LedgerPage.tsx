@@ -111,8 +111,11 @@ export default function LedgerPage() {
   // so it falls back to every member/agent/investor instead).
   const selectedEntityCode = entityId === null ? undefined : entities.data?.find((e) => e.id === entityId)?.code;
   const people = useAsync(
-    () => (showPersonLedger ? listUsers(selectedEntityCode && selectedEntityCode !== 'HQ' ? selectedEntityCode : undefined) : Promise.resolve([])),
-    [showPersonLedger, selectedEntityCode],
+    () =>
+      showPersonLedger
+        ? listUsers(selectedEntityCode && selectedEntityCode !== 'HQ' ? selectedEntityCode : undefined, accessToken)
+        : Promise.resolve([]),
+    [showPersonLedger, selectedEntityCode, accessToken],
   );
 
   const personOptions = useMemo(() => {

@@ -23,12 +23,12 @@ const PERSONA_OPTIONS = [
 const PERSONA_TONE = { member: 'gray', agent: 'green', investor: 'violet' } as const;
 
 export default function UsersPage() {
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const storeAdmin = user?.role === 'pharmacy';
   const storeCode = storeAdmin ? user.storeCode ?? '' : undefined;
   const { data, loading, error } = useAsync(
-    () => user ? listUsers(storeCode) : Promise.resolve([]),
-    [user?.id, user?.role, storeCode],
+    () => user ? listUsers(storeCode, accessToken) : Promise.resolve([]),
+    [user?.id, user?.role, storeCode, accessToken],
   );
   const navigate = useNavigate();
   const rows = useMemo(() => scopeUsersToStore(data ?? [], user), [data, user]);

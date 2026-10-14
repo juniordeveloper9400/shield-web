@@ -1,7 +1,5 @@
-import { sql, query } from '@/lib/db';
 import { api } from '@/lib/api';
-import { fromEnum, iso, num, toEnum } from '@/lib/mappers';
-import { agentCodeForSlot, deriveParentAgentId, resyncGeoSlotAgent } from '@/api/geo';
+import { fromEnum, toEnum } from '@/lib/mappers';
 import type {
   AgentLevel,
   AgentOption,
@@ -12,231 +10,186 @@ import type {
   UserDetail,
 } from '@/types';
 
-type Row = Record<string, unknown>;
+/** A `GET /v1/staff/users[/:id]` row — several ids/numerics come back as
+ *  JSON numbers (bigint columns), not the string ids shieldweb's own
+ *  types use; mapped below. */
+interface AppUserApiRow {
+  id: number;
+  name: string;
+  phone: string;
+  email: string | null;
+  registered: boolean;
+  createdAt: string;
+  lastLoginAt: string | null;
+  homeStoreCode: string | null;
+  homeStoreName: string | null;
+  agentId: number | null;
+  agentCode: string | null;
+  agentLevel: string | null;
+  investorId: number | null;
+  investorCode: string | null;
+}
 
-/** `app.users` + home branch + persona row → the shape the console renders. */
-function toAppUser(r: Row): AppUser {
+function toAppUser(r: AppUserApiRow): AppUser {
   return {
     id: String(r.id),
-    name: String(r.name ?? '—'),
-    phone: String(r.phone ?? ''),
-    email: String(r.email ?? ''),
-    registered: r.registered === true,
-    homeStoreCode: String(r.home_store_code ?? ''),
-    homeStoreName: String(r.home_store_name ?? '—'),
-    createdAt: iso(r.created_at) ?? new Date(0).toISOString(),
-    lastLoginAt: iso(r.last_login_at) ?? '',
-    persona: r.agent_code ? 'agent' : r.investor_code ? 'investor' : 'member',
-    agentCode: String(r.agent_code ?? ''),
-    agentLevel: r.agent_level ? fromEnum<AgentLevel>(String(r.agent_level)) : '',
-    agentId: r.agent_id != null ? String(r.agent_id) : '',
-    investorCode: String(r.investor_code ?? ''),
-    investorId: r.investor_id != null ? String(r.investor_id) : '',
+    name: r.name,
+    phone: r.phone,
+    email: r.email ?? '',
+    registered: r.registered,
+    homeStoreCode: r.homeStoreCode ?? '',
+    homeStoreName: r.homeStoreName ?? '—',
+    createdAt: r.createdAt,
+    lastLoginAt: r.lastLoginAt ?? '',
+    persona: r.agentCode ? 'agent' : r.investorCode ? 'investor' : 'member',
+    agentCode: r.agentCode ?? '',
+    agentLevel: r.agentLevel ? fromEnum<AgentLevel>(r.agentLevel) : '',
+    agentId: r.agentId == null ? '' : String(r.agentId),
+    investorCode: r.investorCode ?? '',
+    investorId: r.investorId == null ? '' : String(r.investorId),
   };
 }
 
-const USER_COLUMNS = `
-    u.id, u.name, u.phone, u.email,
-    u.registration_completed_at IS NOT NULL AS registered,
-    u.created_at, u.last_login_at,
-    s.code AS home_store_code, s.name AS home_store_name,
-    a.id AS agent_id, a.code  AS agent_code,  a.level AS agent_level,
-    i.id AS investor_id, i.code  AS investor_code
-  FROM app.users u
-  LEFT JOIN app.shield_store s ON s.id = u.home_store_id
-  LEFT JOIN app.agent a        ON a.member_id = u.id
-  LEFT JOIN app.investor i     ON i.member_id = u.id
-`;
-
 /**
- * Every app member (`app.users`), newest first, tagged with the persona the
- * Super Admin has granted them — `member`, `agent` (an `app.agent` row) or
- * `investor` (an `app.investor` row).
+ * Every app member, newest first, tagged with the persona the Super Admin
+ * has granted them — `member`, `agent` or `investor`. Reads through
+ * backend/api's staff users routes now, not Neon directly.
  */
-export async function listUsers(storeCode?: string): Promise<AppUser[]> {
-  if (storeCode === '') return [];
-  const rows = await query<Row>(
-    `SELECT ${USER_COLUMNS}
-     WHERE u.deleted_at IS NULL
-       ${storeCode === undefined ? '' : 'AND s.code = $1'}
-     ORDER BY u.created_at DESC`,
-    storeCode === undefined ? [] : [storeCode],
-  );
+export async function listUsers(storeCode: string | undefined, token: string | null): Promise<AppUser[]> {
+  const query = storeCode === undefined ? '' : `?storeCode=${encodeURIComponent(storeCode)}`;
+  const rows = await api.get<AppUserApiRow[]>(`/v1/staff/users${query}`, token);
   return rows.map(toAppUser);
 }
 
 /** A single member by `app.users.id`, for the detail page. */
-export async function getUser(id: string): Promise<AppUser | null> {
-  const rows = await query<Row>(
-    `SELECT ${USER_COLUMNS} WHERE u.id = $1 AND u.deleted_at IS NULL LIMIT 1`,
-    [id],
-  );
-  return rows[0] ? toAppUser(rows[0]) : null;
+export async function getUser(id: string, token: string | null): Promise<AppUser | null> {
+  const row = await api.get<AppUserApiRow | null>(`/v1/staff/users/${id}`, token);
+  return row ? toAppUser(row) : null;
+}
+
+/** A `GET /v1/staff/users/:id/detail` row's patient/address shape — the
+ *  backend's own raw Drizzle rows, bigint ids as JSON numbers. */
+interface PatientApiRow {
+  id: number;
+  name: string;
+  relation: string;
+  gender: string;
+  dob: string;
+  phone: string;
+  address: string;
+  abhaId: string;
+  createdAt: string;
+}
+
+interface AddressApiRow {
+  id: number;
+  label: string;
+  house: string;
+  area: string;
+  landmark: string;
+  city: string | null;
+  state: string | null;
+  pincode: string;
+  phone: string;
+  isDefault: boolean;
+  patientName: string | null;
+  firstName: string;
+  lastName: string;
+  createdAt: string;
+}
+
+function toMemberPatient(r: PatientApiRow): MemberPatient {
+  return {
+    id: String(r.id),
+    name: r.name,
+    relation: fromEnum(r.relation),
+    gender: fromEnum(r.gender),
+    dob: r.dob,
+    phone: r.phone,
+    address: r.address,
+    abhaId: r.abhaId,
+    createdAt: r.createdAt,
+  };
 }
 
 /**
- * The full profile for one member: the registration fields `listUsers` leaves
- * out, plus every patient (`app.patient`) and delivery address
- * (`app.member_address`) they have added. Loaded when the user's modal opens.
+ * The full profile for one member: the registration fields `listUsers`
+ * leaves out, plus every patient and delivery address they have added.
+ * Loaded when the user's modal opens.
  */
-export async function getUserDetail(userId: string): Promise<UserDetail> {
-  const profileRows = (await query<Row>(
-    `
-    SELECT u.gender, u.dob, u.address, u.place, u.pincode, u.state,
-           u.reward_points, u.referral_code, u.registration_completed_at,
-           r.name  AS referred_by_name,
-           r.phone AS referred_by_phone,
-           ag.name AS referred_by_agent_name,
-           ag.code AS referred_by_agent_code
-    FROM app.users u
-    LEFT JOIN app.users r ON r.id = u.referred_by_member_id
-    -- A member referred by an agent's own code (SHD-…) has no
-    -- referred_by_member_id — that link lives here instead (migration 0026),
-    -- set by AgentCustomerRepository.linkCustomer at registration. The two
-    -- never both apply to one member, so this is only ever shown when the
-    -- member join above found nothing.
-    LEFT JOIN app.agent_customer ac ON ac.member_id = u.id
-    LEFT JOIN app.agent ag ON ag.id = ac.agent_id
-    WHERE u.id = $1
-    LIMIT 1
-    `,
-    [userId],
-  )) as Row[];
-  const p = profileRows[0] ?? {};
+export async function getUserDetail(userId: string, token: string | null): Promise<UserDetail> {
+  const r = await api.get<{
+    gender: string | null;
+    dob: string | null;
+    address: string | null;
+    place: string | null;
+    pincode: string | null;
+    state: string | null;
+    rewardPoints: number;
+    referralCode: string | null;
+    registrationCompletedAt: string | null;
+    referredByName: string | null;
+    referredByPhone: string | null;
+    referredByAgentName: string | null;
+    referredByAgentCode: string | null;
+    patients: PatientApiRow[];
+    addresses: AddressApiRow[];
+  }>(`/v1/staff/users/${userId}/detail`, token);
 
-  const patientRows = (await query<Row>(
-    `
-    SELECT id, name, relation, gender, dob, phone, address, abha_id, created_at
-    FROM app.patient
-    WHERE member_id = $1 AND deleted_at IS NULL
-    ORDER BY created_at
-    `,
-    [userId],
-  )) as Row[];
-
-  const addressRows = (await query<Row>(
-    `
-    SELECT ma.id, ma.label, ma.house, ma.area, ma.landmark,
-           ma.city, ma.state, ma.pincode, ma.phone, ma.is_default,
-           ma.first_name, ma.last_name, ma.created_at,
-           pt.name AS patient_name
-    FROM app.member_address ma
-    LEFT JOIN app.patient pt ON pt.id = ma.patient_id
-    WHERE ma.member_id = $1 AND ma.deleted_at IS NULL
-    ORDER BY ma.is_default DESC, ma.created_at
-    `,
-    [userId],
-  )) as Row[];
-
-  const patients: MemberPatient[] = patientRows.map((r) => ({
-    id: String(r.id),
-    name: String(r.name ?? '—'),
-    relation: fromEnum(String(r.relation ?? '')),
-    gender: fromEnum(String(r.gender ?? '')),
-    dob: iso(r.dob) ?? '',
-    phone: String(r.phone ?? ''),
-    address: String(r.address ?? ''),
-    abhaId: String(r.abha_id ?? ''),
-    createdAt: iso(r.created_at) ?? '',
-  }));
-
-  const addresses: MemberAddress[] = addressRows.map((r) => {
-    const receiver = [r.first_name, r.last_name]
-      .map((x) => String(x ?? '').trim())
-      .filter(Boolean)
-      .join(' ');
+  const addresses: MemberAddress[] = r.addresses.map((a) => {
+    const receiver = [a.firstName, a.lastName].map((x) => x.trim()).filter(Boolean).join(' ');
     return {
-      id: String(r.id),
-      label: fromEnum(String(r.label ?? 'home')),
+      id: String(a.id),
+      label: fromEnum(a.label),
       receiver,
-      house: String(r.house ?? ''),
-      area: String(r.area ?? ''),
-      landmark: String(r.landmark ?? ''),
-      city: String(r.city ?? ''),
-      state: String(r.state ?? ''),
-      pincode: String(r.pincode ?? ''),
-      phone: String(r.phone ?? ''),
-      isDefault: r.is_default === true,
-      patientName: String(r.patient_name ?? ''),
-      createdAt: iso(r.created_at) ?? '',
+      house: a.house,
+      area: a.area,
+      landmark: a.landmark,
+      city: a.city ?? '',
+      state: a.state ?? '',
+      pincode: a.pincode,
+      phone: a.phone,
+      isDefault: a.isDefault,
+      patientName: a.patientName ?? '',
+      createdAt: a.createdAt,
     };
   });
 
   return {
     id: userId,
-    gender: fromEnum(String(p.gender ?? '')),
-    dob: iso(p.dob) ?? '',
-    address: String(p.address ?? ''),
-    place: String(p.place ?? ''),
-    pincode: String(p.pincode ?? ''),
-    state: String(p.state ?? ''),
-    rewardPoints: num(p.reward_points),
-    referralCode: String(p.referral_code ?? ''),
-    referredByName: String(p.referred_by_name ?? ''),
-    referredByPhone: String(p.referred_by_phone ?? ''),
-    referredByAgentName: String(p.referred_by_agent_name ?? ''),
-    referredByAgentCode: String(p.referred_by_agent_code ?? ''),
-    registrationCompletedAt: iso(p.registration_completed_at) ?? '',
-    patients,
+    gender: r.gender ? fromEnum(r.gender) : '',
+    dob: r.dob ?? '',
+    address: r.address ?? '',
+    place: r.place ?? '',
+    pincode: r.pincode ?? '',
+    state: r.state ?? '',
+    rewardPoints: r.rewardPoints,
+    referralCode: r.referralCode ?? '',
+    referredByName: r.referredByName ?? '',
+    referredByPhone: r.referredByPhone ?? '',
+    referredByAgentName: r.referredByAgentName ?? '',
+    referredByAgentCode: r.referredByAgentCode ?? '',
+    registrationCompletedAt: r.registrationCompletedAt ?? '',
+    patients: r.patients.map(toMemberPatient),
     addresses,
   };
 }
 
 /**
- * Corrects a member's own name/phone directly on `app.users` — used from the
- * prescription review flow when what they typed at registration turns out
- * wrong. This is their account's actual name/phone, so the fix shows
- * everywhere on it (orders, wallet, other scripts), not just the one
- * prescription being reviewed. Returns `false`, changing nothing, when
- * [phone] already belongs to a different account.
+ * Corrects a member's own name/phone directly — used from the prescription
+ * review flow when what they typed at registration turns out wrong. This
+ * is their account's actual name/phone, so the fix shows everywhere on it
+ * (orders, wallet, other scripts), not just the one prescription being
+ * reviewed. Returns `false`, changing nothing, when [phone] already
+ * belongs to a different account.
  */
 export async function updateMemberContact(
   memberId: string,
   input: { name: string; phone: string },
+  token: string | null,
 ): Promise<boolean> {
-  const rows = await query<Row>(
-    `
-    UPDATE app.users u
-       SET name = $2, phone = $3, updated_at = now()
-     WHERE u.id = $1
-       AND NOT EXISTS (
-         SELECT 1 FROM app.users o WHERE o.phone = $3 AND o.id <> $1
-       )
-     RETURNING id
-    `,
-    [memberId, input.name.trim(), input.phone.trim()],
-  );
-  return rows.length > 0;
-}
-
-/**
- * Corrects a saved patient profile's name — `app.patient.name`. The same
- * patient row can be named on other prescriptions and saved addresses, so
- * this changes how they show up everywhere, not just on the prescription
- * being reviewed.
- */
-export async function updatePatientName(
-  patientId: string,
-  name: string,
-): Promise<void> {
-  await query(`UPDATE app.patient SET name = $2, updated_at = now() WHERE id = $1`, [
-    patientId,
-    name.trim(),
-  ]);
-}
-
-function toMemberPatient(r: Row): MemberPatient {
-  return {
-    id: String(r.id),
-    name: String(r.name ?? '—'),
-    relation: fromEnum(String(r.relation ?? '')),
-    gender: fromEnum(String(r.gender ?? '')),
-    dob: iso(r.dob) ?? '',
-    phone: String(r.phone ?? ''),
-    address: String(r.address ?? ''),
-    abhaId: String(r.abha_id ?? ''),
-    createdAt: iso(r.created_at) ?? '',
-  };
+  const result = await api.patch<{ changed: boolean }>(`/v1/staff/users/${memberId}/contact`, input, token);
+  return result.changed;
 }
 
 /**
@@ -245,16 +198,8 @@ function toMemberPatient(r: Row): MemberPatient {
  * Patient picker, so a reviewer chooses among the member's own saved
  * patients rather than retyping a name.
  */
-export async function listPatients(memberId: string): Promise<MemberPatient[]> {
-  const rows = await query<Row>(
-    `
-    SELECT id, name, relation, gender, dob, phone, address, abha_id, created_at
-    FROM app.patient
-    WHERE member_id = $1 AND deleted_at IS NULL
-    ORDER BY created_at
-    `,
-    [memberId],
-  );
+export async function listPatients(memberId: string, token: string | null): Promise<MemberPatient[]> {
+  const rows = await api.get<PatientApiRow[]>(`/v1/staff/users/${memberId}/patients`, token);
   return rows.map(toMemberPatient);
 }
 
@@ -267,22 +212,14 @@ export async function listPatients(memberId: string): Promise<MemberPatient[]> {
 export async function createPatient(
   memberId: string,
   input: { name: string; relation: string; dob: string; phone?: string },
+  token: string | null,
 ): Promise<MemberPatient> {
-  const rows = await query<Row>(
-    `
-    INSERT INTO app.patient (member_id, name, relation, dob, phone)
-    VALUES ($1, $2, $3::app.patient_relation, $4::date, $5)
-    RETURNING id, name, relation, gender, dob, phone, address, abha_id, created_at
-    `,
-    [
-      memberId,
-      input.name.trim(),
-      toEnum(input.relation),
-      input.dob,
-      (input.phone ?? '').trim(),
-    ],
+  const row = await api.post<PatientApiRow>(
+    `/v1/staff/users/${memberId}/patients`,
+    { name: input.name, relation: toEnum(input.relation), dob: input.dob, phone: input.phone ?? '' },
+    token,
   );
-  return toMemberPatient(rows[0]);
+  return toMemberPatient(row);
 }
 
 /**
@@ -290,48 +227,26 @@ export async function createPatient(
  * six-region caps. A pending or rejected registration is neither a valid
  * parent nor a slot that counts as taken.
  */
-export async function listAgentOptions(): Promise<AgentOption[]> {
-  const rows = (await sql`
-    SELECT id, code, name, level
-    FROM app.agent
-    WHERE approval_status = 'APPROVED'
-    ORDER BY level, code
-  `) as Row[];
+export async function listAgentOptions(token: string | null): Promise<AgentOption[]> {
+  const rows = await api.get<{ id: number; code: string; name: string | null; level: string }[]>(
+    '/v1/staff/agent-options',
+    token,
+  );
   return rows.map((r) => ({
     id: String(r.id),
-    code: String(r.code),
-    name: String(r.name ?? '—'),
-    level: fromEnum<AgentLevel>(String(r.level ?? 'ward')),
+    code: r.code,
+    name: r.name ?? '—',
+    level: fromEnum<AgentLevel>(r.level),
   }));
 }
 
 /**
- * Throws when [userId] has not finished registration — a member can only be
- * made an agent or investor once their `app.users` row has a
- * `registration_completed_at`. Called after a convert INSERT touches no rows,
- * so the caller can tell "not registered" apart from "already has a persona".
- */
-async function assertRegistered(userId: string): Promise<void> {
-  const rows = await query<Row>(
-    `SELECT registration_completed_at IS NOT NULL AS registered
-     FROM app.users WHERE id = $1 AND deleted_at IS NULL`,
-    [userId],
-  );
-  if (rows[0] && rows[0].registered === false) {
-    throw new Error(
-      'This member has not completed registration yet — they cannot be ' +
-        'converted to an agent or investor.',
-    );
-  }
-}
-
-/**
- * Makes the user an agent: inserts one `app.agent` row linked to their
- * `app.users` id, with an auto `SHD-AGT-00N` code. Only members who have
- * completed registration are eligible. Returns null (no-op) when they are
- * already an agent or investor; throws when registration is incomplete, when a
- * national agent already exists, when all six regions are taken, or when the
- * chosen slot is already held by another approved agent.
+ * Makes the user an agent: grants one `app.agent` row linked to their
+ * `app.users` id. Only members who have completed registration are
+ * eligible — the server throws 403 for an incomplete registration, 409
+ * when they already have a persona, when a national agent already exists,
+ * when all six regions are taken, or when the chosen slot is already held
+ * by another approved agent. Returns the new agent's code.
  */
 export async function convertToAgent(
   userId: string,
@@ -339,105 +254,28 @@ export async function convertToAgent(
     level: AgentLevel;
     parentId?: string | null;
     area?: string;
-    /** The `app.region` / `app.state` / … row this agent heads — required
-     *  for every level below national, same as the app's own registration
-     *  form. Without it the agent can never lock into a slot in the team
-     *  tree; see [Agent.areaId]'s doc on the Flutter side. */
     areaId?: string | null;
   },
-): Promise<string | null> {
-  const level = opts.level.toUpperCase();
-
-  // The top of the tree is fixed in shape: exactly one national agent, and at
-  // most six regions. Check before inserting so the admin gets a clear reason
-  // rather than a silent no-op.
-  if (level === 'NATIONAL' || level === 'REGION') {
-    const [tally] = await query<Row>(
-      `SELECT
-         count(*) FILTER (WHERE level = 'NATIONAL') AS national,
-         count(*) FILTER (WHERE level = 'REGION')   AS region
-       FROM app.agent`,
-    );
-    const nationalCount = Number(tally?.national ?? 0);
-    const regionCount = Number(tally?.region ?? 0);
-    if (level === 'NATIONAL' && nationalCount >= 1) {
-      throw new Error(
-        'There is already a national agent — only one is allowed.',
-      );
-    }
-    if (level === 'REGION' && regionCount >= 6) {
-      throw new Error(
-        'All six regions already have an agent — no more region agents can be added.',
-      );
-    }
-  }
-
-  // A named slot holds exactly one agent. Refuse a second one into a slot an
-  // approved agent already occupies — the same rule the app's own
-  // registration screen enforces before it ever reaches this console.
-  if (opts.areaId) {
-    const dup = await query<Row>(
-      `SELECT 1 FROM app.agent
-       WHERE area_id = $1 AND approval_status = 'APPROVED'
-       LIMIT 1`,
-      [opts.areaId],
-    );
-    if (dup.length > 0) {
-      throw new Error('That position is already held by another agent.');
-    }
-  }
-
-  // An admin who leaves "Parent agent" at "(top of tree)" almost always
-  // means "I haven't thought about it", not "this agent truly reports to
-  // nobody" -- derive the geographically correct one instead of taking that
-  // as a deliberate choice. An explicit pick always wins over this.
-  const parentId =
-    opts.parentId ?? (await deriveParentAgentId(level, opts.areaId));
-
-  // See the identical comment in agents.ts's approveAgent — the one
-  // combined geo-slot + member-id code for this agent, when both halves
-  // are available, with the SQL below falling back to the older sequential
-  // form otherwise.
-  const slotCode = (await agentCodeForSlot(level, opts.areaId, { userId })) ?? '';
-
-  const rows = await query<Row>(
-    `
-    INSERT INTO app.agent
-      (member_id, code, name, phone, level, parent_id, area, area_id, approval_status)
-    SELECT u.id,
-           CASE
-             WHEN $6::text <> '' AND NOT EXISTS (SELECT 1 FROM app.agent WHERE code = $6::text)
-               THEN $6::text
-             ELSE 'SHD-AGT-' || lpad((
-               COALESCE(
-                 (SELECT max(substring(code from '[0-9]+$')::int) FROM app.agent),
-                 0
-               ) + 1)::text, 3, '0')
-           END,
-           u.name, u.phone, $2::app.agent_level, $3, $4, $5::uuid, 'APPROVED'
-    FROM app.users u
-    WHERE u.id = $1
-      AND u.registration_completed_at IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM app.agent    WHERE member_id = u.id)
-      AND NOT EXISTS (SELECT 1 FROM app.investor WHERE member_id = u.id)
-    RETURNING code
-    `,
-    [userId, level, parentId, opts.area ?? '', opts.areaId ?? null, slotCode],
+  token: string | null,
+): Promise<string> {
+  const result = await api.post<{ code: string }>(
+    `/v1/staff/users/${userId}/convert-to-agent`,
+    {
+      level: opts.level.toUpperCase(),
+      parentId: opts.parentId ? Number(opts.parentId) : opts.parentId === null ? null : undefined,
+      area: opts.area ?? '',
+      areaId: opts.areaId ?? null,
+    },
+    token,
   );
-  if (rows.length > 0) {
-    // Mirror the new agent onto their geo slot's own row — see
-    // resyncGeoSlotAgent's doc.
-    await resyncGeoSlotAgent(level, opts.areaId ?? null);
-    return String(rows[0].code);
-  }
-  await assertRegistered(userId);
-  return null;
+  return result.code;
 }
 
 /**
- * Makes the user an investor: inserts one `app.investor` row. Only members who
- * have completed registration are eligible. Returns null (no-op) when they are
- * already an agent or investor; throws when registration is incomplete.
+ * Makes the user an investor: grants one `app.investor` row. Only members
+ * who have completed registration are eligible — the server throws 403
+ * for an incomplete registration, 409 when they already have a persona.
+ * Returns the new investor's code.
  */
 export async function convertToInvestor(
   userId: string,
@@ -448,52 +286,29 @@ export async function convertToInvestor(
     roiPercent: number;
     planType: InvestorPlanType;
   },
-): Promise<string | null> {
-  const rows = await query<Row>(
-    `
-    INSERT INTO app.investor
-      (member_id, code, name, phone, invested_store_id,
-       total_units, unit_price, invested_since, roi_percent, plan_type)
-    SELECT u.id,
-           'SHD-INV-' || lpad((
-             COALESCE(
-               (SELECT max(substring(code from '[0-9]+$')::int) FROM app.investor),
-               0
-             ) + 1)::text, 3, '0'),
-           u.name, u.phone,
-           (SELECT id FROM app.shield_store WHERE code = $2),
-           $3, $4, current_date, $5, $6::app.investor_plan_type
-    FROM app.users u
-    WHERE u.id = $1
-      AND u.registration_completed_at IS NOT NULL
-      AND NOT EXISTS (SELECT 1 FROM app.agent    WHERE member_id = u.id)
-      AND NOT EXISTS (SELECT 1 FROM app.investor WHERE member_id = u.id)
-    RETURNING code
-    `,
-    [
-      userId,
-      opts.storeCode ?? null,
-      opts.totalUnits,
-      opts.unitPrice,
-      opts.roiPercent,
-      opts.planType.toUpperCase(),
-    ],
+  token: string | null,
+): Promise<string> {
+  const result = await api.post<{ code: string }>(
+    `/v1/staff/users/${userId}/convert-to-investor`,
+    {
+      storeCode: opts.storeCode ?? null,
+      totalUnits: opts.totalUnits,
+      unitPrice: opts.unitPrice,
+      roiPercent: opts.roiPercent,
+      planType: opts.planType.toUpperCase(),
+    },
+    token,
   );
-  if (rows.length > 0) {
-    return String(rows[0].code);
-  }
-  await assertRegistered(userId);
-  return null;
+  return result.code;
 }
 
 /**
  * Drops the user back to a plain member — removes their `app.agent` /
- * `app.investor` row. `ON DELETE SET NULL` / `CASCADE` on the child tables
- * takes their customers, withdrawals and plan-change requests with it.
+ * `app.investor` row (whichever they hold). Their customers, withdrawals
+ * and plan-change requests go with it.
  */
-export async function revokePersona(userId: string): Promise<void> {
-  await query(`DELETE FROM app.agent    WHERE member_id = $1`, [userId]);
-  await query(`DELETE FROM app.investor WHERE member_id = $1`, [userId]);
+export async function revokePersona(userId: string, token: string | null): Promise<void> {
+  await api.delete(`/v1/staff/users/${userId}/persona`, token);
 }
 
 /**

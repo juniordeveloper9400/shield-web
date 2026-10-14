@@ -154,9 +154,9 @@ export default function UserDetailPage() {
   const navigate = useNavigate();
   const { accessToken } = useAuth();
 
-  const user = useAsync(() => getUser(id), [id]);
-  const detail = useAsync(() => getUserDetail(id), [id]);
-  const agents = useAsync(listAgentOptions, []);
+  const user = useAsync(() => getUser(id, accessToken), [id, accessToken]);
+  const detail = useAsync(() => getUserDetail(id, accessToken), [id, accessToken]);
+  const agents = useAsync(() => listAgentOptions(accessToken), [accessToken]);
   const plans = useAsync(() => listActivationsForMember(id, accessToken), [id, accessToken]);
   const transactions = useAsync(() => listMemberTransactions(id, accessToken), [id, accessToken]);
   const prescriptions = useAsync(() => listPrescriptionsForMember(id, accessToken), [id, accessToken]);
@@ -332,20 +332,16 @@ export default function UserDetailPage() {
     setSaving(true);
     setFormError(null);
     try {
-      const code = await convertToAgent(id, {
+      await convertToAgent(id, {
         level,
         parentId: parentId || null,
         area: areaName,
         areaId,
-      });
-      if (!code) {
-        setFormError('This user already has a persona.');
-        user.reload();
-        return;
-      }
+      }, accessToken);
       back();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not convert.');
+      user.reload();
     } finally {
       setSaving(false);
     }
@@ -361,21 +357,17 @@ export default function UserDetailPage() {
     setSaving(true);
     setFormError(null);
     try {
-      const code = await convertToInvestor(id, {
+      await convertToInvestor(id, {
         storeCode: storeCode.trim() || null,
         totalUnits: n,
         unitPrice: p,
         roiPercent: r,
         planType,
-      });
-      if (!code) {
-        setFormError('This user already has a persona.');
-        user.reload();
-        return;
-      }
+      }, accessToken);
       back();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : 'Could not convert.');
+      user.reload();
     } finally {
       setSaving(false);
     }
@@ -385,7 +377,7 @@ export default function UserDetailPage() {
     setSaving(true);
     setFormError(null);
     try {
-      await revokePersona(id);
+      await revokePersona(id, accessToken);
       setConfirmRevoke(false);
       // Stay on the page so the persona badge flips to "Member" in place.
       user.reload();

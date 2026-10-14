@@ -41,14 +41,14 @@ const fieldCls =
 export default function AgentDetailPage() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const canManage = user ? canApproveAgents(user.role) : false;
 
   const { data: agent, loading, error, reload } = useAsync(
     () => getApprovedAgent(id),
     [id],
   );
-  const agentOptions = useAsync(listAgentOptions, []);
+  const agentOptions = useAsync(() => listAgentOptions(accessToken), [accessToken]);
 
   const [editing, setEditing] = useState(false);
   const [level, setLevel] = useState<AgentLevel>('ward');

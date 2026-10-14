@@ -240,8 +240,8 @@ export function PrescriptionReviewModal({
   // member) is open. A patient added inline from the "+" below is merged in
   // locally so it shows selected right away, without waiting on a refetch.
   const { data: patientRows, reload: reloadPatients } = useAsync(
-    () => (prescription ? listPatients(prescription.memberId) : Promise.resolve([])),
-    [prescription?.memberId],
+    () => (prescription ? listPatients(prescription.memberId, accessToken) : Promise.resolve([])),
+    [prescription?.memberId, accessToken],
   );
 
   // The linked order's real, saved state — read back fresh rather than kept
@@ -297,7 +297,7 @@ export function PrescriptionReviewModal({
         relation: newPatientRelation,
         dob: newPatientDob,
         phone: newPatientPhone,
-      });
+      }, accessToken);
       setAddedPatients((p) => [...p, created]);
       setPatientId(created.id);
       reloadPatients();
@@ -1203,7 +1203,7 @@ export function PrescriptionReviewModal({
       const contactSaved = await updateMemberContact(prescription.memberId, {
         name: memberName,
         phone: memberPhone,
-      });
+      }, accessToken);
       if (!contactSaved) {
         setDetailsError(
           `${memberPhone.trim()} is already used by a different account — pick a different number.`,
