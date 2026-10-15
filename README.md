@@ -1,8 +1,8 @@
 # Sahakar 360 Admin
 
 Role-based operations console for the Sahakar 360 app — **React + TypeScript + Vite +
-Tailwind CSS**, backed by the **same Neon Postgres `app` schema the Flutter app
-writes to** and **Firebase Email/Password** auth.
+Tailwind CSS**, backed by **`backend/api`** (NestJS), which is the only thing that
+talks to the Neon Postgres `app` schema the Flutter app also writes to.
 
 It manages:
 
@@ -20,28 +20,32 @@ It manages:
 
 ## How data flows
 
-- **Reads/writes go straight to Neon over HTTPS** with
-  [`@neondatabase/serverless`](https://github.com/neondatabase/serverless) — see
-  [`src/lib/db.ts`](src/lib/db.ts). Each `src/api/*.ts` module is a thin query
-  layer; the pages call those and never touch SQL. There is **no mock data** —
-  a screen is empty because the `app` table is empty (the Flutter app has not
+- **Every read and write goes through `backend/api`** (`src/lib/api.ts`'s
+  `api.get/post/patch/delete`, bearer-token authenticated). Each `src/api/*.ts`
+  module is a thin HTTP client over one or more `/v1/staff/*` routes; the pages
+  call those and never touch SQL directly. There is **no mock data** — a
+  screen is empty because the `app` table is empty (the Flutter app has not
   written those rows yet). Reference data (stores, categories, lab packages,
   clinics, dietitians) is already seeded.
-- **The Neon connection string is bundled into the shipped JS.** That is only
-  acceptable because this console is staff-only and behind the login. A public
-  deployment must move the queries behind a server API.
+- **There is no direct browser-to-Neon path.** An earlier version of this
+  console queried Neon straight from the browser with
+  `@neondatabase/serverless`, which meant the database owner connection string
+  shipped inside the bundle — readable by anyone who opened devtools, before
+  any login. That module (`src/lib/db.ts`) has been removed along with its
+  dependency; every `src/api/*.ts` module now calls `backend/api` instead. If
+  you ever see a `VITE_DATABASE_URL` or an import of `@neondatabase/serverless`
+  reappear, treat it as a regression of this fix, not a valid pattern to copy.
 
 ## Auth & roles
 
-The current implementation signs in against the credential list in
-[`src/config/admins.ts`](src/config/admins.ts) and stores the login id in browser
-`localStorage`. It does not currently use Firebase Email/Password or resolve
-identity from `app.admin_user`, so treat this as an internal development-only
-console. Do not publish the credential list or use this flow for production.
-
-The intended data model remains that an admin identity has a role and, for a
-Pharmacy Admin, one branch scope. Any production implementation must enforce
-that identity, role, and branch authorization on a server.
+Staff sign in with email + password against `POST /v1/staff/auth/session`
+(`backend/api`), which checks a bcrypt hash and returns a short-lived access
+token plus a refresh token (`AuthContext.tsx`). The access token is kept in
+memory and attached as `Authorization: Bearer …` on every API call; the
+refresh token lives in `localStorage` under `shield-admin-refresh-token` and
+is exchanged for a fresh access token on expiry or reload. There is no
+client-side credential list — identity, role, and (for a Pharmacy Admin) branch
+scope are all resolved and enforced server-side from `app.admin_user`.
 
 | Role | Sees |
 | --- | --- |
@@ -55,25 +59,15 @@ filter is `scopeToStore()` in the same file.
 
 ## First-time setup
 
-1. **Database** — the admin table may still be useful to future server-side auth:
-   ```bash
-   # from the repo root, with .env holding DATABASE_URL
-   dart run backend/db/apply_migration.dart backend/db/migrations/0001_admin_user.sql --yes
-   ```
-  (idempotent — safe to re-run). The current client-side login does not read it.
+1. **Backend** — `backend/api` must be running (locally, or deployed) before
+   this console can do anything: it is the only thing with database access.
+   See its own README for setup; it needs at least one `SUPERADMIN` row in
+   `app.admin_user` to sign in with (`scripts/create-admin.mjs` in this repo
+   predates the backend split and is not a substitute for that).
 
-2. **Env** — create `.env.local` from `.env.example` when that template is
-  present in the checkout and fill in the Vite values required by the current
-  configuration. These values are bundled into the browser build.
-
-3. **Credentials** — the current login list is source-controlled in
-  `src/config/admins.ts`. Replace this implementation with server-side auth
-  before deploying outside a trusted internal environment.
-
-Do not use the old Firebase/database provisioning flow or `scripts/create-admin.mjs`
-as a substitute for the current login flow. Replace the client-side credentials
-with server-side authentication before deployment outside a trusted internal
-environment.
+2. **Env** — create `.env.local` from `.env.example` and point
+   `VITE_API_BASE_URL` at that backend. These values are bundled into the
+   browser build.
 
 ## Run it
 
@@ -93,11 +87,11 @@ hosted on its own). It's a static Vite SPA — `npm run build` emits `dist/`.
 - **SPA routing:** every route must fall back to `index.html`. `vercel.json`
   (Vercel) and `public/_redirects` (Netlify / Cloudflare Pages) in this repo do
   that already.
-- **Environment variables:** set `VITE_DATABASE_URL` and every `VITE_FIREBASE_*`
-  from `.env.example` in the host's dashboard. They are baked into the bundle at
-  build time, so a redeploy is needed after changing them.
-- After the domain is live, add it under Firebase console → Authentication →
-  Settings → **Authorized domains**, or sign-in is rejected.
+- **Environment variables:** set `VITE_API_BASE_URL` (and the `VITE_MSG91_*` /
+  `VITE_SENTRY_DSN` ones, if used) from `.env.example` in the host's
+  dashboard. They are baked into the bundle at build time, so a redeploy is
+  needed after changing them. There is no Neon credential to set here — the
+  backend holds that.
 
 ### Bill collection SMS verification
 
@@ -111,7 +105,8 @@ that hostname to Firebase. After authorization, reload and request a fresh code.
 OTP retries create a fresh reCAPTCHA instance. Resending discards the previous
 confirmation. Only successful six-digit verification invokes the existing bill
 collection API; retrying collection after a consumed code requires another SMS.
-The OTP gate remains client-side in the current direct-database architecture.
+The OTP gate itself is still client-side (Firebase's own verification), separate
+from `backend/api`, which the bill collection call still goes through.
 
 Run `npm run test:otp` with Node 22.18+ for OTP regression tests, then
 `npm run typecheck` and `npm run build`. Real SMS delivery and bill settlement
