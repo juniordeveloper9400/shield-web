@@ -11,8 +11,9 @@ import { Icon } from '@/components/ui/Icon';
 import { initials } from '@/lib/format';
 import { useAuth } from '@/context/AuthContext';
 import { useAsync } from '@/lib/useAsync';
-import { api, ApiError } from '@/lib/api';
+import { ApiError } from '@/lib/api';
 import { listStores } from '@/api/stores';
+import { createStaffAccount, listStaffAccounts, type StaffAccount } from '@/api/admins';
 import {
   MODULES,
   ROLE_LABELS,
@@ -43,35 +44,6 @@ const EMPTY_FORM = {
   storeId: '',
 };
 
-interface AdminRow {
-  id: string;
-  loginId: string;
-  name: string;
-  role: Role;
-  storeCode?: string;
-}
-
-interface StaffApiRow {
-  id: number;
-  loginId: string;
-  name: string;
-  role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS' | 'DELIVERY' | 'LAB_TECHNICIAN';
-  storeId: number | null;
-  storeCode: string | null;
-  isActive: boolean;
-}
-
-function toAdminRow(r: StaffApiRow): AdminRow {
-  const role = r.role.toLowerCase() as Role;
-  return {
-    id: String(r.id),
-    loginId: r.loginId,
-    name: r.name,
-    role,
-    storeCode: STORE_BOUND_ROLES.includes(role) && r.storeCode ? r.storeCode : undefined,
-  };
-}
-
 /**
  * Real staff accounts from backend/api (`GET /v1/staff/admins`) — replaces
  * the preset roster that used to live in `config/admins.ts`. Adding a login
@@ -82,11 +54,8 @@ function toAdminRow(r: StaffApiRow): AdminRow {
  */
 export default function AdminsPage() {
   const { accessToken } = useAuth();
-  const { data, loading, error, reload } = useAsync(
-    () => api.get<StaffApiRow[]>('/v1/staff/admins', accessToken),
-    [accessToken],
-  );
-  const rows = useMemo<AdminRow[]>(() => (data ?? []).map(toAdminRow), [data]);
+  const { data, loading, error, reload } = useAsync(() => listStaffAccounts(accessToken), [accessToken]);
+  const rows = data ?? [];
 
   const { data: storeRows } = useAsync(() => listStores(accessToken), [accessToken]);
   const storeOptions = useMemo(
@@ -121,17 +90,13 @@ export default function AdminsPage() {
     }
     setSubmitting(true);
     try {
-      await api.post(
-        '/v1/staff/admins',
-        {
-          loginId: form.loginId.trim(),
-          name: form.name.trim(),
-          password: form.password,
-          role: form.role.toUpperCase(),
-          ...(storeBound && form.storeId ? { storeId: Number(form.storeId) } : {}),
-        },
-        accessToken,
-      );
+      await createStaffAccount(accessToken, {
+        loginId: form.loginId.trim(),
+        name: form.name.trim(),
+        password: form.password,
+        role: form.role,
+        ...(storeBound && form.storeId ? { storeId: Number(form.storeId) } : {}),
+      });
       setModalOpen(false);
       reload();
     } catch (err) {
@@ -156,7 +121,7 @@ export default function AdminsPage() {
 
   const byRole = (role: Role) => rows.filter((r) => r.role === role).length;
 
-  const columns: Column<AdminRow>[] = [
+  const columns: Column<StaffAccount>[] = [
     {
       key: 'name',
       header: 'Admin',

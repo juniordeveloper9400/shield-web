@@ -14,14 +14,16 @@ import { Icon } from '@/components/ui/Icon';
 import { formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import { useAuth } from '@/context/AuthContext';
-import { api, ApiError } from '@/lib/api';
+import { ApiError } from '@/lib/api';
 import {
   listStores,
   setStoreActive,
   updateStore,
   createStore,
 } from '@/api/stores';
-import type { NewStore, Store, StoreType } from '@/types';
+import { createStaffAccount, listStaffAccounts, type StaffAccount } from '@/api/admins';
+import { ROLE_LABELS, STORE_BOUND_ROLES } from '@/config/permissions';
+import type { NewStore, Role, Store, StoreType } from '@/types';
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All branches' },
@@ -135,10 +137,13 @@ function coordProblem(latRaw: string, lngRaw: string): string | null {
 
 export default function StoresPage() {
   const { accessToken, user } = useAuth();
-  // Creating a branch's own login (POST /v1/staff/admins) is SUPERADMIN-only
-  // — same guard the Admins page itself sits behind — so a plain admin
-  // opening "Add branch" never sees fields they'd just get a 403 from.
   const isSuperAdmin = user?.role === 'superadmin';
+  // Staff logins (GET/POST /v1/staff/admins) are open to SUPERADMIN and
+  // ADMIN both now — a branch can need several logins (one per counter or
+  // shift), and ADMIN manages its own branch's staff day to day. ADMIN is
+  // still refused anything SUPERADMIN/ADMIN-level (see admin.service.ts's
+  // own guard) — only store-bound/operational logins opened up.
+  const canManageStaffLogins = user?.role === 'superadmin' || user?.role === 'admin';
   const { data, loading, error, reload } = useAsync(
     () => listStores(accessToken),
     [accessToken],
@@ -178,11 +183,6 @@ export default function StoresPage() {
   const [addError, setAddError] = useState<string | null>(null);
   /** True once the admin has typed a code by hand — stop auto-suggesting it. */
   const [codeTouched, setCodeTouched] = useState(false);
-  // The branch's own login, created alongside it (POST /v1/staff/admins,
-  // role PHARMACY) when a SUPERADMIN fills both in — optional, so a branch
-  // can still be added with no login and one set up later from Admins.
-  const [addLoginId, setAddLoginId] = useState('');
-  const [addPassword, setAddPassword] = useState('');
 
   const selected = rows.find((r) => r.id === selectedId) ?? null;
 
@@ -190,8 +190,6 @@ export default function StoresPage() {
     setDraft(EMPTY_NEW);
     setAddLat('');
     setAddLng('');
-    setAddLoginId('');
-    setAddPassword('');
     setAddError(null);
     setCodeTouched(false);
     setAdding(true);
@@ -219,17 +217,6 @@ export default function StoresPage() {
     if (coordBad) return setAddError(coordBad);
     const bankBad = bankProblem(draft);
     if (bankBad) return setAddError(bankBad);
-    // Login id and password are a pair — either both are given (create one)
-    // or neither is (add the branch with no login, same as today).
-    const wantsLogin = isSuperAdmin && (addLoginId.trim() || addPassword);
-    if (wantsLogin) {
-      if (addLoginId.trim().length < 3) {
-        return setAddError('Login id must be at least 3 characters.');
-      }
-      if (addPassword.length < 8) {
-        return setAddError('Password must be at least 8 characters.');
-      }
-    }
     setSaving(true);
     setAddError(null);
     try {
@@ -247,38 +234,11 @@ export default function StoresPage() {
         );
         return;
       }
-      if (wantsLogin) {
-        try {
-          await api.post(
-            '/v1/staff/admins',
-            {
-              loginId: addLoginId.trim(),
-              name: draft.name.trim(),
-              password: addPassword,
-              role: 'PHARMACY',
-              storeId: Number(id),
-            },
-            accessToken,
-          );
-        } catch (err) {
-          // The branch itself was created either way — only the login
-          // failed (e.g. the id is already taken). Leave the modal open on
-          // the error instead of closing over it, so it isn't silently
-          // lost; reload so the new branch already shows in the table
-          // underneath. A second "Create branch" click would just report
-          // the code as taken, which is true now — closing and adding the
-          // login from Admins instead is the way out.
-          reload();
-          setAddError(
-            `Branch created, but the login could not be: ${
-              err instanceof ApiError ? err.message : 'please add it from Admins.'
-            }`,
-          );
-          return;
-        }
-      }
       setAdding(false);
       reload();
+      // Open the new branch's own detail view straight away — its "Staff
+      // logins" section is where a login now gets created, not here.
+      setSelectedId(id);
     } catch (err) {
       setAddError(
         err instanceof Error ? err.message : 'Could not add the branch.',
@@ -467,11 +427,6 @@ export default function StoresPage() {
         setAddLat={setAddLat}
         addLng={addLng}
         setAddLng={setAddLng}
-        isSuperAdmin={isSuperAdmin}
-        addLoginId={addLoginId}
-        setAddLoginId={setAddLoginId}
-        addPassword={addPassword}
-        setAddPassword={setAddPassword}
         addError={addError}
         saving={saving}
         setCodeTouched={setCodeTouched}
@@ -635,6 +590,12 @@ export default function StoresPage() {
                 { label: 'Opened', value: formatDate(selected.openedAt) },
               ]}
             />
+            <StaffLoginsSection
+              storeId={selected.id}
+              storeName={selected.name}
+              canManage={canManageStaffLogins}
+              accessToken={accessToken}
+            />
           </>
         )}
 
@@ -752,8 +713,9 @@ export default function StoresPage() {
 
 /** Rendered in place of the main page while [adding] is true — a page of
  *  its own, not a pop-up (same convention ProductsPage's "Add product"
- *  form uses), since there's too much here (coordinates, bank details, an
- *  optional branch login) to fit comfortably in a modal. */
+ *  form uses), since there's too much here (coordinates, bank details) to
+ *  fit comfortably in a modal. Staff logins are added afterward, from the
+ *  new branch's own detail view — not part of this form any more. */
 function AddBranchPage({
   draft,
   patchDraft,
@@ -761,11 +723,6 @@ function AddBranchPage({
   setAddLat,
   addLng,
   setAddLng,
-  isSuperAdmin,
-  addLoginId,
-  setAddLoginId,
-  addPassword,
-  setAddPassword,
   addError,
   saving,
   setCodeTouched,
@@ -778,11 +735,6 @@ function AddBranchPage({
   setAddLat: (v: string) => void;
   addLng: string;
   setAddLng: (v: string) => void;
-  isSuperAdmin: boolean;
-  addLoginId: string;
-  setAddLoginId: (v: string) => void;
-  addPassword: string;
-  setAddPassword: (v: string) => void;
   addError: string | null;
   saving: boolean;
   setCodeTouched: (v: boolean) => void;
@@ -914,38 +866,9 @@ function AddBranchPage({
             values={draft}
             onChange={(patch) => patchDraft(patch)}
           />
-          {isSuperAdmin && (
-            <div className="space-y-3 rounded-lg border border-slate-200 p-3">
-              <p className="text-sm font-medium text-slate-700">
-                Branch login — optional
-              </p>
-              <p className="-mt-2 text-xs text-slate-400">
-                Give this branch a sign-in (Pharmacy access) now, or leave it
-                blank and add one later from Admins.
-              </p>
-              <div className="grid grid-cols-2 gap-3">
-                <EditField label="Login id">
-                  <input
-                    value={addLoginId}
-                    onChange={(e) => setAddLoginId(e.target.value)}
-                    className={inputClass}
-                    placeholder="pharmacy_mel"
-                    autoComplete="off"
-                  />
-                </EditField>
-                <EditField label="Password">
-                  <input
-                    type="password"
-                    value={addPassword}
-                    onChange={(e) => setAddPassword(e.target.value)}
-                    className={inputClass}
-                    placeholder="At least 8 characters"
-                    autoComplete="new-password"
-                  />
-                </EditField>
-              </div>
-            </div>
-          )}
+          <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+            Staff logins (login id + password) are added from this branch's own detail view, after it's created — not here.
+          </p>
           <label className="flex items-center gap-2 text-sm text-slate-700">
             <input
               type="checkbox"
@@ -982,6 +905,172 @@ function EditField({ label, children }: { label: string; children: ReactNode }) 
       <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
       {children}
     </label>
+  );
+}
+
+const EMPTY_STAFF_FORM = { loginId: '', name: '', password: '', role: 'pharmacy' as Role };
+
+/**
+ * One branch's own staff logins — a separate section from the branch's own
+ * details, not a single field on it, since a branch can need several (one
+ * per counter or shift) and each is its own login id + password. SUPERADMIN
+ * and ADMIN both manage this now (see admin.controller.ts's own doc);
+ * everyone else just reads the branch's own detail view with this hidden.
+ */
+function StaffLoginsSection({
+  storeId,
+  storeName,
+  canManage,
+  accessToken,
+}: {
+  storeId: string;
+  storeName: string;
+  canManage: boolean;
+  accessToken: string | null;
+}) {
+  const { data, loading, error, reload } = useAsync(
+    () => listStaffAccounts(accessToken, Number(storeId)),
+    [accessToken, storeId],
+  );
+  const accounts = data ?? [];
+
+  const [adding, setAdding] = useState(false);
+  const [form, setForm] = useState(EMPTY_STAFF_FORM);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  function openAdd() {
+    setForm(EMPTY_STAFF_FORM);
+    setFormError(null);
+    setAdding(true);
+  }
+
+  async function submit() {
+    if (!form.loginId.trim() || !form.name.trim() || !form.password) {
+      setFormError('Login id, name and password are all required.');
+      return;
+    }
+    if (form.password.length < 8) {
+      setFormError('Password must be at least 8 characters.');
+      return;
+    }
+    setSubmitting(true);
+    setFormError(null);
+    try {
+      await createStaffAccount(accessToken, {
+        loginId: form.loginId.trim(),
+        name: form.name.trim(),
+        password: form.password,
+        role: form.role,
+        storeId: Number(storeId),
+      });
+      setAdding(false);
+      reload();
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : 'Could not create the login.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const columns: Column<StaffAccount>[] = [
+    {
+      key: 'loginId',
+      header: 'Login id',
+      render: (row) => <code className="rounded bg-slate-100 px-1.5 py-0.5 text-xs">{row.loginId}</code>,
+    },
+    { key: 'name', header: 'Name', render: (row) => row.name },
+    { key: 'role', header: 'Role', render: (row) => <Badge tone="blue">{ROLE_LABELS[row.role]}</Badge> },
+    {
+      key: 'status',
+      header: 'Status',
+      render: (row) => <Badge tone={row.isActive ? 'green' : 'gray'}>{row.isActive ? 'Active' : 'Inactive'}</Badge>,
+    },
+  ];
+
+  return (
+    <div className="mt-6 border-t border-slate-200 pt-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-slate-700">Staff logins</p>
+          <p className="text-xs text-slate-400">
+            Every login id this branch's staff sign in with — a branch can have as many as it needs.
+          </p>
+        </div>
+        {canManage && !adding && (
+          <Button variant="secondary" size="sm" onClick={openAdd}>
+            <Icon name="plus" className="h-4 w-4" /> Add login
+          </Button>
+        )}
+      </div>
+
+      <div className="overflow-hidden rounded-lg border border-slate-200">
+        <DataTable
+          columns={columns}
+          rows={accounts}
+          loading={loading}
+          error={error}
+          empty="No staff logins for this branch yet."
+        />
+      </div>
+
+      {adding && (
+        <div className="mt-3 space-y-3 rounded-lg border border-slate-200 p-3">
+          <div className="grid grid-cols-2 gap-3">
+            <EditField label="Login id">
+              <input
+                value={form.loginId}
+                onChange={(e) => setForm((f) => ({ ...f, loginId: e.target.value }))}
+                className={inputClass}
+                placeholder={`pharmacy_${storeName.trim().split(/\s+/)[0]?.toLowerCase() ?? ''}`}
+                autoComplete="off"
+              />
+            </EditField>
+            <EditField label="Name">
+              <input
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                className={inputClass}
+              />
+            </EditField>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <EditField label="Password">
+              <input
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                className={inputClass}
+                placeholder="At least 8 characters"
+                autoComplete="new-password"
+              />
+            </EditField>
+            <EditField label="Role">
+              <select
+                value={form.role}
+                onChange={(e) => setForm((f) => ({ ...f, role: e.target.value as Role }))}
+                className={inputClass}
+              >
+                {STORE_BOUND_ROLES.map((role) => (
+                  <option key={role} value={role}>
+                    {ROLE_LABELS[role]}
+                  </option>
+                ))}
+              </select>
+            </EditField>
+          </div>
+          {formError && <p className="text-xs text-rose-600">{formError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" size="sm" disabled={submitting} onClick={() => setAdding(false)}>
+              Cancel
+            </Button>
+            <Button variant="primary" size="sm" disabled={submitting} onClick={() => void submit()}>
+              {submitting ? 'Creating…' : 'Create login'}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
