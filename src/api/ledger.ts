@@ -68,11 +68,13 @@ export function getLedgerEntities(token: string | null): Promise<LedgerEntity[]>
 
 export function getTrialBalance(
   token: string | null,
-  params: { entityId?: number; period?: string; type?: string },
+  params: { entityId?: number; period?: string; fromDate?: string; toDate?: string; type?: string },
 ): Promise<TrialBalanceRow[]> {
   const q = new URLSearchParams();
   if (params.entityId !== undefined) q.set('entityId', String(params.entityId));
-  if (params.period) q.set('period', params.period);
+  if (params.fromDate) q.set('fromDate', params.fromDate);
+  if (params.toDate) q.set('toDate', params.toDate);
+  if (params.period && !params.fromDate) q.set('period', params.period);
   if (params.type) q.set('type', params.type);
   const qs = q.toString();
   return api.get(`/v1/staff/ledger/trial-balance${qs ? `?${qs}` : ''}`, token);
@@ -96,17 +98,27 @@ export function getChartOfAccounts(token: string | null): Promise<ChartOfAccount
 }
 
 /** One subject's (member/agent/investor) Debit, Credit and running Closing
- *  balance for one account, for one month — see migration 0090's own doc on
+ *  balance for one account, for one date range or month — see migration 0090's own doc on
  *  why this differs from `getTrialBalance`'s store-wide movement-only rows. */
 export function getSubjectLedger(
   token: string | null,
-  params: { subjectType: string; subjectId: number; accountCode: string; period: string; entityId?: number },
+  params: {
+    subjectType: string;
+    subjectId: number;
+    accountCode: string;
+    period?: string;
+    fromDate?: string;
+    toDate?: string;
+    entityId?: number;
+  },
 ): Promise<SubjectLedger> {
   const q = new URLSearchParams();
   q.set('subjectType', params.subjectType);
   q.set('subjectId', String(params.subjectId));
   q.set('accountCode', params.accountCode);
-  q.set('period', params.period);
+  if (params.fromDate) q.set('fromDate', params.fromDate);
+  if (params.toDate) q.set('toDate', params.toDate);
+  if (params.period && !params.fromDate) q.set('period', params.period);
   if (params.entityId !== undefined) q.set('entityId', String(params.entityId));
   return api.get(`/v1/staff/ledger/subject-ledger?${q.toString()}`, token);
 }

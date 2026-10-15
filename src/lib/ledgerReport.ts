@@ -29,7 +29,7 @@ export function movementBalance(debit: number, credit: number) {
 
 export type StoreLedgerRow = TrialBalanceRow & { entityName: string; entityCode: string; id: string };
 
-export function ledgerReportCsv(rows: Omit<StoreLedgerRow, 'id' | 'net'>[], month: string): string {
+export function ledgerReportCsv(rows: Omit<StoreLedgerRow, 'id' | 'net'>[], datePeriod: string): string {
   const escape = (value: string | number) => {
     const text = String(value);
     // Keep spreadsheet imports from executing entity/account display names.
@@ -37,22 +37,22 @@ export function ledgerReportCsv(rows: Omit<StoreLedgerRow, 'id' | 'net'>[], mont
     return `"${safe.replace(/"/g, '""')}"`;
   };
   const lines: (string | number)[][] = [
-    ['Month', 'Store / Head Office', 'Entity code', 'Account code', 'Account', 'Explanation', 'Type', 'Debit movement', 'Credit movement', 'Net movement amount', 'Side', 'Review status'],
+    ['Period', 'Store / Head Office', 'Entity code', 'Account code', 'Account', 'Explanation', 'Type', 'Debit movement', 'Credit movement', 'Net movement amount', 'Side', 'Review status'],
     ...rows.map((row) => {
       const balance = movementBalance(row.debit, row.credit);
-      return [month, row.entityName, row.entityCode, row.accountCode, row.accountName, ACCOUNT_EXPLANATIONS[row.accountCode] ?? '', row.accountType, row.debit.toFixed(2), row.credit.toFixed(2), balance.amount.toFixed(2), balance.side, row.isProvisional ? 'Provisional' : 'Reviewed'];
+      return [datePeriod, row.entityName, row.entityCode, row.accountCode, row.accountName, ACCOUNT_EXPLANATIONS[row.accountCode] ?? '', row.accountType, row.debit.toFixed(2), row.credit.toFixed(2), balance.amount.toFixed(2), balance.side, row.isProvisional ? 'Provisional' : 'Reviewed'];
     }),
   ];
   return lines.map((line) => line.map(escape).join(',')).join('\r\n');
 }
 
 /** Same CSV shape/escaping as `ledgerReportCsv`, for one person's own
- *  account for one month — the individual journal lines behind the
+ *  account for one date range/month — the individual journal lines behind the
  *  opening/closing balance, not a store-wide movement summary. */
 export function subjectLedgerCsv(
   params: { personName: string; accountCode: string; accountName: string; openingBalance: number; closingBalance: number },
   lines: SubjectLedgerLine[],
-  month: string,
+  datePeriod: string,
 ): string {
   const escape = (value: string | number) => {
     const text = String(value);
@@ -60,10 +60,34 @@ export function subjectLedgerCsv(
     return `"${safe.replace(/"/g, '""')}"`;
   };
   const rows: (string | number)[][] = [
-    ['Month', 'Person', 'Account code', 'Account', 'Opening balance', 'Date', 'Event', 'Description', 'Debit', 'Credit'],
-    [month, params.personName, params.accountCode, params.accountName, params.openingBalance.toFixed(2), '', '', 'Opening balance', '', ''],
-    ...lines.map((l) => [month, params.personName, params.accountCode, params.accountName, '', l.postedOn, l.event, l.description, l.debit.toFixed(2), l.credit.toFixed(2)]),
-    [month, params.personName, params.accountCode, params.accountName, params.closingBalance.toFixed(2), '', '', 'Closing balance', '', ''],
+    ['Period', 'Person', 'Account code', 'Account', 'Opening balance', 'Date', 'Event', 'Description', 'Debit', 'Credit'],
+    [datePeriod, params.personName, params.accountCode, params.accountName, params.openingBalance.toFixed(2), '', '', 'Opening balance', '', ''],
+    ...lines.map((l) => [datePeriod, params.personName, params.accountCode, params.accountName, '', l.postedOn, l.event, l.description, l.debit.toFixed(2), l.credit.toFixed(2)]),
+    [datePeriod, params.personName, params.accountCode, params.accountName, params.closingBalance.toFixed(2), '', '', 'Closing balance', '', ''],
   ];
   return rows.map((line) => line.map(escape).join(',')).join('\r\n');
+}
+
+export function chartOfAccountsCsv(
+  accounts: { code: string; name: string; type: string; isProvisional: boolean; debit?: number; credit?: number; net?: number }[],
+): string {
+  const escape = (value: string | number) => {
+    const text = String(value);
+    const safe = /^[=+@-]/.test(text) ? `'${text}` : text;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
+  const lines: (string | number)[][] = [
+    ['Account code', 'Account name', 'Type', 'Explanation', 'Debit movement', 'Credit movement', 'Net movement', 'Review status'],
+    ...accounts.map((a) => [
+      a.code,
+      a.name,
+      a.type,
+      ACCOUNT_EXPLANATIONS[a.code] ?? '',
+      (a.debit ?? 0).toFixed(2),
+      (a.credit ?? 0).toFixed(2),
+      (a.net ?? 0).toFixed(2),
+      a.isProvisional ? 'Provisional' : 'Reviewed',
+    ]),
+  ];
+  return lines.map((line) => line.map(escape).join(',')).join('\r\n');
 }
