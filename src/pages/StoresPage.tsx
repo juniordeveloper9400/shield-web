@@ -18,16 +18,24 @@ import { api, ApiError } from '@/lib/api';
 import {
   listStores,
   setStoreActive,
-  setStoreOffersLab,
   updateStore,
   createStore,
 } from '@/api/stores';
-import type { NewStore, Store } from '@/types';
+import type { NewStore, Store, StoreType } from '@/types';
 
 const STATUS_OPTIONS = [
   { value: 'all', label: 'All branches' },
   { value: 'active', label: 'Active' },
   { value: 'inactive', label: 'Inactive' },
+];
+
+/** The three cards the store-type picker offers — `offersLabCollection` is
+ *  never set directly any more, only derived server-side from this (see
+ *  CatalogueService.createStore/updateStore). */
+const STORE_TYPE_OPTIONS: { value: StoreType; label: string; description: string }[] = [
+  { value: 'pharmacy', label: 'Standalone Pharmacy', description: 'Sells products and medicines only — no lab collection.' },
+  { value: 'lab', label: 'Standalone Lab', description: 'Lab sample collection only — not a product/medicine pickup point.' },
+  { value: 'pharmacy_lab', label: 'Pharmacy + Lab', description: 'Both — the default for a full-service branch.' },
 ];
 
 interface EditForm {
@@ -45,6 +53,7 @@ interface EditForm {
   bankAccountNumber: string;
   bankIfsc: string;
   bankName: string;
+  storeType: StoreType;
 }
 
 const EMPTY_NEW: NewStore = {
@@ -64,6 +73,7 @@ const EMPTY_NEW: NewStore = {
   bankIfsc: '',
   bankName: '',
   isActive: true,
+  storeType: 'pharmacy_lab',
   offersLabCollection: true,
 };
 
@@ -156,6 +166,7 @@ export default function StoresPage() {
     bankAccountNumber: '',
     bankIfsc: '',
     bankName: '',
+    storeType: 'pharmacy_lab',
   });
 
   const [adding, setAdding] = useState(false);
@@ -315,6 +326,7 @@ export default function StoresPage() {
       bankAccountNumber: store.bankAccountNumber,
       bankIfsc: store.bankIfsc,
       bankName: store.bankName,
+      storeType: store.storeType,
     });
   }
 
@@ -323,16 +335,6 @@ export default function StoresPage() {
     try {
       await setStoreActive(id, isActive, accessToken);
       setSelectedId(null);
-      reload();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function toggleLabCollection(id: string, offersLab: boolean) {
-    setSaving(true);
-    try {
-      await setStoreOffersLab(id, offersLab, accessToken);
       reload();
     } finally {
       setSaving(false);
@@ -375,10 +377,7 @@ export default function StoresPage() {
           bankAccountNumber: form.bankAccountNumber.trim(),
           bankIfsc: form.bankIfsc.trim().toUpperCase(),
           bankName: form.bankName.trim(),
-          // Not part of this form — toggled on its own from the detail view
-          // (like Active/Inactive) — carried through unchanged so saving the
-          // rest of the branch's details never reverts it.
-          offersLabCollection: selected.offersLabCollection,
+          storeType: form.storeType,
         },
         accessToken,
       );
@@ -459,6 +458,29 @@ export default function StoresPage() {
     },
   ];
 
+  if (adding) {
+    return (
+      <AddBranchPage
+        draft={draft}
+        patchDraft={patchDraft}
+        addLat={addLat}
+        setAddLat={setAddLat}
+        addLng={addLng}
+        setAddLng={setAddLng}
+        isSuperAdmin={isSuperAdmin}
+        addLoginId={addLoginId}
+        setAddLoginId={setAddLoginId}
+        addPassword={addPassword}
+        setAddPassword={setAddPassword}
+        addError={addError}
+        saving={saving}
+        setCodeTouched={setCodeTouched}
+        onCancel={() => setAdding(false)}
+        onSave={() => void saveNew()}
+      />
+    );
+  }
+
   return (
     <>
       <PageHeader
@@ -524,13 +546,6 @@ export default function StoresPage() {
                   <Button variant="secondary" onClick={() => setEditing(true)}>
                     <Icon name="plus" className="h-4 w-4" /> Edit details
                   </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={saving}
-                    onClick={() => toggleLabCollection(selected.id, !selected.offersLabCollection)}
-                  >
-                    {selected.offersLabCollection ? 'Turn off lab collection' : 'Turn on lab collection'}
-                  </Button>
                   {selected.isActive ? (
                     <Button
                       variant="danger"
@@ -561,7 +576,7 @@ export default function StoresPage() {
                 {selected.isActive ? 'Active' : 'Inactive'}
               </Badge>
               <Badge tone={selected.offersLabCollection ? 'blue' : 'gray'}>
-                {selected.offersLabCollection ? 'Takes lab bookings' : 'No lab bookings'}
+                {STORE_TYPE_OPTIONS.find((o) => o.value === selected.storeType)?.label ?? 'Pharmacy + Lab'}
               </Badge>
             </div>
             <DetailList
@@ -630,6 +645,12 @@ export default function StoresPage() {
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className={inputClass}
+              />
+            </EditField>
+            <EditField label="Store type">
+              <StoreTypePicker
+                value={form.storeType}
+                onChange={(storeType) => setForm({ ...form, storeType })}
               />
             </EditField>
             <EditField label="Phone">
@@ -725,32 +746,74 @@ export default function StoresPage() {
         )}
       </Modal>
 
-      <Modal
-        open={adding}
-        onClose={() => setAdding(false)}
+    </>
+  );
+}
+
+/** Rendered in place of the main page while [adding] is true — a page of
+ *  its own, not a pop-up (same convention ProductsPage's "Add product"
+ *  form uses), since there's too much here (coordinates, bank details, an
+ *  optional branch login) to fit comfortably in a modal. */
+function AddBranchPage({
+  draft,
+  patchDraft,
+  addLat,
+  setAddLat,
+  addLng,
+  setAddLng,
+  isSuperAdmin,
+  addLoginId,
+  setAddLoginId,
+  addPassword,
+  setAddPassword,
+  addError,
+  saving,
+  setCodeTouched,
+  onCancel,
+  onSave,
+}: {
+  draft: NewStore;
+  patchDraft: (patch: Partial<NewStore>) => void;
+  addLat: string;
+  setAddLat: (v: string) => void;
+  addLng: string;
+  setAddLng: (v: string) => void;
+  isSuperAdmin: boolean;
+  addLoginId: string;
+  setAddLoginId: (v: string) => void;
+  addPassword: string;
+  setAddPassword: (v: string) => void;
+  addError: string | null;
+  saving: boolean;
+  setCodeTouched: (v: boolean) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <>
+      <PageHeader
         title="Add branch"
-        footer={
-          <>
-            <Button
-              variant="secondary"
-              disabled={saving}
-              onClick={() => setAdding(false)}
-            >
-              Cancel
-            </Button>
-            <Button variant="primary" disabled={saving} onClick={saveNew}>
-              Create branch
-            </Button>
-          </>
+        subtitle="Fill in the branch, then add it to Stores."
+        actions={
+          <Button variant="secondary" disabled={saving} onClick={onCancel}>
+            Back to branches
+          </Button>
         }
-      >
-        <div className="space-y-4">
+      />
+      <Card>
+        <div className="space-y-4 p-6">
           <EditField label="Branch name">
             <input
               value={draft.name}
               onChange={(e) => patchDraft({ name: e.target.value })}
               className={inputClass}
               placeholder="Sahakar 360 Pharmacy Melattur"
+            />
+          </EditField>
+          <EditField label="Store type">
+            <StoreTypePicker
+              value={draft.storeType}
+              onChange={(storeType) => patchDraft({ storeType })}
             />
           </EditField>
           <div className="grid grid-cols-2 gap-3">
@@ -891,21 +954,21 @@ export default function StoresPage() {
             />
             Active — visible in the app straight away
           </label>
-          <label className="flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={draft.offersLabCollection}
-              onChange={(e) => patchDraft({ offersLabCollection: e.target.checked })}
-            />
-            Takes lab bookings
-          </label>
           {addError && (
             <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
               {addError}
             </p>
           )}
         </div>
-      </Modal>
+        <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
+          <Button variant="secondary" disabled={saving} onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button variant="primary" disabled={saving} onClick={onSave}>
+            Create branch
+          </Button>
+        </div>
+      </Card>
     </>
   );
 }
@@ -919,6 +982,42 @@ function EditField({ label, children }: { label: string; children: ReactNode }) 
       <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
       {children}
     </label>
+  );
+}
+
+/** Three selectable cards (not a native `<select>`) so each option can carry
+ *  its own one-line explanation — same role STORE_TYPE_OPTIONS plays for the
+ *  detail view's badge label. */
+function StoreTypePicker({
+  value,
+  onChange,
+}: {
+  value: StoreType;
+  onChange: (value: StoreType) => void;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-3">
+      {STORE_TYPE_OPTIONS.map((option) => {
+        const selected = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`rounded-lg border p-3 text-left transition ${
+              selected
+                ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500'
+                : 'border-slate-300 hover:border-slate-400'
+            }`}
+          >
+            <p className={`text-sm font-medium ${selected ? 'text-brand-700' : 'text-slate-800'}`}>
+              {option.label}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">{option.description}</p>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 

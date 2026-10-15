@@ -1,6 +1,6 @@
 import { api } from '@/lib/api';
-import { isoRequired, num } from '@/lib/mappers';
-import type { NewStore, Store } from '@/types';
+import { fromEnum, isoRequired, num, toEnum } from '@/lib/mappers';
+import type { NewStore, Store, StoreType } from '@/types';
 
 /** The shape `GET/POST/PATCH /v1/staff/catalogue/stores*` sends back —
  *  CatalogueService's drizzle rows, camelCase, `numeric` columns as strings
@@ -16,6 +16,7 @@ interface StoreApiRow {
   phone: string;
   hours: string;
   isActive: boolean;
+  storeType: string;
   offersLabCollection: boolean;
   latitude: string | null;
   longitude: string | null;
@@ -47,6 +48,7 @@ function toStore(r: StoreApiRow): Store {
     phone: r.phone,
     hours: r.hours,
     isActive: r.isActive,
+    storeType: fromEnum<StoreType>(r.storeType),
     offersLabCollection: r.offersLabCollection,
     latitude: numOrNull(r.latitude),
     longitude: numOrNull(r.longitude),
@@ -100,11 +102,17 @@ export async function updateStore(
     bankAccountNumber: string;
     bankIfsc: string;
     bankName: string;
-    offersLabCollection: boolean;
+    /** Standalone pharmacy, standalone lab, or both — the server derives
+     *  `offersLabCollection` from this, never trusting it independently. */
+    storeType: StoreType;
   },
   token: string | null,
 ): Promise<void> {
-  await api.patch(`/v1/staff/catalogue/stores/${id}`, patch, token);
+  await api.patch(
+    `/v1/staff/catalogue/stores/${id}`,
+    { ...patch, storeType: toEnum(patch.storeType) },
+    token,
+  );
 }
 
 /**
@@ -113,6 +121,10 @@ export async function updateStore(
  * Returns the new id, or `null` when the code is already taken.
  */
 export async function createStore(s: NewStore, token: string | null): Promise<string | null> {
-  const { store } = await api.post<{ store: StoreApiRow | null }>('/v1/staff/catalogue/stores', s, token);
+  const { store } = await api.post<{ store: StoreApiRow | null }>(
+    '/v1/staff/catalogue/stores',
+    { ...s, storeType: toEnum(s.storeType) },
+    token,
+  );
   return store ? String(store.id) : null;
 }

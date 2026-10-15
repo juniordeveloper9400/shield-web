@@ -74,6 +74,11 @@ export interface AdminUser {
 export type AuthUser = AdminUser;
 
 /** A Sahakar 360 branch — one row of `app.shield_store`. */
+/** `app.store_type` (migration 0096) — standalone pharmacy, standalone lab,
+ *  or both. [offersLabCollection] is always derived from this server-side,
+ *  never set independently. */
+export type StoreType = 'pharmacy' | 'lab' | 'pharmacy_lab';
+
 export interface Store {
   id: string;
   /** Stable branch code, e.g. `SHD-MEL`. */
@@ -86,9 +91,10 @@ export interface Store {
   phone: string;
   hours: string;
   isActive: boolean;
-  /** Migration 0057 — whether this branch takes lab bookings. On by default;
-   *  a branch with no phlebotomist can be switched off, which drops it from
-   *  the app's own branch picker at lab checkout. */
+  storeType: StoreType;
+  /** Migration 0057 — whether this branch takes lab bookings. Derived from
+   *  [storeType] (lab/pharmacy_lab are true, pharmacy is false) — drops a
+   *  pharmacy-only branch from the app's own branch picker at lab checkout. */
   offersLabCollection: boolean;
   /** Town-centre coordinates. Null until pinned; the app then falls back to
    *  pincode ranking for this branch. */
@@ -120,6 +126,10 @@ export interface NewStore {
   pincode: string;
   phone: string;
   hours: string;
+  storeType: StoreType;
+  /** Not admin-set directly — the server always derives it from [storeType]
+   *  (see Store's own doc). Kept here only so a freshly-created draft can
+   *  be echoed back as a full {@link Store} without a round trip. */
   offersLabCollection: boolean;
   latitude: number | null;
   longitude: number | null;
