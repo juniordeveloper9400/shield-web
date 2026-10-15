@@ -50,7 +50,6 @@ function sameSet(a: ModuleKey[], b: ModuleKey[]): boolean {
 
 const EMPTY_FORM = {
   loginId: '',
-  name: '',
   password: '',
   role: 'pharmacy' as Role,
   storeId: '',
@@ -121,7 +120,6 @@ export default function AdminsPage() {
   function openEdit(account: StaffAccount) {
     setForm({
       loginId: account.loginId,
-      name: account.name,
       password: '',
       role: account.role,
       storeId: account.storeId ? String(account.storeId) : '',
@@ -159,8 +157,8 @@ export default function AdminsPage() {
 
   async function submit() {
     setFormError(null);
-    if (!form.loginId.trim() || !form.name.trim()) {
-      setFormError('Login id and name are required.');
+    if (!form.loginId.trim()) {
+      setFormError('Login id is required.');
       return;
     }
     const editing = mode !== 'new' && mode !== null ? mode : null;
@@ -189,7 +187,6 @@ export default function AdminsPage() {
       if (editing) {
         await updateStaffAccount(accessToken, editing.id, {
           loginId: form.loginId.trim(),
-          name: form.name.trim(),
           ...(form.password ? { password: form.password } : {}),
           role: form.role,
           storeId: form.storeId ? Number(form.storeId) : null,
@@ -198,7 +195,10 @@ export default function AdminsPage() {
       } else {
         await createStaffAccount(accessToken, {
           loginId: form.loginId.trim(),
-          name: form.name.trim(),
+          // No separate "Name" field on this form — the login id doubles as
+          // the display name. Editable later straight on the row if someone
+          // wants a nicer one; nothing here depends on it being a real name.
+          name: form.loginId.trim(),
           password: form.password,
           role: form.role,
           storeId: form.storeId ? Number(form.storeId) : undefined,
@@ -577,23 +577,14 @@ function AddStaffPage({
       <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <Card>
           <div className="space-y-4 p-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Login id">
-                <input
-                  value={form.loginId}
-                  onChange={(e) => patchForm({ loginId: e.target.value })}
-                  placeholder="e.g. pharmacy_mel"
-                  className={inputClass}
-                />
-              </Field>
-              <Field label="Name">
-                <input
-                  value={form.name}
-                  onChange={(e) => patchForm({ name: e.target.value })}
-                  className={inputClass}
-                />
-              </Field>
-            </div>
+            <Field label="Login id">
+              <input
+                value={form.loginId}
+                onChange={(e) => patchForm({ loginId: e.target.value })}
+                placeholder="e.g. pharmacy_mel"
+                className={inputClass}
+              />
+            </Field>
             <Field label={editing ? 'New password — optional' : 'Password'}>
               <input
                 type="password"
