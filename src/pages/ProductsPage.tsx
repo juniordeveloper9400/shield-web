@@ -279,6 +279,19 @@ export default function ProductsPage() {
     extraImages: string[];
   }>({ price: '', stockQuantity: '', image: '', extraImages: [] });
   const [activePreviewIdx, setActivePreviewIdx] = useState(0);
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    uses: true,
+    desc: true,
+    howTo: true,
+    ingredients: false,
+    safety: false,
+    faqs: true,
+  });
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(null);
+
+  const toggleSection = (key: string) => {
+    setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
   const [formImageBusy, setFormImageBusy] = useState(false);
   const [formImageError, setFormImageError] = useState<string | null>(null);
   const { ask, dialog: confirmDialog } = useConfirmDialog();
@@ -679,6 +692,7 @@ export default function ProductsPage() {
     setSelectedId(id);
     setEditing(false);
     setActivePreviewIdx(0);
+    setOpenFaqIndex(null);
     setFormImageError(null);
     setForm({
       price: String(product.price),
@@ -1769,6 +1783,7 @@ export default function ProductsPage() {
         open={Boolean(selected)}
         onClose={() => setSelectedId(null)}
         title={selected?.name ?? ''}
+        size="xl"
         footer={
           selected && canManage && (
             <>
@@ -1796,6 +1811,12 @@ export default function ProductsPage() {
                     }}
                   >
                     <Icon name="plus" className="h-4 w-4" /> Edit price / stock
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => openEdit(selected)}
+                  >
+                    <Icon name="edit" className="h-4 w-4" /> Edit product
                   </Button>
                   {selected.status === 'active' ? (
                     <Button
@@ -1836,295 +1857,621 @@ export default function ProductsPage() {
         }
       >
         {selected && !editing && (
-          <>
-            <div className="mb-3 flex items-center gap-3">
-              <Badge tone={selected.status === 'active' ? 'green' : 'gray'}>
-                {selected.status === 'active' ? 'Active' : 'Inactive'}
-              </Badge>
+          <div className="space-y-5">
+            {/* Top Identity Strip */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone={selected.status === 'active' ? 'green' : 'gray'}>
+                  {selected.status === 'active' ? 'Active' : 'Inactive'}
+                </Badge>
+                {selected.isPrescriptionOnly ? (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700 border border-rose-200">
+                    <span className="font-bold">Rx</span> Prescription Required
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                    OTC Medicine
+                  </span>
+                )}
+                {selected.categoryTitle && (
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    {selected.categoryTitle}
+                  </span>
+                )}
+                {selected.subcategoryLabel && (
+                  <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+                    {selected.subcategoryLabel}
+                  </span>
+                )}
+              </div>
+              <span className="text-xs text-slate-400 font-mono">Code: {selected.code || '—'}</span>
             </div>
+
+            {/* Main Showcase: 2-Columns */}
             {(() => {
               const allImages = [
                 selected.image,
                 ...(selectedDetail?.extraImages ?? []),
               ].filter(Boolean);
-              if (allImages.length === 0) return null;
-              const currentImage = allImages[activePreviewIdx] ?? allImages[0];
+              const currentImage = allImages[activePreviewIdx] ?? allImages[0] ?? '';
+              const discountPercent =
+                selected.mrp > selected.price
+                  ? Math.round(((selected.mrp - selected.price) / selected.mrp) * 100)
+                  : 0;
+              const keyUsesList = [
+                ...(selectedDetail?.highlights?.split('\n') ?? []),
+                ...(selectedDetail?.benefits?.split('\n') ?? []),
+              ]
+                .map((s) => s.trim())
+                .filter(Boolean);
+              const directionsList = (selectedDetail?.directions?.split('\n') ?? [])
+                .map((s) => s.trim())
+                .filter(Boolean);
+              const safetyList = (selectedDetail?.safety?.split('\n') ?? [])
+                .map((s) => s.trim())
+                .filter(Boolean);
+
               return (
-                <div className="mb-4 space-y-2">
-                  <div className="relative h-44 w-full rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
-                    <img
-                      src={currentImage}
-                      alt={selected.name}
-                      className="h-full w-full object-contain"
-                    />
-                    {activePreviewIdx === 0 && (
-                      <span className="absolute top-2 left-2 rounded bg-brand-600/90 px-2 py-0.5 text-[10px] font-semibold text-white uppercase tracking-wider">
-                        Primary
-                      </span>
-                    )}
-                    {allImages.length > 1 && (
-                      <span className="absolute bottom-2 right-2 rounded bg-black/60 px-2 py-0.5 text-xs font-medium text-white">
-                        {activePreviewIdx + 1} / {allImages.length}
-                      </span>
-                    )}
-                    {canManage && (
-                      <button
-                        type="button"
-                        title="Remove this image"
-                        onClick={() =>
-                          ask({
-                            title: 'Remove this image?',
-                            message:
-                              activePreviewIdx === 0
-                                ? allImages.length > 1
-                                  ? 'Are you sure you want to remove the primary image? The next image will become the primary image.'
-                                  : 'Are you sure you want to remove this product image?'
-                                : 'Are you sure you want to remove this image from the product?',
-                            confirmLabel: 'Remove',
-                            danger: true,
-                            onConfirm: async () => {
-                              const filtered = allImages.filter((_, idx) => idx !== activePreviewIdx);
-                              const nextPrimary = filtered[0] ?? '';
-                              const nextExtras = filtered.slice(1);
-                              setSaving(true);
-                              try {
-                                await updateProduct(
-                                  selected.id,
-                                  {
-                                    image: nextPrimary,
-                                    extraImages: nextExtras,
-                                  },
-                                  accessToken,
-                                );
-                                reload();
-                                if (selectedId) {
-                                  const d = await getProductDetail(selectedId, accessToken);
-                                  setSelectedDetail(d);
-                                }
-                                setActivePreviewIdx((prev) =>
-                                  Math.max(0, Math.min(prev, filtered.length - 1)),
-                                );
-                              } finally {
-                                setSaving(false);
-                              }
-                            },
-                          })
-                        }
-                        className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border border-rose-200 bg-white/90 text-sm font-bold text-rose-600 shadow-sm hover:bg-rose-50"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                  {allImages.length > 1 && (
-                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
-                      {allImages.map((img, idx) => (
-                        <div key={idx} className="relative group shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => setActivePreviewIdx(idx)}
-                            className={`relative h-14 w-14 rounded-md border-2 overflow-hidden transition-all block ${
-                              activePreviewIdx === idx
-                                ? 'border-brand-500 ring-2 ring-brand-200'
-                                : 'border-slate-200 hover:border-slate-300 opacity-75 hover:opacity-100'
-                            }`}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-6 items-start">
+                  {/* Left Column: Artwork Gallery & Visibility */}
+                  <div className="md:col-span-5 space-y-4">
+                    {/* Artwork Card (Styled like App's _ArtworkCard) */}
+                    <div className="rounded-2xl border border-slate-200 bg-white p-2.5 shadow-xs">
+                      <div className="relative aspect-[4/3] w-full rounded-xl bg-slate-50 flex items-center justify-center overflow-hidden border border-slate-100">
+                        {currentImage ? (
+                          <img
+                            src={currentImage}
+                            alt={selected.name}
+                            className="h-full w-full object-contain p-2 transition-all duration-200"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center gap-2 text-slate-300">
+                            <Icon name="products" className="h-12 w-12" />
+                            <span className="text-xs text-slate-400">No artwork uploaded</span>
+                          </div>
+                        )}
+
+                        {/* Discount Banner (Matching App) */}
+                        {discountPercent > 0 && (
+                          <div className="absolute top-0 left-0 rounded-br-xl bg-brand-600 px-3 py-1 text-xs font-black tracking-wide text-white shadow-xs">
+                            {discountPercent}% OFF
+                          </div>
+                        )}
+
+                        {/* Primary Badge */}
+                        {activePreviewIdx === 0 && currentImage && (
+                          <span
+                            className={`absolute ${
+                              discountPercent > 0 ? 'top-8 left-2' : 'top-2 left-2'
+                            } rounded bg-brand-700/90 px-2 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider backdrop-blur-xs`}
                           >
-                            <img src={img} alt="" className="h-full w-full object-cover" />
-                            {idx === 0 && (
-                              <span className="absolute bottom-0 inset-x-0 bg-brand-600/90 text-white text-[8px] font-bold text-center leading-tight py-0.5">
-                                PRIMARY
-                              </span>
-                            )}
-                          </button>
-                          {canManage && (
+                            Primary
+                          </span>
+                        )}
+
+                        {/* Image Counter */}
+                        {allImages.length > 1 && (
+                          <span className="absolute bottom-2.5 right-2.5 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-semibold text-white backdrop-blur-xs">
+                            {activePreviewIdx + 1} / {allImages.length}
+                          </span>
+                        )}
+
+                        {/* Navigation Arrows */}
+                        {allImages.length > 1 && (
+                          <>
                             <button
                               type="button"
-                              title="Remove this image"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                ask({
-                                  title: 'Remove this image?',
-                                  message:
-                                    idx === 0
-                                      ? allImages.length > 1
-                                        ? 'Are you sure you want to remove the primary image? The next image will become the primary image.'
-                                        : 'Are you sure you want to remove this product image?'
-                                      : 'Are you sure you want to remove this image from the product?',
-                                  confirmLabel: 'Remove',
-                                  danger: true,
-                                  onConfirm: async () => {
-                                    const filtered = allImages.filter((_, i) => i !== idx);
-                                    const nextPrimary = filtered[0] ?? '';
-                                    const nextExtras = filtered.slice(1);
+                              onClick={() =>
+                                setActivePreviewIdx((prev) =>
+                                  prev > 0 ? prev - 1 : allImages.length - 1,
+                                )
+                              }
+                              className="absolute left-2 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-slate-700 shadow-xs hover:bg-white transition-all opacity-80 hover:opacity-100 font-bold"
+                            >
+                              ‹
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setActivePreviewIdx((prev) =>
+                                  prev < allImages.length - 1 ? prev + 1 : 0,
+                                )
+                              }
+                              className="absolute right-2 top-1/2 -translate-y-1/2 grid h-7 w-7 place-items-center rounded-full bg-white/90 text-slate-700 shadow-xs hover:bg-white transition-all opacity-80 hover:opacity-100 font-bold"
+                            >
+                              ›
+                            </button>
+                          </>
+                        )}
+
+                        {/* Remove Image (Admin only with confirmation) */}
+                        {canManage && currentImage && (
+                          <button
+                            type="button"
+                            title="Remove this image"
+                            onClick={() =>
+                              ask({
+                                title: 'Remove this image?',
+                                message:
+                                  activePreviewIdx === 0
+                                    ? allImages.length > 1
+                                      ? 'Are you sure you want to remove the primary image? The next image will become the primary image.'
+                                      : 'Are you sure you want to remove this product image?'
+                                    : 'Are you sure you want to remove this image from the product?',
+                                confirmLabel: 'Remove',
+                                danger: true,
+                                onConfirm: async () => {
+                                  const filtered = allImages.filter(
+                                    (_, idx) => idx !== activePreviewIdx,
+                                  );
+                                  const nextPrimary = filtered[0] ?? '';
+                                  const nextExtras = filtered.slice(1);
+                                  setSaving(true);
+                                  try {
+                                    await updateProduct(
+                                      selected.id,
+                                      {
+                                        image: nextPrimary,
+                                        extraImages: nextExtras,
+                                      },
+                                      accessToken,
+                                    );
+                                    reload();
+                                    if (selectedId) {
+                                      const d = await getProductDetail(
+                                        selectedId,
+                                        accessToken,
+                                      );
+                                      setSelectedDetail(d);
+                                    }
+                                    setActivePreviewIdx((prev) =>
+                                      Math.max(0, Math.min(prev, filtered.length - 1)),
+                                    );
+                                  } finally {
+                                    setSaving(false);
+                                  }
+                                },
+                              })
+                            }
+                            className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border border-rose-200 bg-white/95 text-xs font-bold text-rose-600 shadow-xs hover:bg-rose-50 transition-all"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Thumbnail Gallery (Matching App) */}
+                      {allImages.length > 1 && (
+                        <div className="mt-2.5 flex items-center gap-2 overflow-x-auto p-1">
+                          {allImages.map((img, idx) => (
+                            <div key={idx} className="relative group shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setActivePreviewIdx(idx)}
+                                className={`relative h-14 w-14 rounded-lg border-2 overflow-hidden transition-all block ${
+                                  activePreviewIdx === idx
+                                    ? 'border-brand-500 ring-2 ring-brand-200 shadow-xs'
+                                    : 'border-slate-200 hover:border-slate-300 opacity-70 hover:opacity-100'
+                                }`}
+                              >
+                                <img src={img} alt="" className="h-full w-full object-cover" />
+                                {idx === 0 && (
+                                  <span className="absolute bottom-0 inset-x-0 bg-brand-600/95 text-white text-[8px] font-bold text-center leading-tight py-0.5">
+                                    P
+                                  </span>
+                                )}
+                              </button>
+                              {canManage && (
+                                <button
+                                  type="button"
+                                  title="Remove this image"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    ask({
+                                      title: 'Remove this image?',
+                                      message:
+                                        idx === 0
+                                          ? allImages.length > 1
+                                            ? 'Are you sure you want to remove the primary image? The next image will become the primary image.'
+                                            : 'Are you sure you want to remove this product image?'
+                                          : 'Are you sure you want to remove this image from the product?',
+                                      confirmLabel: 'Remove',
+                                      danger: true,
+                                      onConfirm: async () => {
+                                        const filtered = allImages.filter((_, i) => i !== idx);
+                                        const nextPrimary = filtered[0] ?? '';
+                                        const nextExtras = filtered.slice(1);
+                                        setSaving(true);
+                                        try {
+                                          await updateProduct(
+                                            selected.id,
+                                            {
+                                              image: nextPrimary,
+                                              extraImages: nextExtras,
+                                            },
+                                            accessToken,
+                                          );
+                                          reload();
+                                          if (selectedId) {
+                                            const d = await getProductDetail(
+                                              selectedId,
+                                              accessToken,
+                                            );
+                                            setSelectedDetail(d);
+                                          }
+                                          setActivePreviewIdx((prev) =>
+                                            Math.max(
+                                              0,
+                                              Math.min(prev, filtered.length - 1),
+                                            ),
+                                          );
+                                        } finally {
+                                          setSaving(false);
+                                        }
+                                      },
+                                    });
+                                  }}
+                                  className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full border border-rose-200 bg-white text-[10px] leading-none text-rose-600 shadow-xs opacity-90 hover:opacity-100 hover:bg-rose-50"
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Metadata Card */}
+                    <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs space-y-2">
+                      <p className="font-bold text-slate-800 uppercase tracking-wide text-[11px]">
+                        Catalogue Details
+                      </p>
+                      <div className="grid grid-cols-2 gap-2 text-slate-600">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Product Code</span>
+                          <span className="font-mono font-medium">{selected.code || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Added On</span>
+                          <span>{formatDate(selected.addedAt)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Category</span>
+                          <span className="truncate block">{selected.categoryTitle || '—'}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Sub-category</span>
+                          <span className="truncate block">{selected.subcategoryLabel || '—'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Home Feed Rows Card */}
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Home feed visibility
+                      </p>
+                      <div className="space-y-2">
+                        {(
+                          [
+                            ['isPopular', 'popularUntil', 'Popular Items'],
+                            ['isDeal', 'dealUntil', 'Deals You Love'],
+                            ['isOfferOfDay', 'offerOfDayUntil', 'Offer of the Day'],
+                          ] as const
+                        ).map(([key, untilKey, label]) => (
+                          <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                            <label className="flex items-center gap-2 text-xs text-slate-700">
+                              <input
+                                type="checkbox"
+                                disabled={saving || !canManage}
+                                checked={selected[key]}
+                                onChange={async (e) => {
+                                  setSaving(true);
+                                  try {
+                                    await updateProductSections(
+                                      selected.id,
+                                      {
+                                        isPopular: selected.isPopular,
+                                        isDeal: selected.isDeal,
+                                        isOfferOfDay: selected.isOfferOfDay,
+                                        [key]: e.target.checked,
+                                      },
+                                      accessToken,
+                                    );
+                                    reload();
+                                  } finally {
+                                    setSaving(false);
+                                  }
+                                }}
+                              />
+                              {label}
+                            </label>
+                            {selected[key] && (
+                              <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                                Expires
+                                <input
+                                  type="date"
+                                  disabled={saving || !canManage}
+                                  value={
+                                    selected[untilKey] ? selected[untilKey]!.slice(0, 10) : ''
+                                  }
+                                  onChange={async (e) => {
                                     setSaving(true);
                                     try {
-                                      await updateProduct(
+                                      const until = e.target.value
+                                        ? new Date(`${e.target.value}T23:59:59`).toISOString()
+                                        : null;
+                                      await updateProductSections(
                                         selected.id,
                                         {
-                                          image: nextPrimary,
-                                          extraImages: nextExtras,
+                                          isPopular: selected.isPopular,
+                                          isDeal: selected.isDeal,
+                                          isOfferOfDay: selected.isOfferOfDay,
+                                          [untilKey]: until,
                                         },
                                         accessToken,
                                       );
                                       reload();
-                                      if (selectedId) {
-                                        const d = await getProductDetail(selectedId, accessToken);
-                                        setSelectedDetail(d);
-                                      }
-                                      setActivePreviewIdx((prev) =>
-                                        Math.max(0, Math.min(prev, filtered.length - 1)),
-                                      );
                                     } finally {
                                       setSaving(false);
                                     }
-                                  },
-                                });
-                              }}
-                              className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full border border-rose-200 bg-white text-[10px] leading-none text-rose-600 shadow-sm opacity-90 hover:opacity-100 hover:bg-rose-50"
-                            >
-                              ×
-                            </button>
+                                  }}
+                                  className="rounded border border-slate-200 px-1.5 py-0.5 text-xs"
+                                />
+                                {isPast(selected[untilKey]) && (
+                                  <span className="font-medium text-rose-500">expired</span>
+                                )}
+                              </label>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right Column: Identity, Pricing, Storage & Sections */}
+                  <div className="md:col-span-7 space-y-3.5">
+                    {/* Header & Pricing Card (Matching App's _HeaderCard) */}
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-xs space-y-3">
+                      <div>
+                        <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-brand-600">
+                          <span>{selected.brand || 'Sahakar 360'}</span>
+                          <span className="text-sky-500" title="Verified Brand">✓</span>
+                        </div>
+                        <h2 className="text-xl font-extrabold text-slate-900 leading-tight mt-0.5">
+                          {selected.name}
+                        </h2>
+                        <p className="text-xs font-medium text-slate-500 mt-0.5">
+                          Pack size: {selected.pack}
+                        </p>
+                      </div>
+
+                      <div className="border-t border-slate-100 pt-3 flex flex-wrap items-end justify-between gap-3">
+                        <div>
+                          {selected.mrp > selected.price && (
+                            <p className="text-xs text-slate-400 line-through">
+                              MRP {formatCurrency(selected.mrp)}
+                            </p>
+                          )}
+                          <div className="flex items-baseline gap-2">
+                            <span className="text-3xl font-black text-slate-900">
+                              {formatCurrency(selected.price)}
+                            </span>
+                            {discountPercent > 0 && (
+                              <span className="rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-xs font-extrabold">
+                                {discountPercent}% OFF
+                              </span>
+                            )}
+                          </div>
+                          {selected.mrp > selected.price && (
+                            <p className="text-xs font-bold text-emerald-600 mt-0.5">
+                              You save {formatCurrency(selected.mrp - selected.price)} on this pack
+                            </p>
                           )}
                         </div>
-                      ))}
+
+                        <div>
+                          {selected.stockQuantity > 0 ? (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 border border-emerald-200">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                              In stock ({selected.stockQuantity})
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 border border-rose-200">
+                              <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
+                              Out of stock
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  )}
+
+                    {/* Storage Strip (Matching App's _StorageStrip) */}
+                    {selectedDetail?.storage && (
+                      <div className="rounded-xl border border-sky-200 bg-sky-50/70 p-3 flex items-start gap-2.5">
+                        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-sky-100 text-sky-600 text-sm font-bold">
+                          ❄
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-sky-800">
+                            Storage Instructions
+                          </p>
+                          <p className="text-xs font-medium text-sky-950 mt-0.5 leading-snug">
+                            {selectedDetail.storage}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Key Uses (Matching App's _Section) */}
+                    {keyUsesList.length > 0 && (
+                      <DetailSectionCard
+                        title="Key Uses & Benefits"
+                        badge={`${keyUsesList.length} points`}
+                        isOpen={Boolean(openSections.uses)}
+                        onToggle={() => toggleSection('uses')}
+                      >
+                        <ul className="space-y-1.5">
+                          {keyUsesList.map((use, i) => (
+                            <li key={i} className="flex items-start gap-2">
+                              <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-emerald-100 text-emerald-700 text-[10px] mt-0.5 font-bold">
+                                ✓
+                              </span>
+                              <span className="text-xs text-slate-700 leading-snug">{use}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </DetailSectionCard>
+                    )}
+
+                    {/* Description */}
+                    {selectedDetail?.description && (
+                      <DetailSectionCard
+                        title="Product Description"
+                        isOpen={Boolean(openSections.desc)}
+                        onToggle={() => toggleSection('desc')}
+                      >
+                        <p className="whitespace-pre-line text-xs text-slate-700 leading-relaxed">
+                          {selectedDetail.description}
+                        </p>
+                      </DetailSectionCard>
+                    )}
+
+                    {/* How to Use (Directions) */}
+                    {directionsList.length > 0 && (
+                      <DetailSectionCard
+                        title="How to Use"
+                        badge={`${directionsList.length} steps`}
+                        isOpen={Boolean(openSections.howTo)}
+                        onToggle={() => toggleSection('howTo')}
+                      >
+                        <ol className="space-y-2">
+                          {directionsList.map((dir, i) => (
+                            <li key={i} className="flex items-start gap-2.5">
+                              <span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-brand-100 text-brand-700 font-bold text-xs">
+                                {i + 1}
+                              </span>
+                              <span className="text-xs text-slate-700 leading-snug">{dir}</span>
+                            </li>
+                          ))}
+                        </ol>
+                      </DetailSectionCard>
+                    )}
+
+                    {/* Ingredients */}
+                    {selectedDetail?.ingredients && (
+                      <DetailSectionCard
+                        title="Ingredients & Composition"
+                        isOpen={Boolean(openSections.ingredients)}
+                        onToggle={() => toggleSection('ingredients')}
+                      >
+                        <p className="whitespace-pre-line text-xs text-slate-700 leading-relaxed bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                          {selectedDetail.ingredients}
+                        </p>
+                      </DetailSectionCard>
+                    )}
+
+                    {/* Safety Information */}
+                    {safetyList.length > 0 && (
+                      <DetailSectionCard
+                        title="Safety Information"
+                        badge={`${safetyList.length} precautions`}
+                        isOpen={Boolean(openSections.safety)}
+                        onToggle={() => toggleSection('safety')}
+                      >
+                        <ul className="space-y-2">
+                          {safetyList.map((item, i) => (
+                            <li
+                              key={i}
+                              className="flex items-start gap-2 text-amber-950 bg-amber-50/70 p-2.5 rounded-lg border border-amber-200/60"
+                            >
+                              <span className="text-amber-600 font-bold text-xs mt-0.5">⚠</span>
+                              <span className="text-xs text-amber-900 leading-snug">{item}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </DetailSectionCard>
+                    )}
+
+                    {/* FAQs Accordion */}
+                    {selectedDetail?.faqs && selectedDetail.faqs.length > 0 && (
+                      <DetailSectionCard
+                        title="Frequently Asked Questions"
+                        badge={`${selectedDetail.faqs.length} FAQs`}
+                        isOpen={Boolean(openSections.faqs)}
+                        onToggle={() => toggleSection('faqs')}
+                      >
+                        <div className="space-y-2">
+                          {selectedDetail.faqs.map((faq, i) => {
+                            const isFaqOpen = openFaqIndex === i;
+                            return (
+                              <div
+                                key={i}
+                                className="rounded-lg border border-slate-200 overflow-hidden"
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => setOpenFaqIndex(isFaqOpen ? null : i)}
+                                  className="w-full flex items-center justify-between p-2.5 text-left font-semibold text-xs text-slate-800 bg-slate-50/70 hover:bg-slate-100/70 transition-colors"
+                                >
+                                  <span>{faq.question}</span>
+                                  <Icon
+                                    name="chevron-down"
+                                    className={`h-3.5 w-3.5 shrink-0 text-slate-400 transition-transform ${
+                                      isFaqOpen ? 'rotate-180' : ''
+                                    }`}
+                                  />
+                                </button>
+                                {isFaqOpen && (
+                                  <div className="p-2.5 text-xs text-slate-600 bg-white border-t border-slate-100 leading-relaxed">
+                                    {faq.answer}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </DetailSectionCard>
+                    )}
+
+                    {/* When product has no custom detail text entered */}
+                    {selectedDetail && !selectedDetail.hasDetail && (
+                      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 p-4 text-center">
+                        <p className="text-xs font-semibold text-slate-700">App-Generated Detail View</p>
+                        <p className="mt-1 text-[11px] text-slate-400 max-w-sm mx-auto">
+                          This product uses auto-generated descriptions and guidelines in the member app.
+                        </p>
+                        {canManage && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            className="mt-2.5"
+                            onClick={() => openEdit(selected)}
+                          >
+                            <Icon name="edit" className="h-3.5 w-3.5" /> Add custom details & FAQs
+                          </Button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* When selectedDetail is still loading */}
+                    {selectedDetail === undefined && (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-6 text-center text-xs text-slate-400 animate-pulse">
+                        Loading complete product details…
+                      </div>
+                    )}
+
+                    {/* Trust & Guarantee strip (Matching App) */}
+                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                      <span className="text-emerald-600 font-bold">✓</span>
+                      <span>Verified by Sahakar 360 Pharmacy Team · 100% Genuine Medicines</span>
+                    </div>
+                  </div>
                 </div>
               );
             })()}
-            <DetailList
-              rows={[
-                { label: 'Code', value: selected.code || '—' },
-                { label: 'Brand', value: selected.brand || '—' },
-                { label: 'Pack', value: selected.pack || '—' },
-                { label: 'Category', value: selected.categoryTitle || '—' },
-                {
-                  label: 'Sub-category',
-                  value: selected.subcategoryLabel || '—',
-                },
-                { label: 'Offer Price', value: formatCurrency(selected.price) },
-                { label: 'MRP', value: formatCurrency(selected.mrp) },
-                {
-                  label: 'Discount',
-                  value: selected.discountLabel || '—',
-                },
-                { label: 'Stock on hand', value: selected.stockQuantity },
-                {
-                  label: 'Prescription',
-                  value: selected.isPrescriptionOnly ? 'Required' : 'Not required',
-                },
-                { label: 'Added', value: formatDate(selected.addedAt) },
-              ]}
-            />
-            <div className="mt-4 rounded-lg border border-slate-200 p-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Home feed rows
-              </p>
-              <div className="space-y-2">
-                {(
-                  [
-                    ['isPopular', 'popularUntil', 'Popular Items'],
-                    ['isDeal', 'dealUntil', 'Deals You Love'],
-                    ['isOfferOfDay', 'offerOfDayUntil', 'Offer of the Day'],
-                  ] as const
-                ).map(([key, untilKey, label]) => (
-                  <div key={key} className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <label className="flex items-center gap-2 text-sm text-slate-700">
-                      <input
-                        type="checkbox"
-                        disabled={saving || !canManage}
-                        checked={selected[key]}
-                        onChange={async (e) => {
-                          setSaving(true);
-                          try {
-                            await updateProductSections(selected.id, {
-                              isPopular: selected.isPopular,
-                              isDeal: selected.isDeal,
-                              isOfferOfDay: selected.isOfferOfDay,
-                              [key]: e.target.checked,
-                            }, accessToken);
-                            reload();
-                          } finally {
-                            setSaving(false);
-                          }
-                        }}
-                      />
-                      {label}
-                    </label>
-                    {selected[key] && (
-                      <label className="flex items-center gap-1.5 text-xs text-slate-500">
-                        Expires
-                        <input
-                          type="date"
-                          disabled={saving || !canManage}
-                          value={selected[untilKey] ? selected[untilKey]!.slice(0, 10) : ''}
-                          onChange={async (e) => {
-                            setSaving(true);
-                            try {
-                              const until = e.target.value
-                                ? new Date(`${e.target.value}T23:59:59`).toISOString()
-                                : null;
-                              await updateProductSections(selected.id, {
-                                isPopular: selected.isPopular,
-                                isDeal: selected.isDeal,
-                                isOfferOfDay: selected.isOfferOfDay,
-                                [untilKey]: until,
-                              }, accessToken);
-                              reload();
-                            } finally {
-                              setSaving(false);
-                            }
-                          }}
-                          className="rounded border border-slate-200 px-1.5 py-0.5"
-                        />
-                        {isPast(selected[untilKey]) && (
-                          <span className="font-medium text-rose-500">expired</span>
-                        )}
-                      </label>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-4 rounded-lg border border-slate-200 p-3">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Detail page
-              </p>
-              {selectedDetail === undefined ? (
-                <p className="text-sm text-slate-400">Loading…</p>
-              ) : selectedDetail && selectedDetail.hasDetail ? (
-                <div className="space-y-2 text-sm text-slate-600">
-                  <p>
-                    <span className="font-medium text-slate-700">Custom content</span>{' '}
-                    entered by an admin. Shown in the app; blanks fall back to
-                    auto-generated text.
-                  </p>
-                  {selectedDetail.form && (
-                    <p className="text-xs text-slate-500">
-                      Form: {selectedDetail.form}
-                    </p>
-                  )}
-                  {selectedDetail.description && (
-                    <p className="line-clamp-3 text-xs text-slate-500">
-                      {selectedDetail.description}
-                    </p>
-                  )}
-                  {selectedDetail.faqs.length > 0 && (
-                    <p className="text-xs text-slate-500">
-                      {selectedDetail.faqs.length} FAQ
-                      {selectedDetail.faqs.length === 1 ? '' : 's'}
-                    </p>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-slate-400">
-                  Auto-generated by the app from the name and pack. Add custom
-                  content when creating a product.
-                </p>
-              )}
-            </div>
-          </>
+          </div>
         )}
 
         {selected && editing && (
@@ -2300,5 +2647,49 @@ function EditField({ label, children }: { label: string; children: ReactNode }) 
       <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
       {children}
     </label>
+  );
+}
+
+function DetailSectionCard({
+  title,
+  isOpen,
+  onToggle,
+  badge,
+  children,
+}: {
+  title: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  badge?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden shadow-xs">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="w-full flex items-center justify-between p-3.5 text-left bg-white hover:bg-slate-50 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-slate-800">{title}</span>
+          {badge && (
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+              {badge}
+            </span>
+          )}
+        </div>
+        <Icon
+          name="chevron-down"
+          className={`h-3.5 w-3.5 text-slate-400 transition-transform duration-200 ${
+            isOpen ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+      {isOpen && (
+        <div className="border-t border-slate-100 p-3.5 text-xs text-slate-600 bg-white">
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
