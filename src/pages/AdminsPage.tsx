@@ -19,7 +19,6 @@ import {
   ROLE_LABELS,
   ROLE_PERMISSIONS,
   ROLE_SUMMARY,
-  STORE_BOUND_ROLES,
   canAccess,
 } from '@/config/permissions';
 import type { Role } from '@/types';
@@ -36,11 +35,18 @@ const ROLE_COLOR: Record<Role, string> = {
   lab_technician: '#a1650d',
 };
 
+// "Add staff account" always creates a branch's own pharmacy login — the
+// one role every branch actually needs opened from here day to day. A
+// Super Admin/Admin/Lab/Appointments/Delivery/Lab Technician account is
+// rarer and console-wide or cross-branch in a way a plain branch form
+// shouldn't imply; those still exist (see the role column below) but are
+// no longer created through this modal.
+const STAFF_ROLE: Role = 'pharmacy';
+
 const EMPTY_FORM = {
   loginId: '',
   name: '',
   password: '',
-  role: 'pharmacy' as Role,
   storeId: '',
 };
 
@@ -76,15 +82,13 @@ export default function AdminsPage() {
     setModalOpen(true);
   }
 
-  const storeBound = STORE_BOUND_ROLES.includes(form.role);
-
   async function submit() {
     setFormError(null);
     if (!form.loginId.trim() || !form.name.trim() || !form.password) {
       setFormError('Login id, name and password are all required.');
       return;
     }
-    if (storeBound && !form.storeId) {
+    if (!form.storeId) {
       setFormError('Pick the branch this account works.');
       return;
     }
@@ -94,8 +98,8 @@ export default function AdminsPage() {
         loginId: form.loginId.trim(),
         name: form.name.trim(),
         password: form.password,
-        role: form.role,
-        ...(form.storeId ? { storeId: Number(form.storeId) } : {}),
+        role: STAFF_ROLE,
+        storeId: Number(form.storeId),
       });
       setModalOpen(false);
       reload();
@@ -317,38 +321,23 @@ export default function AdminsPage() {
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Role</label>
-            <select
-              value={form.role}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, role: e.target.value as Role, storeId: '' }))
-              }
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-            >
-              {ROLES.map((role) => (
-                <option key={role} value={role}>
-                  {ROLE_LABELS[role]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">
-              Branch{storeBound ? '' : ' (optional)'}
-            </label>
+            <label className="mb-1 block text-xs font-medium text-slate-600">Branch</label>
             <select
               value={form.storeId}
               onChange={(e) => setForm((f) => ({ ...f, storeId: e.target.value }))}
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
             >
-              <option value="">{storeBound ? 'Select a branch…' : 'No branch — console-wide'}</option>
+              <option value="">Select a branch…</option>
               {storeOptions.map((s) => (
                 <option key={s.value} value={s.value}>
                   {s.label}
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-xs text-slate-400">Every branch is listed here, whichever role is picked above.</p>
+            <p className="mt-1 text-xs text-slate-400">
+              This account signs in as {ROLE_LABELS.pharmacy} for the branch chosen here. For any other role, ask a
+              Super Admin with backend access.
+            </p>
           </div>
           {formError && <p className="text-xs text-rose-600">{formError}</p>}
         </div>

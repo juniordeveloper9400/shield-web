@@ -27,6 +27,7 @@ import AccountsPage from '@/pages/AccountsPage';
 import AgentWithdrawalsPage from '@/pages/AgentWithdrawalsPage';
 import CommissionReservePage from '@/pages/CommissionReservePage';
 import LedgerPage from '@/pages/LedgerPage';
+import AuditLogPage from '@/pages/AuditLogPage';
 import AdminsPage from '@/pages/AdminsPage';
 import DeliveriesPage from '@/pages/DeliveriesPage';
 import UsersPage from '@/pages/UsersPage';
@@ -230,6 +231,14 @@ export default function App() {
           element={
             <ProtectedRoute module="ledger">
               <LedgerPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/audit-log"
+          element={
+            <ProtectedRoute module="audit_log">
+              <AuditLogPage />
             </ProtectedRoute>
           }
         />

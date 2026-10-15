@@ -158,6 +158,13 @@ export const MODULES: NavItem[] = [
     icon: 'accounts',
     description: 'Double-entry journal — provisional, pending accountant review',
   },
+  {
+    key: 'audit_log',
+    label: 'Audit Log',
+    path: '/audit-log',
+    icon: 'accounts',
+    description: 'Every staff login and change, who did it and when',
+  },
 ];
 
 /**
@@ -195,7 +202,11 @@ export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   // admin.controller.ts already lets ADMIN create/list staff logins
   // (refused only SUPERADMIN/ADMIN-level grants, see its own doc), so the
   // sidebar matches what the server actually allows.
-  superadmin: [...APP_MODULES, 'admins', 'commission_reserve', 'ledger'],
+  // 'audit_log' is SUPERADMIN-only, deliberately not added to ADMIN here —
+  // it's the one place an admin's own actions on *other* admins would be
+  // reviewable, and an admin reviewing themselves defeats the point. The
+  // backend's own AuditLogController enforces this too, not just the sidebar.
+  superadmin: [...APP_MODULES, 'admins', 'commission_reserve', 'ledger', 'audit_log'],
   admin: [...APP_MODULES, 'admins', 'commission_reserve', 'ledger'],
   // 'lab_orders' added so a branch's own admin can see that lab bookings
   // exist for their store, the same as any other order — LabOrdersPage
