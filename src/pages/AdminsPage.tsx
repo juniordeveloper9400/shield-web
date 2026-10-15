@@ -11,9 +11,10 @@ import { Icon } from '@/components/ui/Icon';
 import { initials } from '@/lib/format';
 import { useAuth } from '@/context/AuthContext';
 import { useAsync } from '@/lib/useAsync';
+import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import { ApiError } from '@/lib/api';
 import { listStores } from '@/api/stores';
-import { createStaffAccount, listStaffAccounts, type StaffAccount } from '@/api/admins';
+import { createStaffAccount, listStaffAccounts, updateStaffAccount, type StaffAccount } from '@/api/admins';
 import {
   MODULES,
   ROLE_LABELS,
@@ -45,13 +46,24 @@ const EMPTY_FORM = {
   storeId: '',
 };
 
+/** Granting (or changing) a Super Admin/Admin account is Super-Admin-only —
+ *  mirrors AdminService.assertRoleGrantAllowed, which checks this on both
+ *  create and update. This is only so the UI never offers or opens an edit
+ *  the server will 403 anyway; the backend is the real guard. */
+function canTouchRole(callerRole: Role | undefined, targetRole: Role): boolean {
+  return callerRole === 'superadmin' || (targetRole !== 'superadmin' && targetRole !== 'admin');
+}
+
 /**
- * Real staff accounts from backend/api (`GET /v1/staff/admins`) — replaces
- * the preset roster that used to live in `config/admins.ts`. Adding a login
- * is now a real account (a login id + bcrypt-hashed password on this row),
- * created here via `POST /v1/staff/admins` (SUPERADMIN-only, same as this
- * whole page). Editing/deactivating an existing account is still a
- * follow-up.
+ * Real staff accounts from backend/api (`GET/POST/PATCH /v1/staff/admins`) —
+ * replaces the preset roster that used to live in `config/admins.ts`. Every
+ * account is a real row (a login id + bcrypt-hashed password), created or
+ * edited from this page (SUPERADMIN/ADMIN only — see admin.controller.ts).
+ * There is no hard delete: "removing" an account deactivates it instead
+ * (isActive: false), the same choice this console already makes for a
+ * branch (StoresPage) — the login stops working immediately, but every
+ * historical record that points at this id (audit log, lab bookings,
+ * created_by/updated_by) stays intact instead of being orphaned.
  */
 export default function AdminsPage() {
   const { user, accessToken } = useAuth();
@@ -65,18 +77,17 @@ export default function AdminsPage() {
   );
 
   const [search, setSearch] = useState('');
+  const { ask, dialog: confirmDialog } = useConfirmDialog();
 
-  const [adding, setAdding] = useState(false);
+  // 'new' creates a fresh login; an existing StaffAccount edits it; null
+  // stays on the list. Both open the same full-page form.
+  const [mode, setMode] = useState<StaffAccount | 'new' | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  // Granting a Super Admin or Admin account is Super-Admin-only — the
-  // picker only ever offers what the backend will actually accept from
-  // this caller (AdminService.assertRoleGrantAllowed is the real guard;
-  // this just keeps the form from promising something the API will 403).
   const grantableRoles = useMemo(
-    () => ROLES.filter((r) => user?.role === 'superadmin' || (r !== 'superadmin' && r !== 'admin')),
+    () => ROLES.filter((r) => canTouchRole(user?.role, r)),
     [user?.role],
   );
 
@@ -87,7 +98,19 @@ export default function AdminsPage() {
     const defaultRole = grantableRoles.includes('pharmacy') ? 'pharmacy' : (grantableRoles[0] ?? 'pharmacy');
     setForm({ ...EMPTY_FORM, role: defaultRole });
     setFormError(null);
-    setAdding(true);
+    setMode('new');
+  }
+
+  function openEdit(account: StaffAccount) {
+    setForm({
+      loginId: account.loginId,
+      name: account.name,
+      password: '',
+      role: account.role,
+      storeId: account.storeId ? String(account.storeId) : '',
+    });
+    setFormError(null);
+    setMode(account);
   }
 
   function patchForm(patch: Partial<typeof EMPTY_FORM>) {
@@ -102,11 +125,16 @@ export default function AdminsPage() {
 
   async function submit() {
     setFormError(null);
-    if (!form.loginId.trim() || !form.name.trim() || !form.password) {
-      setFormError('Login id, name and password are all required.');
+    if (!form.loginId.trim() || !form.name.trim()) {
+      setFormError('Login id and name are required.');
       return;
     }
-    if (form.password.length < 8) {
+    const editing = mode !== 'new' && mode !== null ? mode : null;
+    if (!editing && !form.password) {
+      setFormError('Password is required.');
+      return;
+    }
+    if (form.password && form.password.length < 8) {
       setFormError('Password must be at least 8 characters.');
       return;
     }
@@ -116,22 +144,48 @@ export default function AdminsPage() {
     }
     setSubmitting(true);
     try {
-      await createStaffAccount(accessToken, {
-        loginId: form.loginId.trim(),
-        name: form.name.trim(),
-        password: form.password,
-        role: form.role,
-        storeId: form.storeId ? Number(form.storeId) : undefined,
-      });
-      setAdding(false);
+      if (editing) {
+        await updateStaffAccount(accessToken, editing.id, {
+          loginId: form.loginId.trim(),
+          name: form.name.trim(),
+          ...(form.password ? { password: form.password } : {}),
+          role: form.role,
+          storeId: form.storeId ? Number(form.storeId) : null,
+        });
+      } else {
+        await createStaffAccount(accessToken, {
+          loginId: form.loginId.trim(),
+          name: form.name.trim(),
+          password: form.password,
+          role: form.role,
+          storeId: form.storeId ? Number(form.storeId) : undefined,
+        });
+      }
+      setMode(null);
       reload();
     } catch (err) {
       setFormError(
-        err instanceof ApiError ? err.message : 'Could not create the account.',
+        err instanceof ApiError ? err.message : `Could not ${editing ? 'save' : 'create'} the account.`,
       );
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function toggleActive(account: StaffAccount) {
+    const activating = !account.isActive;
+    ask({
+      title: activating ? 'Reactivate this account?' : 'Deactivate this account?',
+      message: activating
+        ? `"${account.name}" will be able to sign in again, with the same login id and password.`
+        : `"${account.name}" (${account.loginId}) will no longer be able to sign in. Nothing it has already done — bookings, bills, audit entries — is affected, and this can be undone any time.`,
+      confirmLabel: activating ? 'Reactivate' : 'Deactivate',
+      danger: !activating,
+      onConfirm: async () => {
+        await updateStaffAccount(accessToken, account.id, { isActive: activating });
+        reload();
+      },
+    });
   }
 
   const filtered = useMemo(() => {
@@ -183,6 +237,13 @@ export default function AdminsPage() {
       ),
     },
     {
+      key: 'status',
+      header: 'Status',
+      render: (row) => (
+        <Badge tone={row.isActive ? 'green' : 'gray'}>{row.isActive ? 'Active' : 'Deactivated'}</Badge>
+      ),
+    },
+    {
       key: 'modules',
       header: 'Can open',
       render: (row) => (
@@ -198,20 +259,61 @@ export default function AdminsPage() {
         </div>
       ),
     },
+    {
+      key: 'actions',
+      header: '',
+      className: 'text-right',
+      render: (row) => {
+        const touchable = canTouchRole(user?.role, row.role);
+        if (!touchable) return <span className="text-xs text-slate-300">—</span>;
+        const self = row.id === user?.id;
+        return (
+          <div className="flex items-center justify-end gap-1">
+            <button
+              type="button"
+              title="Edit this account"
+              onClick={() => openEdit(row)}
+              className="grid h-7 w-7 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+            >
+              <Icon name="edit" className="h-3.5 w-3.5" />
+            </button>
+            {!self && (
+              <button
+                type="button"
+                title={row.isActive ? 'Deactivate this account' : 'Reactivate this account'}
+                onClick={() => toggleActive(row)}
+                className={
+                  row.isActive
+                    ? 'grid h-7 w-7 shrink-0 place-items-center rounded text-rose-400 hover:bg-rose-50 hover:text-rose-600'
+                    : 'grid h-7 w-7 shrink-0 place-items-center rounded text-emerald-500 hover:bg-emerald-50 hover:text-emerald-700'
+                }
+              >
+                <Icon name={row.isActive ? 'logout' : 'rotate'} className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        );
+      },
+    },
   ];
 
-  if (adding) {
+  if (mode !== null) {
+    const editing = mode !== 'new' ? mode : null;
     return (
-      <AddStaffPage
-        form={form}
-        patchForm={patchForm}
-        grantableRoles={grantableRoles}
-        storeOptions={storeOptions}
-        formError={formError}
-        submitting={submitting}
-        onCancel={() => setAdding(false)}
-        onSave={() => void submit()}
-      />
+      <>
+        <AddStaffPage
+          editing={editing}
+          form={form}
+          patchForm={patchForm}
+          grantableRoles={editing ? [...new Set([...grantableRoles, editing.role])] : grantableRoles}
+          storeOptions={storeOptions}
+          formError={formError}
+          submitting={submitting}
+          onCancel={() => setMode(null)}
+          onSave={() => void submit()}
+        />
+        {confirmDialog}
+      </>
     );
   }
 
@@ -304,18 +406,19 @@ export default function AdminsPage() {
           empty="No staff accounts match your search."
         />
         <p className="border-t border-slate-200 px-4 py-3 text-xs text-slate-400">
-          Each account signs in with a login ID and password. Editing or
-          deactivating an existing account from this page is a follow-up —
-          for now, ask a Super Admin with backend access.
+          Each account signs in with a login ID and password. A Super Admin or
+          Admin account can only be edited or deactivated by a Super Admin.
         </p>
       </Card>
+      {confirmDialog}
     </>
   );
 }
 
-/** Every option the role picker shows, SUPERADMIN/ADMIN filtered out for an
- *  ADMIN caller by the page above ([grantableRoles]) before this ever
- *  renders. */
+/** Every option the role picker shows — [grantableRoles] already carries
+ *  whatever the caller may grant, plus (while editing) the account's own
+ *  current role even if it's otherwise off-limits, so editing doesn't look
+ *  like it silently dropped the option it's already set to. */
 function RolePicker({
   roles,
   value,
@@ -363,11 +466,13 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 const inputClass =
   'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
 
-/** The full-page "Add staff account" form — a role picker up front (what
- *  this account's own login will be allowed to do is a real decision, not
- *  a detail to bury in a dialog), then a live preview of exactly which
- *  sidebar sections that role unlocks, so the choice is never a guess. */
+/** The full-page "Add staff account" / "Edit staff account" form — a role
+ *  picker up front (what this account's own login will be allowed to do is
+ *  a real decision, not a detail to bury in a dialog), then a live preview
+ *  of exactly which sidebar sections that role unlocks, so the choice is
+ *  never a guess. [editing] null means this is a fresh account. */
 function AddStaffPage({
+  editing,
   form,
   patchForm,
   grantableRoles,
@@ -377,6 +482,7 @@ function AddStaffPage({
   onCancel,
   onSave,
 }: {
+  editing: StaffAccount | null;
   form: typeof EMPTY_FORM;
   patchForm: (patch: Partial<typeof EMPTY_FORM>) => void;
   grantableRoles: Role[];
@@ -392,8 +498,12 @@ function AddStaffPage({
   return (
     <>
       <PageHeader
-        title="Add staff account"
-        subtitle="Create a login id and password, choose a role, and see exactly which sections it opens before saving."
+        title={editing ? `Edit ${editing.name}` : 'Add staff account'}
+        subtitle={
+          editing
+            ? 'Change the role, branch, login id or password — leave the password blank to keep the current one.'
+            : 'Create a login id and password, choose a role, and see exactly which sections it opens before saving.'
+        }
         actions={
           <Button variant="secondary" disabled={submitting} onClick={onCancel}>
             Back to staff logins
@@ -420,12 +530,12 @@ function AddStaffPage({
                 />
               </Field>
             </div>
-            <Field label="Password">
+            <Field label={editing ? 'New password — optional' : 'Password'}>
               <input
                 type="password"
                 value={form.password}
                 onChange={(e) => patchForm({ password: e.target.value })}
-                placeholder="At least 8 characters"
+                placeholder={editing ? 'Leave blank to keep the current password' : 'At least 8 characters'}
                 className={inputClass}
               />
             </Field>
@@ -467,7 +577,7 @@ function AddStaffPage({
               Cancel
             </Button>
             <Button variant="primary" disabled={submitting} onClick={onSave}>
-              {submitting ? 'Creating…' : 'Create account'}
+              {submitting ? 'Saving…' : editing ? 'Save changes' : 'Create account'}
             </Button>
           </div>
         </Card>

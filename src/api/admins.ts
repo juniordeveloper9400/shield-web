@@ -56,3 +56,23 @@ export function createStaffAccount(
     )
     .then(toStaffAccount);
 }
+
+/** Partial update — only the fields present in [dto] are changed. `password`
+ *  omitted (or not passed) leaves the existing one as is; `storeId: null`
+ *  clears a branch (for moving an account off the branch-bound roles). */
+export function updateStaffAccount(
+  token: string | null,
+  id: string,
+  dto: Partial<{
+    loginId: string;
+    name: string;
+    password: string;
+    role: Role;
+    storeId: number | null;
+    isActive: boolean;
+  }>,
+): Promise<StaffAccount> {
+  const body: Record<string, unknown> = { ...dto };
+  if (dto.role) body.role = dto.role.toUpperCase();
+  return api.patch<StaffApiRow>(`/v1/staff/admins/${id}`, body, token).then(toStaffAccount);
+}
