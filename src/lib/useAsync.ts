@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { dbErrorMessage } from './db';
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : 'The request failed.';
+}
 
 interface AsyncState<T> {
   data: T | null;
@@ -33,7 +36,7 @@ export function useAsync<T>(
         if (alive) setData(result);
       })
       .catch((err) => {
-        if (alive) setError(dbErrorMessage(err));
+        if (alive) setError(errorMessage(err));
       })
       .finally(() => {
         if (alive) setLoading(false);

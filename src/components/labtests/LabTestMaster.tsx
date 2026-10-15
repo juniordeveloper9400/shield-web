@@ -133,7 +133,7 @@ function suggestions(base: string[], extra: string[]): string[] {
  */
 export function LabTestMaster() {
   const { user, accessToken } = useAuth();
-  const { data, loading, error, reload } = useAsync(listLabTests, []);
+  const { data, loading, error, reload } = useAsync(() => listLabTests(accessToken), [accessToken]);
   const list = useMemo(() => data ?? [], [data]);
   const { data: categoryRows } = useAsync(() => listLabCategories(accessToken), [accessToken]);
   const categoryOptions = useMemo(
@@ -211,7 +211,7 @@ export function LabTestMaster() {
 
   /** Loads [id] into the form. Returns false when it no longer exists. */
   async function load(id: string): Promise<boolean> {
-    const test = await getLabTest(id);
+    const test = await getLabTest(id, accessToken);
     if (!test) return false;
     setLoadedId(test.id);
     setMeta({ lisCode: test.lisCode, updatedAt: test.updatedAt, source: test.source });
@@ -268,7 +268,7 @@ export function LabTestMaster() {
     setBusy(true);
     setNotice(null);
     try {
-      const saved = await saveLabTest(loadedId, form, items, rates, userName);
+      const saved = await saveLabTest(loadedId, form, items, rates, accessToken);
       await load(saved.id);
       reload();
       setNotice({
@@ -292,7 +292,7 @@ export function LabTestMaster() {
       confirmLabel: 'Delete',
       danger: true,
       onConfirm: async () => {
-        await deleteLabTest(id, name);
+        await deleteLabTest(id, accessToken);
         reset();
         reload();
         setNotice({ tone: 'ok', text: `Deleted "${name}".` });

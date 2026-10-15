@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { sql } from '@/lib/db';
+import { api } from '@/lib/api';
 
 /**
  * The admin desk's WhatsApp number — what the member apps offer when a member
@@ -9,18 +9,18 @@ import { sql } from '@/lib/db';
  * so changing it here reaches the apps without a release. Blank hides the
  * option in the apps.
  */
-export function AdminWhatsAppCard() {
+export function AdminWhatsAppCard({ accessToken }: { accessToken: string | null }) {
   const [value, setValue] = useState('');
   const [saved, setSaved] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    sql`SELECT value FROM app.app_setting WHERE key = 'admin_whatsapp' LIMIT 1`
-      .then((rows) => {
-        const current = String((rows as { value: unknown }[])[0]?.value ?? '');
-        setValue(current);
-        setSaved(current);
+    api
+      .get<{ adminWhatsapp: string }>('/v1/public/catalogue/contact')
+      .then(({ adminWhatsapp }) => {
+        setValue(adminWhatsapp);
+        setSaved(adminWhatsapp);
       })
       .catch(() => setMessage('Could not load the admin WhatsApp number.'));
   }, []);
@@ -30,13 +30,13 @@ export function AdminWhatsAppCard() {
     setBusy(true);
     setMessage(null);
     try {
-      await sql`
-        INSERT INTO app.app_setting (key, value, updated_at)
-        VALUES ('admin_whatsapp', ${clean}, now())
-        ON CONFLICT (key) DO UPDATE SET value = excluded.value, updated_at = now()
-      `;
-      setValue(clean);
-      setSaved(clean);
+      const { adminWhatsapp } = await api.patch<{ adminWhatsapp: string }>(
+        '/v1/staff/catalogue/contact/admin-whatsapp',
+        { value: clean },
+        accessToken,
+      );
+      setValue(adminWhatsapp);
+      setSaved(adminWhatsapp);
       setMessage('Saved.');
     } catch {
       setMessage('Could not save the admin WhatsApp number.');

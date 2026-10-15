@@ -28,10 +28,13 @@ import {
   reportFilesProblem,
   toLocalInput,
 } from '@/lib/labBooking';
-import { dbErrorMessage } from '@/lib/db';
 import { useAsync } from '@/lib/useAsync';
 import { useAuth } from '@/context/AuthContext';
 import { useConfirmDialog } from '@/lib/useConfirmDialog';
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : 'The request failed.';
+}
 import {
   addLabReportPages,
   assignLabStaff,
@@ -163,7 +166,7 @@ function BookingWindow({
       await assignLabStaff(booking.id, staffId || null, accessToken);
       onChanged();
     } catch (err) {
-      setStaffError(dbErrorMessage(err));
+      setStaffError(errorMessage(err));
     } finally {
       setStaffBusy(false);
     }
@@ -253,7 +256,7 @@ function BookingWindow({
         navigate(`/lab-bills?open=${booking.id}`);
       }
     } catch (err) {
-      setBillError(dbErrorMessage(err));
+      setBillError(errorMessage(err));
     } finally {
       setBillBusy(false);
     }
@@ -387,7 +390,7 @@ function BookingWindow({
     try {
       setPages(await listLabReportPages(booking.id, accessToken));
     } catch (err) {
-      setError(dbErrorMessage(err));
+      setError(errorMessage(err));
     } finally {
       setPagesLoading(false);
     }
@@ -442,7 +445,7 @@ function BookingWindow({
       onChanged();
       return true;
     } catch (err) {
-      setError(dbErrorMessage(err));
+      setError(errorMessage(err));
       return false;
     } finally {
       setBusy(null);

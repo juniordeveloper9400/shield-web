@@ -16,6 +16,7 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { Icon } from '@/components/ui/Icon';
 import { formatCurrency, formatDate } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
+import { useAuth } from '@/context/AuthContext';
 import {
   listLabPackages,
   setLabPackageActive,
@@ -73,7 +74,8 @@ export default function LabsPage() {
 
 /** The member-facing packages (`app.lab_package`): price, MRP and visibility. */
 function MemberPackages() {
-  const { data, loading, error, reload } = useAsync(listLabPackages, []);
+  const { accessToken } = useAuth();
+  const { data, loading, error, reload } = useAsync(() => listLabPackages(accessToken), [accessToken]);
   const rows = useMemo(() => data ?? [], [data]);
 
   const [search, setSearch] = useState('');
@@ -114,7 +116,7 @@ function MemberPackages() {
   async function toggleActive(id: string, isActive: boolean) {
     setSaving(true);
     try {
-      await setLabPackageActive(id, isActive);
+      await setLabPackageActive(id, isActive, accessToken);
       setSelectedId(null);
       reload();
     } finally {
@@ -128,10 +130,14 @@ function MemberPackages() {
     const mrp = Number(form.mrp);
     setSaving(true);
     try {
-      await updateLabPackage(selected.id, {
-        price: Number.isFinite(price) && price >= 0 ? price : selected.price,
-        mrp: Number.isFinite(mrp) && mrp >= 0 ? mrp : selected.mrp,
-      });
+      await updateLabPackage(
+        selected.id,
+        {
+          price: Number.isFinite(price) && price >= 0 ? price : selected.price,
+          mrp: Number.isFinite(mrp) && mrp >= 0 ? mrp : selected.mrp,
+        },
+        accessToken,
+      );
       setEditing(false);
       reload();
     } finally {

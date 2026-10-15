@@ -22,7 +22,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.1.0",
     "@sentry/react": "^10.75.1",
     "firebase": "^12.19.0",
     "jspdf": "^4.2.1",

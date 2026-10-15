@@ -55,7 +55,7 @@ export function LabPackageBuilderModal({
 }) {
   const { accessToken } = useAuth();
   const { data: categoryRows } = useAsync(() => listLabCategories(accessToken), [accessToken]);
-  const { data: testRows } = useAsync(listLabTestsForPicker, []);
+  const { data: testRows } = useAsync(() => listLabTestsForPicker(accessToken), [accessToken]);
   const categories = categoryRows ?? [];
   const tests = testRows ?? [];
 
@@ -75,7 +75,7 @@ export function LabPackageBuilderModal({
     if (editing) {
       setForm(fromPackage(editing));
       let alive = true;
-      getLabPackageTestIds(editing.id).then((ids) => {
+      getLabPackageTestIds(editing.id, accessToken).then((ids) => {
         if (!alive) return;
         setForm((f) => ({ ...f, testIds: ids }));
         setInitialTestIds(ids);
@@ -136,9 +136,9 @@ export function LabPackageBuilderModal({
         form.testIds.length !== initialTestIds.length ||
         form.testIds.some((id, i) => id !== initialTestIds[i]);
       if (editing) {
-        await updateLabPackageBuild(editing.id, form, testsChanged);
+        await updateLabPackageBuild(editing.id, form, testsChanged, accessToken);
       } else {
-        await createLabPackage(form);
+        await createLabPackage(form, accessToken);
       }
       onSaved();
       onClose();
