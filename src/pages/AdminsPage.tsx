@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput } from '@/components/ui/Filters';
 import { Icon } from '@/components/ui/Icon';
@@ -19,6 +19,8 @@ import {
   ROLE_LABELS,
   ROLE_PERMISSIONS,
   ROLE_SUMMARY,
+  STORE_BOUND_ROLES,
+  allowedModules,
   canAccess,
 } from '@/config/permissions';
 import type { Role } from '@/types';
@@ -35,18 +37,11 @@ const ROLE_COLOR: Record<Role, string> = {
   lab_technician: '#a1650d',
 };
 
-// "Add staff account" always creates a branch's own pharmacy login — the
-// one role every branch actually needs opened from here day to day. A
-// Super Admin/Admin/Lab/Appointments/Delivery/Lab Technician account is
-// rarer and console-wide or cross-branch in a way a plain branch form
-// shouldn't imply; those still exist (see the role column below) but are
-// no longer created through this modal.
-const STAFF_ROLE: Role = 'pharmacy';
-
 const EMPTY_FORM = {
   loginId: '',
   name: '',
   password: '',
+  role: 'pharmacy' as Role,
   storeId: '',
 };
 
@@ -59,7 +54,7 @@ const EMPTY_FORM = {
  * follow-up.
  */
 export default function AdminsPage() {
-  const { accessToken } = useAuth();
+  const { user, accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(() => listStaffAccounts(accessToken), [accessToken]);
   const rows = data ?? [];
 
@@ -71,15 +66,38 @@ export default function AdminsPage() {
 
   const [search, setSearch] = useState('');
 
-  const [modalOpen, setModalOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
-  function openModal() {
-    setForm(EMPTY_FORM);
+  // Granting a Super Admin or Admin account is Super-Admin-only — the
+  // picker only ever offers what the backend will actually accept from
+  // this caller (AdminService.assertRoleGrantAllowed is the real guard;
+  // this just keeps the form from promising something the API will 403).
+  const grantableRoles = useMemo(
+    () => ROLES.filter((r) => user?.role === 'superadmin' || (r !== 'superadmin' && r !== 'admin')),
+    [user?.role],
+  );
+
+  function openAdd() {
+    // Pharmacy is the account every branch actually needs day to day — the
+    // default even for a Super Admin, who can still pick Super Admin/Admin
+    // from the same picker when that's really what's needed.
+    const defaultRole = grantableRoles.includes('pharmacy') ? 'pharmacy' : (grantableRoles[0] ?? 'pharmacy');
+    setForm({ ...EMPTY_FORM, role: defaultRole });
     setFormError(null);
-    setModalOpen(true);
+    setAdding(true);
+  }
+
+  function patchForm(patch: Partial<typeof EMPTY_FORM>) {
+    setForm((f) => {
+      const next = { ...f, ...patch };
+      // Clear the branch pick when switching to a role that isn't store-bound
+      // — nothing should silently carry a branch onto a console-wide login.
+      if (patch.role && !STORE_BOUND_ROLES.includes(next.role)) next.storeId = '';
+      return next;
+    });
   }
 
   async function submit() {
@@ -88,7 +106,11 @@ export default function AdminsPage() {
       setFormError('Login id, name and password are all required.');
       return;
     }
-    if (!form.storeId) {
+    if (form.password.length < 8) {
+      setFormError('Password must be at least 8 characters.');
+      return;
+    }
+    if (STORE_BOUND_ROLES.includes(form.role) && !form.storeId) {
       setFormError('Pick the branch this account works.');
       return;
     }
@@ -98,10 +120,10 @@ export default function AdminsPage() {
         loginId: form.loginId.trim(),
         name: form.name.trim(),
         password: form.password,
-        role: STAFF_ROLE,
-        storeId: Number(form.storeId),
+        role: form.role,
+        storeId: form.storeId ? Number(form.storeId) : undefined,
       });
-      setModalOpen(false);
+      setAdding(false);
       reload();
     } catch (err) {
       setFormError(
@@ -178,13 +200,28 @@ export default function AdminsPage() {
     },
   ];
 
+  if (adding) {
+    return (
+      <AddStaffPage
+        form={form}
+        patchForm={patchForm}
+        grantableRoles={grantableRoles}
+        storeOptions={storeOptions}
+        formError={formError}
+        submitting={submitting}
+        onCancel={() => setAdding(false)}
+        onSave={() => void submit()}
+      />
+    );
+  }
+
   return (
     <>
       <PageHeader
         title="Staff Login"
         subtitle="Every staff login account — create as many as a branch needs, each its own login id and password."
         actions={
-          <Button size="sm" onClick={openModal}>
+          <Button size="sm" onClick={openAdd}>
             <Icon name="plus" className="h-4 w-4" />
             Add staff account
           </Button>
@@ -272,76 +309,187 @@ export default function AdminsPage() {
           for now, ask a Super Admin with backend access.
         </p>
       </Card>
+    </>
+  );
+}
 
-      <Modal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
+/** Every option the role picker shows, SUPERADMIN/ADMIN filtered out for an
+ *  ADMIN caller by the page above ([grantableRoles]) before this ever
+ *  renders. */
+function RolePicker({
+  roles,
+  value,
+  onChange,
+}: {
+  roles: Role[];
+  value: Role;
+  onChange: (role: Role) => void;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2">
+      {roles.map((role) => {
+        const selected = value === role;
+        return (
+          <button
+            key={role}
+            type="button"
+            onClick={() => onChange(role)}
+            className={`rounded-lg border p-3 text-left transition ${
+              selected
+                ? 'border-brand-500 bg-brand-50/60 ring-1 ring-brand-500'
+                : 'border-slate-300 hover:border-slate-400'
+            }`}
+          >
+            <p className={`text-sm font-medium ${selected ? 'text-brand-700' : 'text-slate-800'}`}>
+              {ROLE_LABELS[role]}
+            </p>
+            <p className="mt-0.5 text-xs text-slate-500">{ROLE_SUMMARY[role]}</p>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-sm font-medium text-slate-700">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+const inputClass =
+  'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
+
+/** The full-page "Add staff account" form — a role picker up front (what
+ *  this account's own login will be allowed to do is a real decision, not
+ *  a detail to bury in a dialog), then a live preview of exactly which
+ *  sidebar sections that role unlocks, so the choice is never a guess. */
+function AddStaffPage({
+  form,
+  patchForm,
+  grantableRoles,
+  storeOptions,
+  formError,
+  submitting,
+  onCancel,
+  onSave,
+}: {
+  form: typeof EMPTY_FORM;
+  patchForm: (patch: Partial<typeof EMPTY_FORM>) => void;
+  grantableRoles: Role[];
+  storeOptions: { value: string; label: string }[];
+  formError: string | null;
+  submitting: boolean;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const storeBound = STORE_BOUND_ROLES.includes(form.role);
+  const opensUp = allowedModules(form.role);
+
+  return (
+    <>
+      <PageHeader
         title="Add staff account"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>
+        subtitle="Create a login id and password, choose a role, and see exactly which sections it opens before saving."
+        actions={
+          <Button variant="secondary" disabled={submitting} onClick={onCancel}>
+            Back to staff logins
+          </Button>
+        }
+      />
+      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+        <Card>
+          <div className="space-y-4 p-6">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Login id">
+                <input
+                  value={form.loginId}
+                  onChange={(e) => patchForm({ loginId: e.target.value })}
+                  placeholder="e.g. pharmacy_mel"
+                  className={inputClass}
+                />
+              </Field>
+              <Field label="Name">
+                <input
+                  value={form.name}
+                  onChange={(e) => patchForm({ name: e.target.value })}
+                  className={inputClass}
+                />
+              </Field>
+            </div>
+            <Field label="Password">
+              <input
+                type="password"
+                value={form.password}
+                onChange={(e) => patchForm({ password: e.target.value })}
+                placeholder="At least 8 characters"
+                className={inputClass}
+              />
+            </Field>
+
+            <Field label="Role">
+              <RolePicker
+                roles={grantableRoles}
+                value={form.role}
+                onChange={(role) => patchForm({ role })}
+              />
+            </Field>
+
+            {storeBound && (
+              <Field label="Branch">
+                <select
+                  value={form.storeId}
+                  onChange={(e) => patchForm({ storeId: e.target.value })}
+                  className={`${inputClass} bg-white`}
+                >
+                  <option value="">Select a branch…</option>
+                  {storeOptions.map((s) => (
+                    <option key={s.value} value={s.value}>
+                      {s.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-400">
+                  This account signs in as {ROLE_LABELS[form.role]} for the branch chosen here.
+                </p>
+              </Field>
+            )}
+
+            {formError && (
+              <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">{formError}</p>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 border-t border-slate-200 p-4">
+            <Button variant="secondary" disabled={submitting} onClick={onCancel}>
               Cancel
             </Button>
-            <Button onClick={() => void submit()} disabled={submitting}>
+            <Button variant="primary" disabled={submitting} onClick={onSave}>
               {submitting ? 'Creating…' : 'Create account'}
             </Button>
-          </>
-        }
-      >
-        <div className="space-y-4">
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">
-              Login id
-            </label>
-            <input
-              value={form.loginId}
-              onChange={(e) => setForm((f) => ({ ...f, loginId: e.target.value }))}
-              placeholder="e.g. pharmacy_mel"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-            />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Name</label>
-            <input
-              value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-            />
+        </Card>
+
+        <Card className="h-fit">
+          <CardHeader
+            title={`What ${ROLE_LABELS[form.role]} can open`}
+            subtitle={ROLE_SUMMARY[form.role]}
+          />
+          <div className="flex flex-wrap gap-1.5 p-4">
+            {opensUp.map((m) => (
+              <span
+                key={m.key}
+                className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600"
+                title={m.description}
+              >
+                {m.label}
+              </span>
+            ))}
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">
-              Password
-            </label>
-            <input
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-              placeholder="At least 8 characters"
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-medium text-slate-600">Branch</label>
-            <select
-              value={form.storeId}
-              onChange={(e) => setForm((f) => ({ ...f, storeId: e.target.value }))}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-            >
-              <option value="">Select a branch…</option>
-              {storeOptions.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-slate-400">
-              This account signs in as {ROLE_LABELS.pharmacy} for the branch chosen here. For any other role, ask a
-              Super Admin with backend access.
-            </p>
-          </div>
-          {formError && <p className="text-xs text-rose-600">{formError}</p>}
-        </div>
-      </Modal>
+        </Card>
+      </div>
     </>
   );
 }
