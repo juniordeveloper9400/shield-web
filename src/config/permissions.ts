@@ -132,10 +132,10 @@ export const MODULES: NavItem[] = [
   },
   {
     key: 'admins',
-    label: 'Admins',
+    label: 'Staff Login',
     path: '/admins',
     icon: 'admins',
-    description: 'Admin accounts & their access',
+    description: 'Create and manage staff login accounts, branch by branch',
   },
   {
     key: 'deliveries',
@@ -164,8 +164,9 @@ export const MODULES: NavItem[] = [
  * Which modules each login role may open. The router uses this to decide
  * whether a page renders or redirects to "No access".
  */
-/** Every operational module — what an `admin` runs. `superadmin` gets this
- *  plus `admins`. Keep the two in step. */
+/** Every operational module — what an `admin` runs, before `admins` (Staff
+ *  Login), `commission_reserve` and `ledger` are added back on for both
+ *  `admin` and `superadmin` below. */
 const APP_MODULES: ModuleKey[] = [
   'dashboard',
   'stores',
@@ -190,8 +191,12 @@ const APP_MODULES: ModuleKey[] = [
 export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   // 'commission_reserve' is the company's reserve, split by store: an admin
   // sees every store, a branch's pharmacy admin only its own.
+  // 'admins' (Staff Login) is open to both now — backend/api's own
+  // admin.controller.ts already lets ADMIN create/list staff logins
+  // (refused only SUPERADMIN/ADMIN-level grants, see its own doc), so the
+  // sidebar matches what the server actually allows.
   superadmin: [...APP_MODULES, 'admins', 'commission_reserve', 'ledger'],
-  admin: [...APP_MODULES, 'commission_reserve', 'ledger'],
+  admin: [...APP_MODULES, 'admins', 'commission_reserve', 'ledger'],
   // 'lab_orders' added so a branch's own admin can see that lab bookings
   // exist for their store, the same as any other order — LabOrdersPage
   // itself redacts the patient/test detail for this role; see its own doc.
@@ -216,9 +221,9 @@ export const ROLE_LABELS: Record<Role, string> = {
 
 export const ROLE_SUMMARY: Record<Role, string> = {
   superadmin:
-    'The whole view — every module, plus the Admins module that controls who can sign in.',
+    'The whole view — every module, plus Staff Login, which controls who can sign in.',
   admin:
-    'Runs the app: catalogue, users & agent / investor conversion, orders, bills, prescriptions, privilege plans, labs, appointments and the Accounts money-flow view.',
+    'Runs the app: catalogue, users & agent / investor conversion, orders, bills, prescriptions, privilege plans, labs, appointments, Staff Login and the Accounts money-flow view.',
   pharmacy: 'Works one branch — its member orders, bills and uploaded prescriptions.',
   lab: 'Works member lab-test bookings — schedule, notes, reports and bills — the test master and package catalogue, and the branch list.',
   appointments: 'Handles the clinic, tele and dietitian appointment queue.',

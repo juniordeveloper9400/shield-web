@@ -95,7 +95,7 @@ export default function AdminsPage() {
         name: form.name.trim(),
         password: form.password,
         role: form.role,
-        ...(storeBound && form.storeId ? { storeId: Number(form.storeId) } : {}),
+        ...(form.storeId ? { storeId: Number(form.storeId) } : {}),
       });
       setModalOpen(false);
       reload();
@@ -177,8 +177,8 @@ export default function AdminsPage() {
   return (
     <>
       <PageHeader
-        title="Admins"
-        subtitle="Staff accounts for the console — SUPERADMIN only."
+        title="Staff Login"
+        subtitle="Every staff login account — create as many as a branch needs, each its own login id and password."
         actions={
           <Button size="sm" onClick={openModal}>
             <Icon name="plus" className="h-4 w-4" />
@@ -332,25 +332,24 @@ export default function AdminsPage() {
               ))}
             </select>
           </div>
-          {storeBound && (
-            <div>
-              <label className="mb-1 block text-xs font-medium text-slate-600">
-                Branch
-              </label>
-              <select
-                value={form.storeId}
-                onChange={(e) => setForm((f) => ({ ...f, storeId: e.target.value }))}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
-              >
-                <option value="">Select a branch…</option>
-                {storeOptions.map((s) => (
-                  <option key={s.value} value={s.value}>
-                    {s.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div>
+            <label className="mb-1 block text-xs font-medium text-slate-600">
+              Branch{storeBound ? '' : ' (optional)'}
+            </label>
+            <select
+              value={form.storeId}
+              onChange={(e) => setForm((f) => ({ ...f, storeId: e.target.value }))}
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100"
+            >
+              <option value="">{storeBound ? 'Select a branch…' : 'No branch — console-wide'}</option>
+              {storeOptions.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-slate-400">Every branch is listed here, whichever role is picked above.</p>
+          </div>
           {formError && <p className="text-xs text-rose-600">{formError}</p>}
         </div>
       </Modal>
