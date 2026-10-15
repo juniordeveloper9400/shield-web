@@ -94,9 +94,9 @@ function discountLabelFor(price: number, mrp: number): string | null {
   return percent > 0 ? `${percent}% off` : null;
 }
 
-/** The storage instructions admins pick from — a fixed set rather than free
- *  text, so the detail page always shows a real, consistent instruction. */
-const STORAGE_OPTIONS = [
+/** Default storage instructions admins pick from, persisted to localStorage so
+ *  admins can create, edit, and delete storage options. */
+const DEFAULT_STORAGE_OPTIONS = [
   'Store below 25°C in a cool, dry place',
   'Store below 30°C in a cool, dry place',
   'Store in a cool, dry place away from direct sunlight',
@@ -104,6 +104,25 @@ const STORAGE_OPTIONS = [
   'Refrigerate between 2°C and 8°C. Do not freeze',
   'Keep out of reach and sight of children',
 ];
+const STORAGE_OPTIONS_STORAGE_KEY = 'shield-catalogue-storage-options';
+
+function loadStorageOptions(): string[] {
+  try {
+    const raw = window.localStorage.getItem(STORAGE_OPTIONS_STORAGE_KEY);
+    if (!raw) return DEFAULT_STORAGE_OPTIONS;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch {}
+  return DEFAULT_STORAGE_OPTIONS;
+}
+
+function persistStorageOptions(options: string[]) {
+  try {
+    window.localStorage.setItem(STORAGE_OPTIONS_STORAGE_KEY, JSON.stringify(options));
+  } catch {}
+}
 
 /** Short labels for the catalogue-table tags — the same three sections the
  *  "Home feed rows" panel and the section tabs use, just compact enough to
@@ -153,17 +172,30 @@ export default function ProductsPage() {
   const [editingBrandName, setEditingBrandName] = useState('');
   const [brandRowBusy, setBrandRowBusy] = useState(false);
 
+  // Storage dropdown custom management (create, edit, delete)
+  const [storageOptions, setStorageOptions] = useState<string[]>(() => loadStorageOptions());
+  const [storageMenuOpen, setStorageMenuOpen] = useState(false);
+  const storageMenuRef = useRef<HTMLDivElement>(null);
+  const [addingStorage, setAddingStorage] = useState(false);
+  const [newStorageText, setNewStorageText] = useState('');
+  const [editingStorageIndex, setEditingStorageIndex] = useState<number | null>(null);
+  const [editingStorageText, setEditingStorageText] = useState('');
+
   useEffect(() => {
-    if (!brandMenuOpen) return;
     function onClickOutside(e: MouseEvent) {
-      if (!brandMenuRef.current?.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (brandMenuOpen && !brandMenuRef.current?.contains(target)) {
         setBrandMenuOpen(false);
         setEditingBrandId(null);
+      }
+      if (storageMenuOpen && !storageMenuRef.current?.contains(target)) {
+        setStorageMenuOpen(false);
+        setEditingStorageIndex(null);
       }
     }
     document.addEventListener('mousedown', onClickOutside);
     return () => document.removeEventListener('mousedown', onClickOutside);
-  }, [brandMenuOpen]);
+  }, [brandMenuOpen, storageMenuOpen]);
 
   async function registerBrand() {
     if (!newBrandName.trim()) return;
@@ -240,7 +272,13 @@ export default function ProductsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ price: '', stockQuantity: '', image: '' });
+  const [form, setForm] = useState<{
+    price: string;
+    stockQuantity: string;
+    image: string;
+    extraImages: string[];
+  }>({ price: '', stockQuantity: '', image: '', extraImages: [] });
+  const [activePreviewIdx, setActivePreviewIdx] = useState(0);
   const [formImageBusy, setFormImageBusy] = useState(false);
   const [formImageError, setFormImageError] = useState<string | null>(null);
   const { ask, dialog: confirmDialog } = useConfirmDialog();
@@ -296,7 +334,13 @@ export default function ProductsPage() {
     setSelectedDetail(undefined);
     getProductDetail(selectedId, accessToken)
       .then((d) => {
-        if (!cancelled) setSelectedDetail(d);
+        if (!cancelled) {
+          setSelectedDetail(d);
+          setForm((f) => ({
+            ...f,
+            extraImages: d?.extraImages ?? [],
+          }));
+        }
       })
       .catch(() => {
         if (!cancelled) setSelectedDetail(null);
@@ -340,6 +384,14 @@ export default function ProductsPage() {
         rest.benefits = '';
         detail = rest;
         extraImages = galleryExtras;
+        if (rest.storage) {
+          setStorageOptions((prev) => {
+            if (prev.includes(rest.storage)) return prev;
+            const next = [...prev, rest.storage];
+            persistStorageOptions(next);
+            return next;
+          });
+        }
       }
     } catch {
       // Fall back to a blank detail block; the core fields are still editable.
@@ -370,6 +422,53 @@ export default function ProductsPage() {
   }
 
   /** Patches one field of the draft's detail block. */
+  function addStorageOption() {
+    const trimmed = newStorageText.trim();
+    if (!trimmed) return;
+    if (!storageOptions.includes(trimmed)) {
+      const next = [...storageOptions, trimmed];
+      setStorageOptions(next);
+      persistStorageOptions(next);
+    }
+    setDetail('storage', trimmed);
+    setNewStorageText('');
+    setAddingStorage(false);
+  }
+
+  function saveStorageRename(index: number) {
+    const trimmed = editingStorageText.trim();
+    const oldVal = storageOptions[index];
+    if (!trimmed || trimmed === oldVal) {
+      setEditingStorageIndex(null);
+      return;
+    }
+    const next = [...storageOptions];
+    next[index] = trimmed;
+    setStorageOptions(next);
+    persistStorageOptions(next);
+    if (draft.detail.storage === oldVal) {
+      setDetail('storage', trimmed);
+    }
+    setEditingStorageIndex(null);
+  }
+
+  function confirmDeleteStorage(option: string, index: number) {
+    ask({
+      title: 'Delete storage instruction?',
+      message: `"${option}" will be removed from the options list. Products currently assigned this instruction will keep their text.`,
+      confirmLabel: 'Delete',
+      danger: true,
+      onConfirm: () => {
+        const next = storageOptions.filter((_, i) => i !== index);
+        setStorageOptions(next);
+        persistStorageOptions(next);
+        if (draft.detail.storage === option) {
+          setDetail('storage', '');
+        }
+      },
+    });
+  }
+
   function setDetail<K extends keyof ProductDetailInput>(
     key: K,
     value: ProductDetailInput[K],
@@ -579,11 +678,13 @@ export default function ProductsPage() {
     if (!product) return;
     setSelectedId(id);
     setEditing(false);
+    setActivePreviewIdx(0);
     setFormImageError(null);
     setForm({
       price: String(product.price),
       stockQuantity: String(product.stockQuantity),
       image: product.image,
+      extraImages: [],
     });
   }
 
@@ -604,16 +705,26 @@ export default function ProductsPage() {
     const stockQuantity = Number(form.stockQuantity);
     setSaving(true);
     try {
-      await updateProduct(selected.id, {
-        price: Number.isFinite(price) && price >= 0 ? price : selected.price,
-        stockQuantity:
-          Number.isFinite(stockQuantity) && stockQuantity >= 0
-            ? stockQuantity
-            : selected.stockQuantity,
-        ...(form.image !== selected.image ? { image: form.image } : {}),
-      }, accessToken);
+      await updateProduct(
+        selected.id,
+        {
+          price: Number.isFinite(price) && price >= 0 ? price : selected.price,
+          stockQuantity:
+            Number.isFinite(stockQuantity) && stockQuantity >= 0
+              ? stockQuantity
+              : selected.stockQuantity,
+          image: form.image,
+          extraImages: form.extraImages,
+        },
+        accessToken,
+      );
       setEditing(false);
       reload();
+      if (selectedId) {
+        getProductDetail(selectedId, accessToken)
+          .then((d) => setSelectedDetail(d))
+          .catch(() => setSelectedDetail(null));
+      }
     } finally {
       setSaving(false);
     }
@@ -1050,10 +1161,20 @@ export default function ProductsPage() {
                       type="button"
                       title="Remove this image"
                       onClick={() =>
-                        setDraft((d) => {
-                          const extra = [...d.extraImages];
-                          const next = extra.shift() ?? '';
-                          return { ...d, image: next, extraImages: extra };
+                        ask({
+                          title: 'Remove primary image?',
+                          message:
+                            draft.extraImages.length > 0
+                              ? 'Are you sure you want to remove the primary image? The next image will become the primary image.'
+                              : 'Are you sure you want to remove this product image?',
+                          confirmLabel: 'Remove',
+                          danger: true,
+                          onConfirm: () =>
+                            setDraft((d) => {
+                              const extra = [...d.extraImages];
+                              const next = extra.shift() ?? '';
+                              return { ...d, image: next, extraImages: extra };
+                            }),
                         })
                       }
                       className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full border border-rose-200 bg-white text-[10px] leading-none text-rose-600"
@@ -1076,10 +1197,17 @@ export default function ProductsPage() {
                       type="button"
                       title="Remove this image"
                       onClick={() =>
-                        setDraft((d) => ({
-                          ...d,
-                          extraImages: d.extraImages.filter((_, j) => j !== i),
-                        }))
+                        ask({
+                          title: 'Remove this image?',
+                          message: 'Are you sure you want to remove this image from the gallery?',
+                          confirmLabel: 'Remove',
+                          danger: true,
+                          onConfirm: () =>
+                            setDraft((d) => ({
+                              ...d,
+                              extraImages: d.extraImages.filter((_, j) => j !== i),
+                            })),
+                        })
                       }
                       className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full border border-rose-200 bg-white text-[10px] leading-none text-rose-600"
                     >
@@ -1113,19 +1241,22 @@ export default function ProductsPage() {
                 <input
                   type="file"
                   accept="image/*"
+                  multiple
                   className="hidden"
                   onChange={async (e) => {
-                    const file = e.target.files?.[0];
+                    const files = Array.from(e.target.files ?? []);
                     e.target.value = '';
-                    if (!file) return;
+                    if (files.length === 0) return;
                     setAddError(null);
                     try {
-                      const url = await fileToResizedDataUrl(file);
-                      setDraft((d) =>
-                        d.image
-                          ? { ...d, extraImages: [...d.extraImages, url] }
-                          : { ...d, image: url },
-                      );
+                      for (const file of files) {
+                        const url = await fileToResizedDataUrl(file);
+                        setDraft((d) =>
+                          d.image
+                            ? { ...d, extraImages: [...d.extraImages, url] }
+                            : { ...d, image: url },
+                        );
+                      }
                     } catch (err) {
                       setAddError(
                         err instanceof Error ? err.message : 'Could not load the image.',
@@ -1138,7 +1269,7 @@ export default function ProductsPage() {
             <p className="mt-1.5 text-xs text-slate-400">
               The first image (outlined, marked "Primary") is what shows wherever the app and
               webapp show one image — the catalogue list, product cards, cart. "Set primary" on
-              another image swaps it into that spot.
+              another image swaps it into that spot. Click (×) to remove an image.
             </p>
           </EditField>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
@@ -1193,18 +1324,141 @@ export default function ProductsPage() {
                   />
                 </EditField>
                 <EditField label="Storage">
-                  <select
-                    value={draft.detail.storage}
-                    onChange={(e) => setDetail('storage', e.target.value)}
-                    className={inputClass}
-                  >
-                    <option value="">Select storage instructions…</option>
-                    {STORAGE_OPTIONS.map((o) => (
-                      <option key={o} value={o}>
-                        {o}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="relative flex items-center gap-2" ref={storageMenuRef}>
+                    <div className="relative min-w-0 flex-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setStorageMenuOpen((v) => !v);
+                          setEditingStorageIndex(null);
+                        }}
+                        className={`${inputClass} flex items-center justify-between text-left`}
+                      >
+                        <span className={`truncate ${draft.detail.storage ? '' : 'text-slate-400'}`}>
+                          {draft.detail.storage || 'Select storage instructions…'}
+                        </span>
+                        <Icon name="chevron-down" className="h-4 w-4 shrink-0 text-slate-400" />
+                      </button>
+                      {storageMenuOpen && (
+                        <div className="absolute z-10 mt-1 max-h-60 w-full overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDetail('storage', '');
+                              setStorageMenuOpen(false);
+                            }}
+                            className="block w-full px-3 py-2 text-left text-sm text-slate-400 hover:bg-slate-50"
+                          >
+                            Select storage instructions…
+                          </button>
+                          {storageOptions.map((opt, i) => (
+                            <div
+                              key={i}
+                              className={`flex items-center gap-1 px-1.5 py-1 text-sm hover:bg-slate-50 ${
+                                opt === draft.detail.storage ? 'bg-accent-50' : ''
+                              }`}
+                            >
+                              {editingStorageIndex === i ? (
+                                <>
+                                  <input
+                                    autoFocus
+                                    value={editingStorageText}
+                                    onChange={(e) => setEditingStorageText(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        saveStorageRename(i);
+                                      } else if (e.key === 'Escape') {
+                                        setEditingStorageIndex(null);
+                                      }
+                                    }}
+                                    className="min-w-0 flex-1 rounded border border-slate-300 px-2 py-1 text-sm outline-none focus:border-brand-500"
+                                  />
+                                  <button
+                                    type="button"
+                                    title="Save"
+                                    onClick={() => saveStorageRename(i)}
+                                    className="grid h-7 w-7 shrink-0 place-items-center rounded text-brand-600 hover:bg-brand-50"
+                                  >
+                                    <Icon name="check" className="h-4 w-4" />
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setDetail('storage', opt);
+                                      setStorageMenuOpen(false);
+                                    }}
+                                    className="min-w-0 flex-1 truncate px-1.5 py-1 text-left"
+                                  >
+                                    {opt}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Edit storage instruction"
+                                    onClick={() => {
+                                      setEditingStorageIndex(i);
+                                      setEditingStorageText(opt);
+                                    }}
+                                    className="grid h-7 w-7 shrink-0 place-items-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                                  >
+                                    <Icon name="edit" className="h-3.5 w-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    title="Delete storage instruction"
+                                    onClick={() => confirmDeleteStorage(opt, i)}
+                                    className="grid h-7 w-7 shrink-0 place-items-center rounded text-rose-400 hover:bg-rose-50 hover:text-rose-600"
+                                  >
+                                    <Icon name="trash" className="h-3.5 w-3.5" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          ))}
+                          {storageOptions.length === 0 && (
+                            <p className="px-3 py-2 text-sm text-slate-400">No storage instructions yet.</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      title="Register a new storage instruction"
+                      onClick={() => setAddingStorage((v) => !v)}
+                      className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-slate-300 text-slate-500 hover:bg-slate-50"
+                    >
+                      <Icon name="plus" className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {addingStorage && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <input
+                        autoFocus
+                        value={newStorageText}
+                        onChange={(e) => setNewStorageText(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            addStorageOption();
+                          }
+                        }}
+                        placeholder="New storage instruction"
+                        className={inputClass}
+                      />
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="sm"
+                        disabled={!newStorageText.trim()}
+                        onClick={addStorageOption}
+                      >
+                        Add
+                      </Button>
+                    </div>
+                  )}
                 </EditField>
               </div>
               <EditField label="Key uses (one per line)">
@@ -1529,7 +1783,18 @@ export default function ProductsPage() {
                 </>
               ) : (
                 <>
-                  <Button variant="secondary" onClick={() => setEditing(true)}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setEditing(true);
+                      setForm({
+                        price: String(selected.price),
+                        stockQuantity: String(selected.stockQuantity),
+                        image: selected.image,
+                        extraImages: selectedDetail?.extraImages ?? [],
+                      });
+                    }}
+                  >
                     <Icon name="plus" className="h-4 w-4" /> Edit price / stock
                   </Button>
                   {selected.status === 'active' ? (
@@ -1577,13 +1842,156 @@ export default function ProductsPage() {
                 {selected.status === 'active' ? 'Active' : 'Inactive'}
               </Badge>
             </div>
-            {selected.image && (
-              <img
-                src={selected.image}
-                alt={selected.name}
-                className="mb-4 h-40 w-full rounded-lg border border-slate-200 object-contain bg-slate-50"
-              />
-            )}
+            {(() => {
+              const allImages = [
+                selected.image,
+                ...(selectedDetail?.extraImages ?? []),
+              ].filter(Boolean);
+              if (allImages.length === 0) return null;
+              const currentImage = allImages[activePreviewIdx] ?? allImages[0];
+              return (
+                <div className="mb-4 space-y-2">
+                  <div className="relative h-44 w-full rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden">
+                    <img
+                      src={currentImage}
+                      alt={selected.name}
+                      className="h-full w-full object-contain"
+                    />
+                    {activePreviewIdx === 0 && (
+                      <span className="absolute top-2 left-2 rounded bg-brand-600/90 px-2 py-0.5 text-[10px] font-semibold text-white uppercase tracking-wider">
+                        Primary
+                      </span>
+                    )}
+                    {allImages.length > 1 && (
+                      <span className="absolute bottom-2 right-2 rounded bg-black/60 px-2 py-0.5 text-xs font-medium text-white">
+                        {activePreviewIdx + 1} / {allImages.length}
+                      </span>
+                    )}
+                    {canManage && (
+                      <button
+                        type="button"
+                        title="Remove this image"
+                        onClick={() =>
+                          ask({
+                            title: 'Remove this image?',
+                            message:
+                              activePreviewIdx === 0
+                                ? allImages.length > 1
+                                  ? 'Are you sure you want to remove the primary image? The next image will become the primary image.'
+                                  : 'Are you sure you want to remove this product image?'
+                                : 'Are you sure you want to remove this image from the product?',
+                            confirmLabel: 'Remove',
+                            danger: true,
+                            onConfirm: async () => {
+                              const filtered = allImages.filter((_, idx) => idx !== activePreviewIdx);
+                              const nextPrimary = filtered[0] ?? '';
+                              const nextExtras = filtered.slice(1);
+                              setSaving(true);
+                              try {
+                                await updateProduct(
+                                  selected.id,
+                                  {
+                                    image: nextPrimary,
+                                    extraImages: nextExtras,
+                                  },
+                                  accessToken,
+                                );
+                                reload();
+                                if (selectedId) {
+                                  const d = await getProductDetail(selectedId, accessToken);
+                                  setSelectedDetail(d);
+                                }
+                                setActivePreviewIdx((prev) =>
+                                  Math.max(0, Math.min(prev, filtered.length - 1)),
+                                );
+                              } finally {
+                                setSaving(false);
+                              }
+                            },
+                          })
+                        }
+                        className="absolute right-2 top-2 grid h-6 w-6 place-items-center rounded-full border border-rose-200 bg-white/90 text-sm font-bold text-rose-600 shadow-sm hover:bg-rose-50"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  {allImages.length > 1 && (
+                    <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                      {allImages.map((img, idx) => (
+                        <div key={idx} className="relative group shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setActivePreviewIdx(idx)}
+                            className={`relative h-14 w-14 rounded-md border-2 overflow-hidden transition-all block ${
+                              activePreviewIdx === idx
+                                ? 'border-brand-500 ring-2 ring-brand-200'
+                                : 'border-slate-200 hover:border-slate-300 opacity-75 hover:opacity-100'
+                            }`}
+                          >
+                            <img src={img} alt="" className="h-full w-full object-cover" />
+                            {idx === 0 && (
+                              <span className="absolute bottom-0 inset-x-0 bg-brand-600/90 text-white text-[8px] font-bold text-center leading-tight py-0.5">
+                                PRIMARY
+                              </span>
+                            )}
+                          </button>
+                          {canManage && (
+                            <button
+                              type="button"
+                              title="Remove this image"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                ask({
+                                  title: 'Remove this image?',
+                                  message:
+                                    idx === 0
+                                      ? allImages.length > 1
+                                        ? 'Are you sure you want to remove the primary image? The next image will become the primary image.'
+                                        : 'Are you sure you want to remove this product image?'
+                                      : 'Are you sure you want to remove this image from the product?',
+                                  confirmLabel: 'Remove',
+                                  danger: true,
+                                  onConfirm: async () => {
+                                    const filtered = allImages.filter((_, i) => i !== idx);
+                                    const nextPrimary = filtered[0] ?? '';
+                                    const nextExtras = filtered.slice(1);
+                                    setSaving(true);
+                                    try {
+                                      await updateProduct(
+                                        selected.id,
+                                        {
+                                          image: nextPrimary,
+                                          extraImages: nextExtras,
+                                        },
+                                        accessToken,
+                                      );
+                                      reload();
+                                      if (selectedId) {
+                                        const d = await getProductDetail(selectedId, accessToken);
+                                        setSelectedDetail(d);
+                                      }
+                                      setActivePreviewIdx((prev) =>
+                                        Math.max(0, Math.min(prev, filtered.length - 1)),
+                                      );
+                                    } finally {
+                                      setSaving(false);
+                                    }
+                                  },
+                                });
+                              }}
+                              className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full border border-rose-200 bg-white text-[10px] leading-none text-rose-600 shadow-sm opacity-90 hover:opacity-100 hover:bg-rose-50"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
             <DetailList
               rows={[
                 { label: 'Code', value: selected.code || '—' },
@@ -1721,41 +2129,126 @@ export default function ProductsPage() {
 
         {selected && editing && (
           <div className="space-y-4">
-            <EditField label="Image">
-              <div className="flex items-center gap-3">
-                {form.image ? (
-                  <img
-                    src={form.image}
-                    alt=""
-                    className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
-                  />
-                ) : (
+            <EditField label="Product images (optional)">
+              <div className="flex flex-wrap items-start gap-3">
+                {form.image && (
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="relative">
+                      <img
+                        src={form.image}
+                        alt=""
+                        className="h-16 w-16 rounded-lg border-2 border-brand-500 object-cover"
+                      />
+                      <button
+                        type="button"
+                        title="Remove this image"
+                        onClick={() =>
+                          ask({
+                            title: 'Remove primary image?',
+                            message:
+                              form.extraImages.length > 0
+                                ? 'Are you sure you want to remove the primary image? The next image will become the primary image.'
+                                : 'Are you sure you want to remove this product image?',
+                            confirmLabel: 'Remove',
+                            danger: true,
+                            onConfirm: () =>
+                              setForm((f) => {
+                                const extra = [...f.extraImages];
+                                const next = extra.shift() ?? '';
+                                return { ...f, image: next, extraImages: extra };
+                              }),
+                          })
+                        }
+                        className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full border border-rose-200 bg-white text-[10px] leading-none text-rose-600"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <span className="text-[10px] font-semibold text-brand-600">Primary</span>
+                  </div>
+                )}
+                {form.extraImages.map((img, i) => (
+                  <div key={i} className="flex flex-col items-center gap-1">
+                    <div className="relative">
+                      <img
+                        src={img}
+                        alt=""
+                        className="h-16 w-16 rounded-lg border border-slate-200 object-cover"
+                      />
+                      <button
+                        type="button"
+                        title="Remove this image"
+                        onClick={() =>
+                          ask({
+                            title: 'Remove this image?',
+                            message: 'Are you sure you want to remove this image from the gallery?',
+                            confirmLabel: 'Remove',
+                            danger: true,
+                            onConfirm: () =>
+                              setForm((f) => ({
+                                ...f,
+                                extraImages: f.extraImages.filter((_, j) => j !== i),
+                              })),
+                          })
+                        }
+                        className="absolute -right-1.5 -top-1.5 grid h-4 w-4 place-items-center rounded-full border border-rose-200 bg-white text-[10px] leading-none text-rose-600"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      className="text-[10px] font-medium text-brand-600 hover:underline"
+                      onClick={() =>
+                        setForm((f) => {
+                          const extra = [...f.extraImages];
+                          const promoted = extra[i];
+                          extra[i] = f.image;
+                          return { ...f, image: promoted, extraImages: extra };
+                        })
+                      }
+                    >
+                      Set primary
+                    </button>
+                  </div>
+                ))}
+                {!form.image && form.extraImages.length === 0 && (
                   <div className="grid h-16 w-16 place-items-center rounded-lg border border-dashed border-slate-300 text-slate-300">
                     <Icon name="products" className="h-6 w-6" />
                   </div>
                 )}
                 <label
-                  className={`inline-flex items-center gap-1.5 rounded-lg border border-dashed border-brand-400 bg-brand-50/50 px-3 py-2 text-xs font-medium text-brand-700 ${
-                    formImageBusy ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-brand-50'
+                  className={`flex h-16 w-16 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:border-brand-400 hover:text-brand-600 ${
+                    formImageBusy ? 'opacity-50 pointer-events-none' : ''
                   }`}
                 >
-                  {formImageBusy ? 'Reading…' : form.image ? 'Change image' : 'Add image'}
+                  <Icon name="plus" className="h-4 w-4" />
+                  <span className="text-[9px] font-medium">{formImageBusy ? 'Adding…' : 'Add'}</span>
                   <input
                     type="file"
                     accept="image/*"
+                    multiple
                     disabled={formImageBusy}
                     className="hidden"
                     onChange={async (e) => {
-                      const file = e.target.files?.[0];
+                      const files = Array.from(e.target.files ?? []);
                       e.target.value = '';
-                      if (!file) return;
+                      if (files.length === 0) return;
                       setFormImageError(null);
                       setFormImageBusy(true);
                       try {
-                        const url = await fileToResizedDataUrl(file);
-                        setForm((f) => ({ ...f, image: url }));
+                        for (const file of files) {
+                          const url = await fileToResizedDataUrl(file);
+                          setForm((f) =>
+                            f.image
+                              ? { ...f, extraImages: [...f.extraImages, url] }
+                              : { ...f, image: url },
+                          );
+                        }
                       } catch (err) {
-                        setFormImageError(err instanceof Error ? err.message : 'Could not load the image.');
+                        setFormImageError(
+                          err instanceof Error ? err.message : 'Could not load the image.',
+                        );
                       } finally {
                         setFormImageBusy(false);
                       }
@@ -1764,6 +2257,9 @@ export default function ProductsPage() {
                 </label>
               </div>
               {formImageError && <p className="mt-1.5 text-xs text-rose-600">{formImageError}</p>}
+              <p className="mt-1.5 text-xs text-slate-400">
+                The first image (marked "Primary") is displayed first across the app and webapp. "Set primary" swaps it into that spot.
+              </p>
             </EditField>
             <EditField label="Offer Price (₹)">
               <input
