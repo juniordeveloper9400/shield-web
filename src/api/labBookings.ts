@@ -2,7 +2,6 @@ import { api } from '@/lib/api';
 import { fromEnum } from '@/lib/mappers';
 import type {
   LabBooking,
-  LabBookingPatient,
   LabBookingStatus,
   LabFulfillmentType,
   LabReportPage,
@@ -21,7 +20,15 @@ interface LabBookingApiRow {
   storeCode: string | null;
   storeName: string | null;
   patientsCount: number;
-  patients: { name: string; age: number | null }[];
+  patients: {
+    id: number;
+    patientId: number | null;
+    name: string;
+    age: number | null;
+    address: string;
+    addressId: number | null;
+    addressOverride: string | null;
+  }[];
   fulfillmentType: string;
   address: string;
   addressPhone: string | null;
@@ -53,7 +60,15 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
     storeCode: r.storeCode ?? '',
     storeName: r.storeName ?? '',
     patientsCount: r.patientsCount,
-    patients: r.patients as LabBookingPatient[],
+    patients: r.patients.map((p) => ({
+      id: String(p.id),
+      patientId: p.patientId == null ? null : String(p.patientId),
+      name: p.name,
+      age: p.age,
+      address: p.address,
+      addressId: p.addressId == null ? null : String(p.addressId),
+      addressOverride: p.addressOverride ?? '',
+    })),
     fulfillmentType: fromEnum<LabFulfillmentType>(r.fulfillmentType),
     address: r.address,
     addressPhone: r.addressPhone ?? '',
@@ -168,7 +183,13 @@ export async function updateLabBookingDetails(
     note: string;
     storeId?: number;
     address?: string;
-    patients?: { patientId?: number; name?: string; age?: number }[];
+    patients?: {
+      patientId?: number;
+      name?: string;
+      age?: number;
+      addressId?: number | null;
+      addressOverride?: string | null;
+    }[];
   },
   token: string | null,
 ): Promise<void> {

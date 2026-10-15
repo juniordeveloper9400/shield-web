@@ -133,7 +133,15 @@ function BookingWindow({
   const [storeCode, setStoreCode] = useState(booking.storeCode);
   const [address, setAddress] = useState(booking.address);
   const [patients, setPatients] = useState(
-    booking.patients.map((p) => ({ name: p.name, age: p.age == null ? '' : String(p.age) })),
+    booking.patients.map((p) => ({
+      name: p.name,
+      age: p.age == null ? '' : String(p.age),
+      // The raw override text, edited directly — blank means "use the
+      // booking's own address", shown as this row's placeholder below.
+      addressOverride: p.addressOverride,
+      addressId: p.addressId,
+      resolvedAddress: p.address,
+    })),
   );
   const [patientsError, setPatientsError] = useState<string | null>(null);
   const stores = useAsync(() => listStores(accessToken), [accessToken]);
@@ -409,6 +417,9 @@ function BookingWindow({
   const originalPatients = booking.patients.map((p) => ({
     name: p.name,
     age: p.age == null ? '' : String(p.age),
+    addressOverride: p.addressOverride,
+    addressId: p.addressId,
+    resolvedAddress: p.address,
   }));
   const patientsChanged = JSON.stringify(patients) !== JSON.stringify(originalPatients);
   const detailsEditable = canEditBookingDetails(status);
@@ -428,12 +439,15 @@ function BookingWindow({
       : null;
 
   function addPatientRow() {
-    setPatients((rows) => [...rows, { name: '', age: '' }]);
+    setPatients((rows) => [
+      ...rows,
+      { name: '', age: '', addressOverride: '', addressId: null, resolvedAddress: '' },
+    ]);
   }
   function removePatientRow(i: number) {
     setPatients((rows) => rows.filter((_, idx) => idx !== i));
   }
-  function patchPatientRow(i: number, patch: Partial<{ name: string; age: string }>) {
+  function patchPatientRow(i: number, patch: Partial<{ name: string; age: string; addressOverride: string }>) {
     setPatients((rows) => rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)));
   }
 
@@ -459,7 +473,12 @@ function BookingWindow({
   function saveDetails() {
     setPatientsError(null);
     const cleanedPatients = patients
-      .map((p) => ({ name: p.name.trim(), age: p.age.trim() ? Number(p.age) : undefined }))
+      .map((p) => ({
+        name: p.name.trim(),
+        age: p.age.trim() ? Number(p.age) : undefined,
+        addressId: p.addressId ? Number(p.addressId) : undefined,
+        addressOverride: p.addressOverride.trim() || null,
+      }))
       .filter((p) => p.name);
     if (patientsChanged && cleanedPatients.length === 0) {
       setPatientsError('At least one patient is required.');
@@ -623,6 +642,14 @@ function BookingWindow({
                         {p.age !== null && (
                           <span className="font-normal text-slate-500"> · {p.age} yrs</span>
                         )}
+                        {/* Only shown when this patient's own address differs
+                            from the booking's shared one — the common case
+                            (everyone at home together) stays quiet. */}
+                        {homeCollection && p.address && p.address !== booking.address && (
+                          <span className="mt-0.5 block text-xs font-normal text-slate-500">
+                            {p.address}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -775,32 +802,43 @@ function BookingWindow({
                 </div>
                 <div className="mt-2 space-y-2">
                   {patients.map((p, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input
-                        value={p.name}
-                        placeholder="Name"
-                        disabled={!detailsEditable || busy !== null}
-                        onChange={(e) => patchPatientRow(i, { name: e.target.value })}
-                        className={`${inputClass} flex-1`}
-                      />
-                      <input
-                        value={p.age}
-                        placeholder="Age"
-                        inputMode="numeric"
-                        disabled={!detailsEditable || busy !== null}
-                        onChange={(e) => patchPatientRow(i, { age: e.target.value.replace(/\D/g, '') })}
-                        className={`${inputClass} w-20`}
-                      />
-                      {detailsEditable && patients.length > 1 && (
-                        <button
-                          type="button"
-                          disabled={busy !== null}
-                          onClick={() => removePatientRow(i)}
-                          title="Remove this patient"
-                          className="rounded-md border border-slate-200 p-1.5 text-rose-500 hover:bg-rose-50"
-                        >
-                          <Icon name="close" className="h-3.5 w-3.5" />
-                        </button>
+                    <div key={i} className="rounded-md border border-slate-100 p-2">
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={p.name}
+                          placeholder="Name"
+                          disabled={!detailsEditable || busy !== null}
+                          onChange={(e) => patchPatientRow(i, { name: e.target.value })}
+                          className={`${inputClass} flex-1`}
+                        />
+                        <input
+                          value={p.age}
+                          placeholder="Age"
+                          inputMode="numeric"
+                          disabled={!detailsEditable || busy !== null}
+                          onChange={(e) => patchPatientRow(i, { age: e.target.value.replace(/\D/g, '') })}
+                          className={`${inputClass} w-20`}
+                        />
+                        {detailsEditable && patients.length > 1 && (
+                          <button
+                            type="button"
+                            disabled={busy !== null}
+                            onClick={() => removePatientRow(i)}
+                            title="Remove this patient"
+                            className="rounded-md border border-slate-200 p-1.5 text-rose-500 hover:bg-rose-50"
+                          >
+                            <Icon name="close" className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                      {homeCollection && (
+                        <input
+                          value={p.addressOverride}
+                          placeholder={p.resolvedAddress || "Uses the booking's own collection address"}
+                          disabled={!detailsEditable || busy !== null}
+                          onChange={(e) => patchPatientRow(i, { addressOverride: e.target.value })}
+                          className={`${inputClass} mt-1.5 w-full`}
+                        />
                       )}
                     </div>
                   ))}

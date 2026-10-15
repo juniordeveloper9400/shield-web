@@ -807,9 +807,23 @@ export type LabFulfillmentType = 'home_collection' | 'store_visit';
 
 /** Someone a lab booking is for — one row of `app.lab_booking_patient`. */
 export interface LabBookingPatient {
+  /** The `app.lab_booking_patient` row's own id — needed to edit a
+   *  specific patient's address without touching the others. */
+  id: string;
+  patientId: string | null;
   name: string;
   /** Years; null when neither the booking nor the saved patient records one. */
   age: number | null;
+  /** This patient's own collection address on one line — falls back to the
+   *  booking's own [LabBooking.address] when this patient has none of its
+   *  own (see backend/api BookingService.listLabBookingsForStaff). */
+  address: string;
+  /** Set when this patient has its own saved address (from the member's
+   *  own address book) rather than inheriting the booking's. */
+  addressId: string | null;
+  /** The console's own free-text override for just this patient — wins
+   *  over [addressId] the same way a booking-level override already does. */
+  addressOverride: string;
 }
 
 /** One page of a booking's lab report — one row of `app.lab_booking_report`. */
