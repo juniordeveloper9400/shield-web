@@ -22,10 +22,10 @@ export default function DashboardPage() {
   const { user, accessToken } = useAuth();
 
   const show = {
-    orders: user ? canAccess(user.role, 'orders') : false,
-    prescriptions: user ? canAccess(user.role, 'prescriptions') : false,
-    labOrders: user ? canAccess(user.role, 'lab_orders') : false,
-    appointments: user ? canAccess(user.role, 'appointments') : false,
+    orders: user ? canAccess(user, 'orders') : false,
+    prescriptions: user ? canAccess(user, 'prescriptions') : false,
+    labOrders: user ? canAccess(user, 'lab_orders') : false,
+    appointments: user ? canAccess(user, 'appointments') : false,
   };
 
   // Each source loads only if this role can see it — an empty resolved promise

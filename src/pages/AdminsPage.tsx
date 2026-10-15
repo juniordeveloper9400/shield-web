@@ -18,13 +18,12 @@ import { createStaffAccount, listStaffAccounts, updateStaffAccount, type StaffAc
 import {
   MODULES,
   ROLE_LABELS,
-  ROLE_PERMISSIONS,
   ROLE_SUMMARY,
   STORE_BOUND_ROLES,
   allowedModules,
   canAccess,
 } from '@/config/permissions';
-import type { Role } from '@/types';
+import type { ModuleKey, Role } from '@/types';
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[];
 
@@ -38,12 +37,24 @@ const ROLE_COLOR: Record<Role, string> = {
   lab_technician: '#a1650d',
 };
 
+/** What a role grants before any per-account customization. */
+function roleDefaultModules(role: Role): ModuleKey[] {
+  return allowedModules({ role }).map((m) => m.key);
+}
+
+function sameSet(a: ModuleKey[], b: ModuleKey[]): boolean {
+  if (a.length !== b.length) return false;
+  const bSet = new Set(b);
+  return a.every((k) => bSet.has(k));
+}
+
 const EMPTY_FORM = {
   loginId: '',
   name: '',
   password: '',
   role: 'pharmacy' as Role,
   storeId: '',
+  modules: roleDefaultModules('pharmacy'),
 };
 
 /** Granting (or changing) a Super Admin/Admin account is Super-Admin-only —
@@ -59,6 +70,12 @@ function canTouchRole(callerRole: Role | undefined, targetRole: Role): boolean {
  * replaces the preset roster that used to live in `config/admins.ts`. Every
  * account is a real row (a login id + bcrypt-hashed password), created or
  * edited from this page (SUPERADMIN/ADMIN only — see admin.controller.ts).
+ *
+ * Beyond its role, each account can also be narrowed to an exact set of
+ * sidebar sections (`modules` — null means "everything the role grants").
+ * This is enforced on the backend too (ModuleGuard, common/module-routes.ts)
+ * on top of the existing role check, not just hidden from the sidebar here.
+ *
  * There is no hard delete: "removing" an account deactivates it instead
  * (isActive: false), the same choice this console already makes for a
  * branch (StoresPage) — the login stops working immediately, but every
@@ -96,7 +113,7 @@ export default function AdminsPage() {
     // default even for a Super Admin, who can still pick Super Admin/Admin
     // from the same picker when that's really what's needed.
     const defaultRole = grantableRoles.includes('pharmacy') ? 'pharmacy' : (grantableRoles[0] ?? 'pharmacy');
-    setForm({ ...EMPTY_FORM, role: defaultRole });
+    setForm({ ...EMPTY_FORM, role: defaultRole, modules: roleDefaultModules(defaultRole) });
     setFormError(null);
     setMode('new');
   }
@@ -108,6 +125,7 @@ export default function AdminsPage() {
       password: '',
       role: account.role,
       storeId: account.storeId ? String(account.storeId) : '',
+      modules: account.modules ?? roleDefaultModules(account.role),
     });
     setFormError(null);
     setMode(account);
@@ -119,8 +137,24 @@ export default function AdminsPage() {
       // Clear the branch pick when switching to a role that isn't store-bound
       // — nothing should silently carry a branch onto a console-wide login.
       if (patch.role && !STORE_BOUND_ROLES.includes(next.role)) next.storeId = '';
+      // A role change resets the section list to that role's own default —
+      // customizing under one role, then switching role, would otherwise
+      // leave a stale, confusing mix of sections behind.
+      if (patch.role && !patch.modules) next.modules = roleDefaultModules(patch.role);
       return next;
     });
+  }
+
+  function toggleModule(key: ModuleKey) {
+    setForm((f) => ({
+      ...f,
+      modules: f.modules.includes(key) ? f.modules.filter((k) => k !== key) : [...f.modules, key],
+    }));
+    setFormError(null);
+  }
+
+  function resetModulesToRoleDefault() {
+    setForm((f) => ({ ...f, modules: roleDefaultModules(f.role) }));
   }
 
   async function submit() {
@@ -142,6 +176,14 @@ export default function AdminsPage() {
       setFormError('Pick the branch this account works.');
       return;
     }
+    if (form.modules.length === 0) {
+      setFormError('Pick at least one section this account can open — an account with none can never sign in anywhere.');
+      return;
+    }
+    // A custom list identical to the role's own default is sent as null —
+    // "no customization", so this account keeps tracking its role instead
+    // of silently freezing in place if the role's own defaults change later.
+    const isCustom = !sameSet(form.modules, roleDefaultModules(form.role));
     setSubmitting(true);
     try {
       if (editing) {
@@ -151,6 +193,7 @@ export default function AdminsPage() {
           ...(form.password ? { password: form.password } : {}),
           role: form.role,
           storeId: form.storeId ? Number(form.storeId) : null,
+          modules: isCustom ? form.modules : null,
         });
       } else {
         await createStaffAccount(accessToken, {
@@ -159,6 +202,7 @@ export default function AdminsPage() {
           password: form.password,
           role: form.role,
           storeId: form.storeId ? Number(form.storeId) : undefined,
+          modules: isCustom ? form.modules : null,
         });
       }
       setMode(null);
@@ -246,18 +290,30 @@ export default function AdminsPage() {
     {
       key: 'modules',
       header: 'Can open',
-      render: (row) => (
-        <div className="flex flex-wrap gap-1">
-          {ROLE_PERMISSIONS[row.role].map((key) => (
-            <span
-              key={key}
-              className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] capitalize text-slate-600"
-            >
-              {key}
-            </span>
-          ))}
-        </div>
-      ),
+      render: (row) => {
+        const custom = row.modules != null;
+        const keys = row.modules ?? roleDefaultModules(row.role);
+        return (
+          <div className="flex flex-wrap items-center gap-1">
+            {custom && (
+              <span
+                className="rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-700"
+                title="This account's section list has been customized away from its role's own default."
+              >
+                Customized
+              </span>
+            )}
+            {keys.map((key) => (
+              <span
+                key={key}
+                className="rounded bg-slate-100 px-1.5 py-0.5 text-[11px] capitalize text-slate-600"
+              >
+                {key}
+              </span>
+            ))}
+          </div>
+        );
+      },
     },
     {
       key: 'actions',
@@ -305,6 +361,8 @@ export default function AdminsPage() {
           editing={editing}
           form={form}
           patchForm={patchForm}
+          toggleModule={toggleModule}
+          resetModulesToRoleDefault={resetModulesToRoleDefault}
           grantableRoles={editing ? [...new Set([...grantableRoles, editing.role])] : grantableRoles}
           storeOptions={storeOptions}
           formError={formError}
@@ -350,7 +408,7 @@ export default function AdminsPage() {
       <Card className="mb-6">
         <CardHeader
           title="Role → module access"
-          subtitle="A login inherits the access of its role"
+          subtitle="A login inherits the access of its role by default — editable per account below"
         />
         <div className="overflow-x-auto p-4">
           <table className="min-w-full text-sm">
@@ -373,7 +431,7 @@ export default function AdminsPage() {
                   </td>
                   {MODULES.map((m) => (
                     <td key={m.key} className="px-3 py-2 text-center">
-                      {canAccess(role, m.key) ? (
+                      {canAccess({ role }, m.key) ? (
                         <Icon
                           name="check"
                           className="mx-auto h-4 w-4 text-emerald-500"
@@ -467,14 +525,18 @@ const inputClass =
   'w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100';
 
 /** The full-page "Add staff account" / "Edit staff account" form — a role
- *  picker up front (what this account's own login will be allowed to do is
- *  a real decision, not a detail to bury in a dialog), then a live preview
- *  of exactly which sidebar sections that role unlocks, so the choice is
- *  never a guess. [editing] null means this is a fresh account. */
+ *  picker up front sets the starting point, then every sidebar section can
+ *  be ticked on or off for this one account specifically. The result is
+ *  enforced on the backend too (ModuleGuard), not just a sidebar preview —
+ *  unticking a section here really does block that account's API calls to
+ *  it, the same as its role already does. [editing] null means this is a
+ *  fresh account. */
 function AddStaffPage({
   editing,
   form,
   patchForm,
+  toggleModule,
+  resetModulesToRoleDefault,
   grantableRoles,
   storeOptions,
   formError,
@@ -485,6 +547,8 @@ function AddStaffPage({
   editing: StaffAccount | null;
   form: typeof EMPTY_FORM;
   patchForm: (patch: Partial<typeof EMPTY_FORM>) => void;
+  toggleModule: (key: ModuleKey) => void;
+  resetModulesToRoleDefault: () => void;
   grantableRoles: Role[];
   storeOptions: { value: string; label: string }[];
   formError: string | null;
@@ -493,7 +557,7 @@ function AddStaffPage({
   onSave: () => void;
 }) {
   const storeBound = STORE_BOUND_ROLES.includes(form.role);
-  const opensUp = allowedModules(form.role);
+  const isCustom = !sameSet(form.modules, roleDefaultModules(form.role));
 
   return (
     <>
@@ -502,7 +566,7 @@ function AddStaffPage({
         subtitle={
           editing
             ? 'Change the role, branch, login id or password — leave the password blank to keep the current one.'
-            : 'Create a login id and password, choose a role, and see exactly which sections it opens before saving.'
+            : 'Create a login id and password, choose a role, and fine-tune exactly which sections it opens before saving.'
         }
         actions={
           <Button variant="secondary" disabled={submitting} onClick={onCancel}>
@@ -510,7 +574,7 @@ function AddStaffPage({
           </Button>
         }
       />
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+      <div className="grid gap-6 lg:grid-cols-[1fr_380px]">
         <Card>
           <div className="space-y-4 p-6">
             <div className="grid gap-4 sm:grid-cols-2">
@@ -584,20 +648,40 @@ function AddStaffPage({
 
         <Card className="h-fit">
           <CardHeader
-            title={`What ${ROLE_LABELS[form.role]} can open`}
-            subtitle={ROLE_SUMMARY[form.role]}
+            title="Sections this account can open"
+            subtitle={
+              isCustom
+                ? `Customized — different from ${ROLE_LABELS[form.role]}'s own default.`
+                : `${ROLE_LABELS[form.role]}'s own default — tick/untick to customize just this account.`
+            }
           />
           <div className="flex flex-wrap gap-1.5 p-4">
-            {opensUp.map((m) => (
-              <span
-                key={m.key}
-                className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600"
-                title={m.description}
-              >
-                {m.label}
-              </span>
-            ))}
+            {MODULES.map((m) => {
+              const on = form.modules.includes(m.key);
+              return (
+                <button
+                  key={m.key}
+                  type="button"
+                  title={m.description}
+                  onClick={() => toggleModule(m.key)}
+                  className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                    on
+                      ? 'border-brand-200 bg-brand-50 text-brand-700'
+                      : 'border-slate-200 bg-white text-slate-400 hover:border-slate-300 hover:text-slate-500'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
           </div>
+          {isCustom && (
+            <div className="border-t border-slate-200 p-3">
+              <Button variant="secondary" size="sm" onClick={resetModulesToRoleDefault}>
+                Reset to {ROLE_LABELS[form.role]} default
+              </Button>
+            </div>
+          )}
         </Card>
       </div>
     </>

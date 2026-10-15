@@ -3,7 +3,7 @@ import test from 'node:test';
 import { ROLE_PERMISSIONS, STORE_BOUND_ROLES, canAccess, scopeToStore, scopeUsersToStore } from '../src/config/permissions.ts';
 
 test('store admins can open Users', () => {
-  assert.equal(canAccess('pharmacy', 'users'), true);
+  assert.equal(canAccess({ role: 'pharmacy' }, 'users'), true);
 });
 
 test('store admins see only users whose home branch matches their own', () => {
@@ -43,21 +43,27 @@ test('scopeToStore leaves every row alone for a store-bound role with no store a
 });
 
 test('a Lab Technician can open Lab Orders, Lab Bills and the dashboard, nothing else', () => {
-  assert.equal(canAccess('lab_technician', 'lab_orders'), true);
-  assert.equal(canAccess('lab_technician', 'lab_bills'), true);
-  assert.equal(canAccess('lab_technician', 'dashboard'), true);
-  assert.equal(canAccess('lab_technician', 'stores'), false);
-  assert.equal(canAccess('lab_technician', 'lab_tests'), false);
-  assert.equal(canAccess('lab_technician', 'orders'), false);
+  assert.equal(canAccess({ role: 'lab_technician' }, 'lab_orders'), true);
+  assert.equal(canAccess({ role: 'lab_technician' }, 'lab_bills'), true);
+  assert.equal(canAccess({ role: 'lab_technician' }, 'dashboard'), true);
+  assert.equal(canAccess({ role: 'lab_technician' }, 'stores'), false);
+  assert.equal(canAccess({ role: 'lab_technician' }, 'lab_tests'), false);
+  assert.equal(canAccess({ role: 'lab_technician' }, 'orders'), false);
 });
 
 test('Lab Admin can also open Lab Bills, same as Lab Technician', () => {
-  assert.equal(canAccess('lab', 'lab_bills'), true);
+  assert.equal(canAccess({ role: 'lab' }, 'lab_bills'), true);
 });
 
 test('Pharmacy can open the redacted Lab Orders view, but not Lab Bills — that stays lab-only', () => {
-  assert.equal(canAccess('pharmacy', 'lab_orders'), true);
-  assert.equal(canAccess('pharmacy', 'lab_bills'), false);
+  assert.equal(canAccess({ role: 'pharmacy' }, 'lab_orders'), true);
+  assert.equal(canAccess({ role: 'pharmacy' }, 'lab_bills'), false);
+});
+
+test('a non-null modules list overrides the role default entirely', () => {
+  assert.equal(canAccess({ role: 'pharmacy', modules: ['lab_bills'] }, 'lab_bills'), true);
+  assert.equal(canAccess({ role: 'pharmacy', modules: ['lab_bills'] }, 'orders'), false);
+  assert.equal(canAccess({ role: 'superadmin', modules: [] }, 'dashboard'), false);
 });
 
 test('every role in ROLE_PERMISSIONS has a corresponding STORE_BOUND_ROLES entry only if it actually carries a storeCode', () => {

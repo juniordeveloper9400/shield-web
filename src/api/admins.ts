@@ -1,5 +1,5 @@
 import { api } from '@/lib/api';
-import type { Role } from '@/types';
+import type { ModuleKey, Role } from '@/types';
 
 /** A `GET`/`POST`/`PATCH /v1/staff/admins` row — real staff accounts from
  *  backend/api (`app.admin_user`), not a static roster. Shared by
@@ -12,6 +12,9 @@ export interface StaffAccount {
   role: Role;
   storeId: number | null;
   storeCode: string | null;
+  /** Null (every account, until a Super Admin/Admin edits it) means
+   *  "everything the role grants" — see config/permissions.ts's canAccess(). */
+  modules: ModuleKey[] | null;
   isActive: boolean;
 }
 
@@ -22,6 +25,7 @@ interface StaffApiRow {
   role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS' | 'DELIVERY' | 'LAB_TECHNICIAN';
   storeId: number | null;
   storeCode: string | null;
+  modules: string[] | null;
   isActive: boolean;
 }
 
@@ -33,6 +37,7 @@ function toStaffAccount(r: StaffApiRow): StaffAccount {
     role: r.role.toLowerCase() as Role,
     storeId: r.storeId,
     storeCode: r.storeCode,
+    modules: r.modules as ModuleKey[] | null,
     isActive: r.isActive,
   };
 }
@@ -46,7 +51,7 @@ export function listStaffAccounts(token: string | null, storeId?: number): Promi
 
 export function createStaffAccount(
   token: string | null,
-  dto: { loginId: string; name: string; password: string; role: Role; storeId?: number },
+  dto: { loginId: string; name: string; password: string; role: Role; storeId?: number; modules?: ModuleKey[] | null },
 ): Promise<StaffAccount> {
   return api
     .post<StaffApiRow>(
@@ -59,7 +64,8 @@ export function createStaffAccount(
 
 /** Partial update — only the fields present in [dto] are changed. `password`
  *  omitted (or not passed) leaves the existing one as is; `storeId: null`
- *  clears a branch (for moving an account off the branch-bound roles). */
+ *  clears a branch (for moving an account off the branch-bound roles);
+ *  `modules: null` resets this account back to "everything the role grants". */
 export function updateStaffAccount(
   token: string | null,
   id: string,
@@ -69,6 +75,7 @@ export function updateStaffAccount(
     password: string;
     role: Role;
     storeId: number | null;
+    modules: ModuleKey[] | null;
     isActive: boolean;
   }>,
 ): Promise<StaffAccount> {

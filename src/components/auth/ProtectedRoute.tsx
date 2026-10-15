@@ -22,7 +22,7 @@ export function ProtectedRoute({
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (!canAccess(user.role, module)) {
+  if (!canAccess(user, module)) {
     return <Navigate to="/no-access" replace />;
   }
 

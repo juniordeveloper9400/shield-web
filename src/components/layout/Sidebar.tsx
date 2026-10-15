@@ -16,7 +16,7 @@ export function Sidebar({
   const location = useLocation();
   if (!user) return null;
 
-  const items = allowedModules(user.role);
+  const items = allowedModules(user);
 
   return (
     <>

@@ -69,6 +69,12 @@ export interface AdminUser {
   /** Set only for `pharmacy` — the branch this admin works, e.g. `SHD-MEL`. */
   storeCode?: string;
   lastLogin?: string;
+  /** Null (every account, until a Super Admin/Admin edits it) means
+   *  "everything the role grants" — see config/permissions.ts's canAccess().
+   *  A non-null array narrows this specific account to exactly those
+   *  sections, enforced server-side too (ModuleGuard), not just hidden from
+   *  the sidebar. */
+  modules?: ModuleKey[] | null;
 }
 
 /** The signed-in admin kept in context. Same shape as the table row. */

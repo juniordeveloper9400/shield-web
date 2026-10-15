@@ -243,8 +243,16 @@ export const ROLE_SUMMARY: Record<Role, string> = {
     "Works their own branch's lab bookings and bills only — full patient, test and report detail, the same as Lab Admin but for one store.",
 };
 
-export function canAccess(role: Role, moduleKey: ModuleKey): boolean {
-  return ROLE_PERMISSIONS[role]?.includes(moduleKey) ?? false;
+/** An account's own module override, when it has one — see AuthUser's own
+ *  doc on `modules`. `null`/absent means "everything the role grants". */
+interface Grantee {
+  role: Role;
+  modules?: ModuleKey[] | null;
+}
+
+export function canAccess(account: Grantee, moduleKey: ModuleKey): boolean {
+  if (account.modules != null) return account.modules.includes(moduleKey);
+  return ROLE_PERMISSIONS[account.role]?.includes(moduleKey) ?? false;
 }
 
 /**
@@ -275,13 +283,13 @@ export function canManageCatalogue(role: Role): boolean {
   return role === 'superadmin' || role === 'admin';
 }
 
-export function allowedModules(role: Role): NavItem[] {
-  return MODULES.filter((m) => canAccess(role, m.key));
+export function allowedModules(account: Grantee): NavItem[] {
+  return MODULES.filter((m) => canAccess(account, m.key));
 }
 
-/** Where a role lands right after signing in. */
-export function landingPath(role: Role): string {
-  return allowedModules(role)[0]?.path ?? '/dashboard';
+/** Where an account lands right after signing in. */
+export function landingPath(account: Grantee): string {
+  return allowedModules(account)[0]?.path ?? '/dashboard';
 }
 
 /** Roles whose account is tied to one branch — the "add staff" form's

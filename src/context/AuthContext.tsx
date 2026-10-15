@@ -37,6 +37,7 @@ interface StaffProfileResponse {
   role: 'SUPERADMIN' | 'ADMIN' | 'PHARMACY' | 'LAB' | 'APPOINTMENTS' | 'DELIVERY' | 'LAB_TECHNICIAN';
   storeId: number | null;
   storeCode: string | null;
+  modules: string[] | null;
   isActive: boolean;
 }
 
@@ -47,6 +48,7 @@ function toAuthUser(profile: StaffProfileResponse): AuthUser {
     loginId: profile.loginId,
     name: profile.name,
     role,
+    modules: profile.modules as AuthUser['modules'],
     avatarColor: ROLE_COLOR[role],
     status: profile.isActive ? 'active' : 'suspended',
     storeCode:

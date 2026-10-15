@@ -16,14 +16,14 @@ test('agent withdrawals is a dedicated admin approval module', () => {
     icon: 'accounts',
     description: 'Verify, approve and record agent earnings withdrawals',
   });
-  assert.equal(canAccess('superadmin', 'agent_withdrawals'), true);
-  assert.equal(canAccess('admin', 'agent_withdrawals'), true);
-  assert.equal(canAccess('pharmacy', 'agent_withdrawals'), false);
-  assert.equal(canAccess('lab', 'agent_withdrawals'), false);
-  assert.equal(canAccess('appointments', 'agent_withdrawals'), false);
-  assert.equal(canAccess('delivery', 'agent_withdrawals'), false);
+  assert.equal(canAccess({ role: 'superadmin' }, 'agent_withdrawals'), true);
+  assert.equal(canAccess({ role: 'admin' }, 'agent_withdrawals'), true);
+  assert.equal(canAccess({ role: 'pharmacy' }, 'agent_withdrawals'), false);
+  assert.equal(canAccess({ role: 'lab' }, 'agent_withdrawals'), false);
+  assert.equal(canAccess({ role: 'appointments' }, 'agent_withdrawals'), false);
+  assert.equal(canAccess({ role: 'delivery' }, 'agent_withdrawals'), false);
   assert.equal(
-    allowedModules('admin').filter((item) => item.path === '/agent-withdrawals').length,
+    allowedModules({ role: 'admin' }).filter((item) => item.path === '/agent-withdrawals').length,
     1,
   );
 });

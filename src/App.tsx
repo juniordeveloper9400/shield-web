@@ -36,7 +36,7 @@ import NoAccessPage from '@/pages/NoAccessPage';
 
 export default function App() {
   const { user, loading } = useAuth();
-  const home = user ? landingPath(user.role) : '/login';
+  const home = user ? landingPath(user) : '/login';
 
   if (loading) {
     return (

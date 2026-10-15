@@ -8,7 +8,7 @@ export default function NoAccessPage() {
   const { user } = useAuth();
   if (!user) return null;
 
-  const modules = allowedModules(user.role);
+  const modules = allowedModules(user);
 
   return (
     <div className="mx-auto max-w-lg py-10 text-center">
@@ -21,7 +21,7 @@ export default function NoAccessPage() {
       <p className="mt-2 text-sm text-slate-500">
         You&apos;re signed in as{' '}
         <span className="font-medium text-slate-700">{ROLE_LABELS[user.role]}</span>{' '}
-        (<span className="text-slate-700">{user.loginId}</span>). That role can
+        (<span className="text-slate-700">{user.loginId}</span>). You can
         open the modules below.
       </p>
 
@@ -48,7 +48,7 @@ export default function NoAccessPage() {
       </Card>
 
       <Link
-        to={landingPath(user.role)}
+        to={landingPath(user)}
         className="mt-6 inline-block text-sm font-medium text-brand-600 hover:text-brand-700"
       >
         Go to my dashboard
