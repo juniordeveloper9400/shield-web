@@ -153,7 +153,6 @@ export default function LedgerPage() {
   // Chart of accounts search & filters
   const [chartSearch, setChartSearch] = useState('');
   const [chartTypeFilter, setChartTypeFilter] = useState('');
-  const [chartStatusFilter, setChartStatusFilter] = useState<'all' | 'provisional' | 'reviewed'>('all');
 
   function handlePresetChange(val: string) {
     setDatePreset(val);
@@ -438,7 +437,6 @@ export default function LedgerPage() {
         code: acc.code,
         name: acc.name,
         type: acc.type,
-        isProvisional: acc.isProvisional,
         explanation: ACCOUNT_EXPLANATIONS[acc.code] ?? '',
         debit: movement?.debit ?? 0,
         credit: movement?.credit ?? 0,
@@ -457,12 +455,9 @@ export default function LedgerPage() {
         acc.name.toLowerCase().includes(q) ||
         acc.explanation.toLowerCase().includes(q);
       const matchesType = !chartTypeFilter || acc.type === chartTypeFilter;
-      const matchesStatus =
-        chartStatusFilter === 'all' ||
-        (chartStatusFilter === 'provisional' ? acc.isProvisional : !acc.isProvisional);
-      return matchesSearch && matchesType && matchesStatus;
+      return matchesSearch && matchesType;
     });
-  }, [enrichedAccounts, chartSearch, chartTypeFilter, chartStatusFilter]);
+  }, [enrichedAccounts, chartSearch, chartTypeFilter]);
 
   const chartKPIs = useMemo(() => {
     const all = enrichedAccounts;
@@ -530,15 +525,12 @@ export default function LedgerPage() {
       key: 'account',
       header: 'Account',
       render: (row) => (
-        <div className="flex items-center gap-2">
-          <div>
-            <p className="font-mono text-xs font-semibold text-slate-500">{row.accountCode}</p>
-            <p className="font-medium text-slate-800">{row.accountName}</p>
-            {ACCOUNT_EXPLANATIONS[row.accountCode] && (
-              <p className="text-xs text-slate-500">({ACCOUNT_EXPLANATIONS[row.accountCode]})</p>
-            )}
-          </div>
-          {row.isProvisional && <Badge tone="amber">Provisional</Badge>}
+        <div>
+          <p className="font-mono text-xs font-semibold text-slate-500">{row.accountCode}</p>
+          <p className="font-medium text-slate-800">{row.accountName}</p>
+          {ACCOUNT_EXPLANATIONS[row.accountCode] && (
+            <p className="text-xs text-slate-500">({ACCOUNT_EXPLANATIONS[row.accountCode]})</p>
+          )}
         </div>
       ),
     },
@@ -657,7 +649,7 @@ export default function LedgerPage() {
             </svg>
             <span>Accounting Guidance & Principles</span>
             <span className="text-xs text-slate-400 font-normal">
-              ({infoCollapsed ? 'Click to expand details' : 'Provisional double-entry rules'})
+              ({infoCollapsed ? 'Click to expand details' : 'Double-entry rules'})
             </span>
           </div>
           <button
@@ -672,7 +664,7 @@ export default function LedgerPage() {
           <div className="border-t border-slate-100 p-4 leading-relaxed">
             Figures show movements during the selected date range ({fromDate} to {toDate}), not current cash in hand or the
             remaining wallet balance. For wallet liability, Debit reduces what is owed and Credit increases it. Revenue is
-            normally recorded as Credit; it is not a loss. Provisional means the account rules await accountant review.
+            normally recorded as Credit; it is not a loss.
             Head Office holds shared company accounts separately from stores.
           </div>
         )}
@@ -1266,18 +1258,6 @@ export default function LedgerPage() {
                         </button>
                       ))}
                     </div>
-
-                    {/* Status filter */}
-                    <FilterSelect
-                      value={chartStatusFilter}
-                      onChange={(v) => setChartStatusFilter(v as 'all' | 'provisional' | 'reviewed')}
-                      options={[
-                        { value: 'all', label: 'All statuses' },
-                        { value: 'provisional', label: 'Provisional only' },
-                        { value: 'reviewed', label: 'Reviewed only' },
-                      ]}
-                      className="w-36 text-xs"
-                    />
                   </div>
                 </div>
 
@@ -1322,8 +1302,7 @@ export default function LedgerPage() {
                             <div className="divide-y divide-slate-100 border-t border-slate-100">
                               <div className="hidden grid-cols-12 bg-slate-50/50 px-4 py-2 text-xs font-semibold uppercase tracking-wider text-slate-400 sm:grid">
                                 <div className="col-span-2">Code</div>
-                                <div className="col-span-4">Account name & explanation</div>
-                                <div className="col-span-2 text-center">Status</div>
+                                <div className="col-span-6">Account name & explanation</div>
                                 <div className="col-span-2 text-right">Debit movement</div>
                                 <div className="col-span-2 text-right">Credit movement</div>
                               </div>
@@ -1337,17 +1316,10 @@ export default function LedgerPage() {
                                       {acc.code}
                                     </span>
                                   </div>
-                                  <div className="sm:col-span-4">
+                                  <div className="sm:col-span-6">
                                     <p className="font-medium text-slate-900">{acc.name}</p>
                                     {acc.explanation && (
                                       <p className="mt-0.5 text-xs text-slate-500">{acc.explanation}</p>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-2 sm:col-span-2 sm:justify-center">
-                                    {acc.isProvisional ? (
-                                      <Badge tone="amber">Provisional</Badge>
-                                    ) : (
-                                      <Badge tone="green">Reviewed</Badge>
                                     )}
                                   </div>
                                   <div className="text-xs sm:col-span-2 sm:text-right">

@@ -37,10 +37,10 @@ export function ledgerReportCsv(rows: Omit<StoreLedgerRow, 'id' | 'net'>[], date
     return `"${safe.replace(/"/g, '""')}"`;
   };
   const lines: (string | number)[][] = [
-    ['Period', 'Store / Head Office', 'Entity code', 'Account code', 'Account', 'Explanation', 'Type', 'Debit movement', 'Credit movement', 'Net movement amount', 'Side', 'Review status'],
+    ['Period', 'Store / Head Office', 'Entity code', 'Account code', 'Account', 'Explanation', 'Type', 'Debit movement', 'Credit movement', 'Net movement amount', 'Side'],
     ...rows.map((row) => {
       const balance = movementBalance(row.debit, row.credit);
-      return [datePeriod, row.entityName, row.entityCode, row.accountCode, row.accountName, ACCOUNT_EXPLANATIONS[row.accountCode] ?? '', row.accountType, row.debit.toFixed(2), row.credit.toFixed(2), balance.amount.toFixed(2), balance.side, row.isProvisional ? 'Provisional' : 'Reviewed'];
+      return [datePeriod, row.entityName, row.entityCode, row.accountCode, row.accountName, ACCOUNT_EXPLANATIONS[row.accountCode] ?? '', row.accountType, row.debit.toFixed(2), row.credit.toFixed(2), balance.amount.toFixed(2), balance.side];
     }),
   ];
   return lines.map((line) => line.map(escape).join(',')).join('\r\n');
@@ -69,7 +69,7 @@ export function subjectLedgerCsv(
 }
 
 export function chartOfAccountsCsv(
-  accounts: { code: string; name: string; type: string; isProvisional: boolean; debit?: number; credit?: number; net?: number }[],
+  accounts: { code: string; name: string; type: string; debit?: number; credit?: number; net?: number }[],
 ): string {
   const escape = (value: string | number) => {
     const text = String(value);
@@ -77,7 +77,7 @@ export function chartOfAccountsCsv(
     return `"${safe.replace(/"/g, '""')}"`;
   };
   const lines: (string | number)[][] = [
-    ['Account code', 'Account name', 'Type', 'Explanation', 'Debit movement', 'Credit movement', 'Net movement', 'Review status'],
+    ['Account code', 'Account name', 'Type', 'Explanation', 'Debit movement', 'Credit movement', 'Net movement'],
     ...accounts.map((a) => [
       a.code,
       a.name,
@@ -86,7 +86,6 @@ export function chartOfAccountsCsv(
       (a.debit ?? 0).toFixed(2),
       (a.credit ?? 0).toFixed(2),
       (a.net ?? 0).toFixed(2),
-      a.isProvisional ? 'Provisional' : 'Reviewed',
     ]),
   ];
   return lines.map((line) => line.map(escape).join(',')).join('\r\n');
