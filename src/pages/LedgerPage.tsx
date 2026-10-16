@@ -140,6 +140,7 @@ export default function LedgerPage() {
   const entities = useAsync(() => getLedgerEntities(accessToken), [accessToken]);
   const [entityId, setEntityId] = useState<number | null>(null);
   const [accountType, setAccountType] = useState('');
+  const [accountCodeFilter, setAccountCodeFilter] = useState('');
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
 
@@ -231,9 +232,8 @@ export default function LedgerPage() {
   }
 
   function downloadTrialBalance() {
-    const rows = (balance.data ?? []).map((row) => ({
+    const rows = balanceRows.map((row) => ({
       ...row,
-      id: row.accountCode,
       entityName: entityOptions.find((e) => e.value === String(entityId))?.label ?? 'All stores + Head Office',
       entityCode: entityOptions.find((e) => e.value === String(entityId))?.value ? 'STORE' : 'ALL',
     }));
@@ -250,10 +250,11 @@ export default function LedgerPage() {
   const [personAccountCode, setPersonAccountCode] = useState('2001');
   const [personValue, setPersonValue] = useState('');
 
-  const accounts = useAsync(
-    () => (view === 'person' || view === 'chart' ? getChartOfAccounts(accessToken) : Promise.resolve([])),
-    [view, accessToken],
-  );
+  // Every account filter dropdown on this page — person ledger, chart of
+  // accounts master, and the trial-balance/store-wise "Account" filter below
+  // — reads from the same `app.chart_of_account` table via this one call,
+  // not a hardcoded list, so a newly added account shows up here too.
+  const accounts = useAsync(() => getChartOfAccounts(accessToken), [accessToken]);
 
   const selectedEntityCode = entityId === null ? undefined : entities.data?.find((e) => e.id === entityId)?.code;
   const people = useAsync(
@@ -303,6 +304,18 @@ export default function LedgerPage() {
       })),
     ];
   }, [accounts.data]);
+
+  // The Trial balance/Store-wise "Account" filter — every row straight from
+  // `app.chart_of_account` (via getChartOfAccounts), narrowed to whichever
+  // account type is already picked above, so the list stays relevant
+  // instead of showing every account regardless of that filter.
+  const trialAccountOptions = useMemo(() => {
+    const rows = (accounts.data ?? []).filter((a) => !accountType || a.type === accountType);
+    return [
+      { value: '', label: 'All accounts' },
+      ...rows.map((a) => ({ value: a.code, label: `${a.code} · ${a.name}` })),
+    ];
+  }, [accounts.data, accountType]);
 
   const lineColumns: Column<Omit<SubjectLedgerLine, 'id'> & { id: string }>[] = [
     { key: 'postedOn', header: 'Date', render: (row) => row.postedOn },
@@ -358,18 +371,17 @@ export default function LedgerPage() {
   );
   const isClosed = Boolean(currentPeriodRow?.closedAt);
 
-  const balanceRows = useMemo(
-    () => (balance.data ?? []).map((row) => ({ ...row, id: row.accountCode })),
-    [balance.data],
-  );
+  const balanceRows = useMemo(() => {
+    const rows = (balance.data ?? []).map((row) => ({ ...row, id: row.accountCode }));
+    return accountCodeFilter ? rows.filter((row) => row.accountCode === accountCodeFilter) : rows;
+  }, [balance.data, accountCodeFilter]);
 
   const totals = useMemo(() => {
-    const rows = balance.data ?? [];
     return {
-      debit: rows.reduce((s, r) => s + r.debit, 0),
-      credit: rows.reduce((s, r) => s + r.credit, 0),
+      debit: balanceRows.reduce((s, r) => s + r.debit, 0),
+      credit: balanceRows.reduce((s, r) => s + r.credit, 0),
     };
-  }, [balance.data]);
+  }, [balanceRows]);
 
   // Grouped trial balance by account type
   const groupedBalance = useMemo(() => {
@@ -401,7 +413,10 @@ export default function LedgerPage() {
   // Grouped store report
   const groupedStores = useMemo(() => {
     const groups: Record<string, { entityName: string; entityCode: string; rows: StoreLedgerRow[] }> = {};
-    for (const row of storeReport.data ?? []) {
+    const source = accountCodeFilter
+      ? (storeReport.data ?? []).filter((row) => row.accountCode === accountCodeFilter)
+      : storeReport.data ?? [];
+    for (const row of source) {
       const key = row.entityCode;
       if (!groups[key]) {
         groups[key] = { entityName: row.entityName, entityCode: row.entityCode, rows: [] };
@@ -409,7 +424,7 @@ export default function LedgerPage() {
       groups[key].rows.push(row);
     }
     return groups;
-  }, [storeReport.data]);
+  }, [storeReport.data, accountCodeFilter]);
 
   // ---- Chart of Accounts Master Model ----
   const enrichedAccounts = useMemo(() => {
@@ -767,10 +782,38 @@ export default function LedgerPage() {
                 )}
 
                 {(view === 'trial' || view === 'store') && (
-                  <label className="flex flex-col gap-1 text-xs text-slate-500">
-                    Account type
-                    <FilterSelect value={accountType} onChange={setAccountType} options={ACCOUNT_TYPES} className="w-full" />
-                  </label>
+                  <>
+                    <label className="flex flex-col gap-1 text-xs text-slate-500">
+                      Account type
+                      <FilterSelect
+                        value={accountType}
+                        onChange={(v) => {
+                          setAccountType(v);
+                          // Clear a specific account pick that no longer
+                          // belongs to the newly chosen type, rather than
+                          // silently filtering every row out.
+                          setAccountCodeFilter((current) => {
+                            if (!current) return current;
+                            const stillValid = (accounts.data ?? []).some(
+                              (a) => a.code === current && (!v || a.type === v),
+                            );
+                            return stillValid ? current : '';
+                          });
+                        }}
+                        options={ACCOUNT_TYPES}
+                        className="w-full"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs text-slate-500">
+                      Account
+                      <FilterSelect
+                        value={accountCodeFilter}
+                        onChange={setAccountCodeFilter}
+                        options={trialAccountOptions}
+                        className="w-full"
+                      />
+                    </label>
+                  </>
                 )}
 
                 {view === 'person' && (
@@ -875,9 +918,18 @@ export default function LedgerPage() {
                 </div>
               </div>
 
-              {accountType && (
+              {(accountType || accountCodeFilter) && (
                 <div className="bg-amber-50/60 px-4 py-2 text-xs text-amber-800">
-                  Showing only <strong>{accountType}</strong> accounts. Select "Every account type" for the full balanced trial.
+                  {accountCodeFilter ? (
+                    <>
+                      Showing only account <strong>{accountCodeFilter}</strong>. Choose "All accounts" to see every account
+                      {accountType ? ` of type ${accountType}` : ''} again.
+                    </>
+                  ) : (
+                    <>
+                      Showing only <strong>{accountType}</strong> accounts. Select "Every account type" for the full balanced trial.
+                    </>
+                  )}
                 </div>
               )}
 
