@@ -1956,6 +1956,25 @@ export default function ProductsPage() {
                           </span>
                         )}
 
+                        {/* Dot carousel — active dot in the brand colour */}
+                        {allImages.length > 1 && (
+                          <div className="absolute bottom-2.5 left-0 right-0 flex justify-center gap-1.5">
+                            {allImages.map((_, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => setActivePreviewIdx(i)}
+                                aria-label={`Show image ${i + 1}`}
+                                className={`h-1.5 rounded-full transition-all ${
+                                  i === activePreviewIdx
+                                    ? 'w-4 bg-brand-600'
+                                    : 'w-1.5 bg-white/80 ring-1 ring-black/10'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        )}
+
                         {/* Navigation Arrows */}
                         {allImages.length > 1 && (
                           <>
