@@ -89,8 +89,10 @@ export function BillEditorModal({
   // `lines` vs `subtotal`.
   const [discount, setDiscount] = useState(order.billDiscount || 0);
   const [savedDiscount, setSavedDiscount] = useState(order.billDiscount || 0);
-  // The counter's own receipt-book / POS number — free text, optional.
-  // Blank on send keeps whatever is already on the bill, same as `image`.
+  // The counter's own receipt-book / POS number — free text, mandatory (see
+  // missingBillNumber below). Blank on send keeps whatever is already on
+  // the bill, same as `image` — it's only ever actually blank sent to the
+  // server on a bill that has never had one, which the Send button refuses.
   const [billNumber, setBillNumber] = useState(order.billNumber || '');
   // Which bill line's "⋮" menu (Remove) is open, if any.
   const [openLineMenu, setOpenLineMenu] = useState<number | null>(null);
