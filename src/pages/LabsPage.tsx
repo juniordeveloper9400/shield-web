@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Tabs } from '@/components/ui/Tabs';
+import { AllLabTests } from '@/components/labtests/AllLabTests';
 import { LabTestMaster } from '@/components/labtests/LabTestMaster';
 import { LabCategoriesPanel } from '@/components/labtests/LabCategoriesPanel';
 import { LabPackageBuilderModal } from '@/components/labtests/LabPackageBuilderModal';
@@ -30,7 +31,7 @@ const STATUS_OPTIONS = [
   { value: 'inactive', label: 'Inactive' },
 ];
 
-type LabsTab = 'master' | 'packages' | 'categories';
+type LabsTab = 'master' | 'packages' | 'categories' | 'all';
 
 /**
  * Lab Tests: the laboratory's own test master (tests, group tests and
@@ -55,6 +56,7 @@ export default function LabsPage() {
             { key: 'master', label: 'Test Master' },
             { key: 'packages', label: 'Member packages' },
             { key: 'categories', label: 'Categories' },
+            { key: 'all', label: 'All Tests' },
           ]}
           active={tab}
           onChange={(key) => setTab(key as LabsTab)}
@@ -65,6 +67,8 @@ export default function LabsPage() {
         <LabTestMaster />
       ) : tab === 'packages' ? (
         <MemberPackages />
+      ) : tab === 'all' ? (
+        <AllLabTests />
       ) : (
         <LabCategoriesPanel />
       )}

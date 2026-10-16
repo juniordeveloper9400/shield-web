@@ -18,6 +18,9 @@ interface LabTestSummaryRow {
   lisCode: number;
   testType: LabTestType;
   name: string;
+  categoryId: number | null;
+  categoryName: string | null;
+  description: string;
   shortName: string;
   department: string;
   method: string;
@@ -36,6 +39,9 @@ function toSummary(r: LabTestSummaryRow): LabTestSummary {
     lisCode: r.lisCode,
     testType: r.testType,
     name: r.name,
+    categoryId: r.categoryId == null ? '' : String(r.categoryId),
+    categoryName: r.categoryName ?? '',
+    description: r.description ?? '',
     shortName: r.shortName,
     department: r.department,
     method: r.method,
@@ -98,6 +104,7 @@ export async function getLabTest(id: string, accessToken: string | null): Promis
 
   return {
     ...r,
+    description: r.description ?? '',
     id: String(r.id),
     categoryId: r.categoryId == null ? '' : String(r.categoryId),
     rate: num(r.rate),

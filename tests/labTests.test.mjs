@@ -2,12 +2,26 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   blankLabTest,
+  filterAllLabTests,
   groupTotal,
   netAmount,
   nextSetOrder,
   searchLabTests,
   validateLabTest,
 } from '../src/lib/labTests.ts';
+
+test('All Tests includes every source, inactive tests and uncategorized tests', () => {
+  const tests = [
+    { id: '1', name: 'Creatinine', categoryId: 'kidney', categoryName: 'Kidney', source: 'ADMIN', isActive: true },
+    { id: '2', name: 'Glucose', categoryId: '', categoryName: '', source: 'RATE_LIST', isActive: false },
+    { id: '3', name: 'Urea', categoryId: 'kidney', categoryName: 'Kidney', source: 'RATE_LIST', isActive: true },
+  ];
+  assert.deepEqual(filterAllLabTests(tests, {}).map(t => t.id), ['1','2','3']);
+  assert.deepEqual(filterAllLabTests(tests, { categoryId: 'kidney' }).map(t => t.id), ['1','3']);
+  assert.deepEqual(filterAllLabTests(tests, { categoryId: 'uncategorized' }).map(t => t.id), ['2']);
+  assert.deepEqual(filterAllLabTests(tests, { query: 'kidney', status: 'active' }).map(t => t.id), ['1','3']);
+  assert.deepEqual(filterAllLabTests(tests, { status: 'inactive' }).map(t => t.id), ['2']);
+});
 
 const item = (testId, name, amount, setOrder = 1) => ({
   testId,

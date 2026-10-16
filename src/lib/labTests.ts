@@ -103,6 +103,7 @@ export function blankLabTest(): LabTestInput {
     reportOnValue: 0,
     reportOnUnit: 'Minutes',
     performAt: 'In House',
+    description: '',
     internalNote: '',
     nablAccredited: false,
     sendSms: false,
@@ -264,3 +265,20 @@ export const TECHNOLOGIES = [
 ];
 export const TEST_MODES = ['Manual', 'Automated', 'Semi-automated'];
 export const PERFORM_AT = ['In House', 'Outsourced'];
+
+/** Browse every source and status unless the operator selects a filter. */
+export function filterAllLabTests<T extends {
+  name: string; categoryId: string; categoryName: string; isActive: boolean;
+  shortName?: string; lisCode?: number; description?: string;
+}>(tests: T[], filters: { query?: string; categoryId?: string; status?: string }): T[] {
+  const query = (filters.query ?? '').trim().toLowerCase();
+  return tests.filter((test) => {
+    const category = filters.categoryId;
+    if (category && category !== 'all' &&
+        (category === 'uncategorized' ? !!test.categoryId : test.categoryId !== category)) return false;
+    if (filters.status === 'active' && !test.isActive) return false;
+    if (filters.status === 'inactive' && test.isActive) return false;
+    return !query || [test.name, test.shortName, test.lisCode, test.categoryName, test.description]
+      .some((value) => String(value ?? '').toLowerCase().includes(query));
+  });
+}

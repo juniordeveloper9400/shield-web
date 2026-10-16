@@ -1047,6 +1047,7 @@ export interface LabTestInput {
   reportOnValue: number;
   reportOnUnit: LabReportUnit;
   performAt: string;
+  description: string;
   internalNote: string;
   nablAccredited: boolean;
   sendSms: boolean;
@@ -1086,6 +1087,9 @@ export interface LabTestSummary {
   lisCode: number;
   testType: LabTestType;
   name: string;
+  categoryId: string;
+  categoryName: string;
+  description: string;
   shortName: string;
   department: string;
   method: string;

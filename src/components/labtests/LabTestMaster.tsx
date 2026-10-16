@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -131,7 +131,7 @@ function suggestions(base: string[], extra: string[]): string[] {
  * can be a single Test, a Group Test or a Package (the last two are built on
  * the Set Grouptest tab from other saved tests).
  */
-export function LabTestMaster() {
+export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: string; onDone?: () => void } = {}) {
   const { user, accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(() => listLabTests(accessToken), [accessToken]);
   const list = useMemo(() => data ?? [], [data]);
@@ -155,7 +155,7 @@ export function LabTestMaster() {
   const [rates, setRates] = useState<LabSpecialRate[]>([]);
   const [tab, setTab] = useState<TabKey>('details');
   const [dirty, setDirty] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(!!initialTestId);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
 
@@ -259,6 +259,12 @@ export function LabTestMaster() {
 
   // ---- save / delete ----------------------------------------------------
 
+  useEffect(() => {
+    if (initialTestId) void openTest(initialTestId);
+    // Load the selected record once when this editor mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTestId]);
+
   async function save() {
     const problem = validateLabTest(form, items, rates);
     if (problem) {
@@ -269,6 +275,7 @@ export function LabTestMaster() {
     setNotice(null);
     try {
       const saved = await saveLabTest(loadedId, form, items, rates, accessToken);
+      if (onDone) { onDone(); return; }
       await load(saved.id);
       reload();
       setNotice({
@@ -293,6 +300,7 @@ export function LabTestMaster() {
       danger: true,
       onConfirm: async () => {
         await deleteLabTest(id, accessToken);
+        if (onDone) { onDone(); return; }
         reset();
         reload();
         setNotice({ tone: 'ok', text: `Deleted "${name}".` });
@@ -445,6 +453,7 @@ export function LabTestMaster() {
 
   return (
     <>
+      {onDone && <Button variant="secondary" disabled={busy} onClick={() => guarded(onDone)}>Back to All Tests</Button>}
       {/* A failed load is shown up here, not only in the list far below the
           form — a missing table otherwise looks like "there are no tests". */}
       {error && (
@@ -463,7 +472,7 @@ export function LabTestMaster() {
         </div>
       )}
       <Card>
-        <div className="space-y-5 p-4 sm:p-5">
+        <fieldset disabled={busy || (!!initialTestId && !loadedId)} className="min-w-0 space-y-5 p-4 sm:p-5">
           {/* Search By / Search Test by Name */}
           <div className="grid gap-3 sm:grid-cols-[220px_1fr]">
             <LisSelect
@@ -720,6 +729,11 @@ export function LabTestMaster() {
                 </div>
 
                 <LisTextarea
+                  label="Description (shown in the app)"
+                  value={form.description}
+                  onChange={(value) => patch({ description: value })}
+                />
+                <LisTextarea
                   label="Internal Note"
                   value={form.internalNote}
                   onChange={(v) => patch({ internalNote: v })}
@@ -887,19 +901,19 @@ export function LabTestMaster() {
               <Button variant="danger" disabled={busy || !loadedId} onClick={askDelete}>
                 Delete
               </Button>
-              <Button variant="secondary" disabled={busy} onClick={() => guarded(reset)}>
+              {!onDone && <Button variant="secondary" disabled={busy} onClick={() => guarded(reset)}>
                 New
-              </Button>
+              </Button>}
               <Button variant="primary" disabled={busy} onClick={() => void save()}>
                 Save
               </Button>
             </div>
           </div>
-        </div>
+        </fieldset>
       </Card>
 
       {/* Saved tests */}
-      <Card className="mt-6">
+      {!onDone && <Card className="mt-6">
         <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="text-sm font-semibold text-slate-800">Saved tests</h3>
@@ -960,7 +974,7 @@ export function LabTestMaster() {
             </Button>
           </div>
         )}
-      </Card>
+      </Card>}
 
       <Modal
         open={confirm !== null}
