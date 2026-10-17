@@ -9,6 +9,7 @@ import { formatCurrency, formatDateTime } from '@/lib/format';
 import { listStores } from '@/api/stores';
 import { listLabStaff, updateLabBookingDetails } from '@/api/labBookings';
 import { listLabCharges, type LabCharge } from '@/api/labCharges';
+import { calculateKmCharge, matchDistanceTier, type DistanceRate } from '@/lib/labCharges';
 import {
   labPatientAge,
   blankOrderPatient,
@@ -59,22 +60,26 @@ export function LabOrderDetailsEditor({
       patients: current.patients.map((p, i) => (i === index ? { ...p, ...change } : p)),
     }));
 
-  const activeCharges = (labCharges.data ?? []).filter((c) => c.isActive && c.kind !== 'DISTANCE');
+  const rawDist = (labCharges.data ?? []).find((c) => c.isActive && c.kind === 'DISTANCE');
+  const activeDistanceRate: DistanceRate | null =
+    rawDist && rawDist.kind === 'DISTANCE'
+      ? {
+          firstKm: rawDist.firstKm,
+          firstAmount: rawDist.firstAmount,
+          secondKm: rawDist.secondKm,
+          secondAmount: rawDist.secondAmount,
+          extraPerKm: rawDist.extraPerKm,
+        }
+      : null;
 
-  // Track the selected dropdown option for the fixed charge
-  const [selectedChargeId, setSelectedChargeId] = useState<string>(() => {
-    const existing = Number(booking.fixCharge ?? 0);
-    if (!existing) return '';
-    return 'custom';
-  });
+  const rawTech = (labCharges.data ?? []).find((c) => c.isActive && c.kind === 'TECHNICIAN');
+  const activeTechCharge = rawTech && rawTech.kind === 'TECHNICIAN' ? rawTech : null;
 
-  // When activeCharges load, match if booking has a matching fixed charge
-  useEffect(() => {
-    if (activeCharges.length > 0 && Number(draft.fixCharge || 0) > 0 && selectedChargeId === 'custom') {
-      const match = activeCharges.find((c) => Number(c.amount ?? 0) === Number(draft.fixCharge));
-      if (match) setSelectedChargeId(String(match.id));
-    }
-  }, [activeCharges, draft.fixCharge, selectedChargeId]);
+  const [customerKm, setCustomerKm] = useState<string>('');
+  const parsedKm = parseFloat(customerKm);
+  const kmMatch = activeDistanceRate && !isNaN(parsedKm) && parsedKm > 0
+    ? matchDistanceTier(parsedKm, activeDistanceRate)
+    : null;
 
   const testSubtotal = Number(draft.unitPrice || 0) * draft.patients.length;
   const fixChargeAmount = Number(draft.fixCharge || 0);
@@ -222,7 +227,7 @@ export function LabOrderDetailsEditor({
               </div>
             </section>
 
-            {/* 2. Fixed Charge Section */}
+            {/* 2. Fixed / Collection Charge Section */}
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2.5">
                 <div className="flex items-center gap-2">
@@ -230,82 +235,158 @@ export function LabOrderDetailsEditor({
                     <Icon name="deliveries" className="h-4 w-4" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-800">Fixed / Collection Charge</h3>
+                    <h3 className="text-sm font-semibold text-slate-800">Collection / Lab Charge</h3>
                     <p className="text-[11px] text-slate-400">
-                      Select technician or distance charge from added lab charges
+                      Dynamic distance-based fuel rate and technician visit fee
                     </p>
                   </div>
                 </div>
                 {fixChargeAmount > 0 && (
-                  <span className="rounded bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700">
+                  <span className="rounded bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
                     +{formatCurrency(fixChargeAmount)}
                   </span>
                 )}
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600">
-                    Choose added lab charge
-                    <select
-                      className={`${fieldClass} mt-1`}
-                      value={selectedChargeId}
-                      disabled={paid}
-                      onChange={(e) => {
-                        onEditing();
-                        const val = e.target.value;
-                        setSelectedChargeId(val);
-                        if (val === 'custom') {
-                          // keep custom value
-                        } else if (val === '' || val === '0') {
-                          patch({ fixCharge: '0' });
-                        } else {
-                          const found = activeCharges.find((c) => String(c.id) === val);
-                          if (found && found.amount != null) {
-                            patch({ fixCharge: String(found.amount) });
-                          }
-                        }
-                      }}
-                    >
-                      <option value="">— No charge (₹0) —</option>
-                      {activeCharges.map((c) => (
-                        <option key={c.id} value={String(c.id)}>
-                          {c.name} {c.amount != null ? `(${formatCurrency(c.amount)})` : ''}
-                        </option>
-                      ))}
-                      <option value="custom">Custom charge amount</option>
-                    </select>
-                  </label>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-600">
-                    Fix charge amount (INR)
-                    <div className="relative mt-1">
-                      <input
-                        className={fieldClass}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="0.00"
-                        value={draft.fixCharge}
-                        disabled={paid}
-                        onChange={(e) => {
-                          onEditing();
-                          setSelectedChargeId('custom');
-                          patch({ fixCharge: e.target.value });
-                        }}
-                      />
+              {/* Dynamic KM Range Calculator */}
+              <div className="space-y-3">
+                {activeDistanceRate ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-xs">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-semibold text-slate-700 flex items-center gap-1.5">
+                        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                        Active Fuel Distance Range
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        Up to {activeDistanceRate.firstKm}km (₹{activeDistanceRate.firstAmount}) · {activeDistanceRate.firstKm}–{activeDistanceRate.secondKm}km (₹{activeDistanceRate.secondAmount}) · &gt;{activeDistanceRate.secondKm}km (₹{activeDistanceRate.secondAmount}+₹{activeDistanceRate.extraPerKm}/km)
+                      </span>
                     </div>
-                  </label>
+
+                    <div className="flex flex-wrap items-center gap-2 mt-2">
+                      <label className="text-xs font-medium text-slate-600">
+                        Customer Distance:
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="1000"
+                          placeholder="e.g. 4.5"
+                          value={customerKm}
+                          disabled={paid}
+                          onChange={(e) => setCustomerKm(e.target.value)}
+                          className="h-8 w-24 rounded border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-200"
+                        />
+                        <span className="text-xs text-slate-500 font-medium">km</span>
+                      </div>
+
+                      {kmMatch && (
+                        <div className="flex items-center gap-2 ml-auto">
+                          <span className="rounded bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                            {kmMatch.tierLabel}: ₹{kmMatch.charge}
+                          </span>
+                          <button
+                            type="button"
+                            disabled={paid}
+                            onClick={() => {
+                              onEditing();
+                              patch({ fixCharge: String(kmMatch.charge) });
+                            }}
+                            className="rounded bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-emerald-700"
+                          >
+                            Apply ₹{kmMatch.charge}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="rounded-lg bg-amber-50 p-2.5 text-xs text-amber-700">
+                    Fuel distance rate is currently inactive. You can activate it under the Lab Charges menu or enter a custom amount below.
+                  </p>
+                )}
+
+                {/* Quick Presets & Manual Input */}
+                <div className="grid gap-3 sm:grid-cols-2 pt-1">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600">
+                      Quick Charge Presets
+                    </label>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        disabled={paid}
+                        onClick={() => {
+                          onEditing();
+                          patch({ fixCharge: '0' });
+                        }}
+                        className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                          fixChargeAmount === 0
+                            ? 'bg-slate-800 text-white'
+                            : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                        }`}
+                      >
+                        No Charge (₹0)
+                      </button>
+
+                      {activeTechCharge && (
+                        <button
+                          type="button"
+                          disabled={paid}
+                          onClick={() => {
+                            onEditing();
+                            patch({ fixCharge: String(activeTechCharge.amount ?? 0) });
+                          }}
+                          className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                            fixChargeAmount === (activeTechCharge.amount ?? 0)
+                              ? 'bg-brand-600 text-white'
+                              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          Tech Fee ({formatCurrency(activeTechCharge.amount ?? 0)})
+                        </button>
+                      )}
+
+                      {kmMatch && activeTechCharge && (
+                        <button
+                          type="button"
+                          disabled={paid}
+                          onClick={() => {
+                            onEditing();
+                            const combined = kmMatch.charge + (activeTechCharge.amount ?? 0);
+                            patch({ fixCharge: String(combined) });
+                          }}
+                          className="rounded border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                        >
+                          Fuel + Tech ({formatCurrency(kmMatch.charge + (activeTechCharge.amount ?? 0))})
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-slate-600">
+                      Applied charge amount (INR)
+                      <div className="relative mt-1">
+                        <input
+                          className={fieldClass}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={draft.fixCharge}
+                          disabled={paid}
+                          onChange={(e) => {
+                            onEditing();
+                            patch({ fixCharge: e.target.value });
+                          }}
+                        />
+                      </div>
+                    </label>
+                  </div>
                 </div>
               </div>
-
-              {labCharges.data && labCharges.data.length === 0 && (
-                <p className="mt-2 text-xs text-slate-400">
-                  No lab charges configured yet. Create technician or KM charges under the Lab Charges menu.
-                </p>
-              )}
             </section>
 
             {/* 3. Order Total & Price Summary */}

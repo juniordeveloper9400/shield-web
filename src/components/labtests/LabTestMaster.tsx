@@ -30,7 +30,7 @@ import {
   type LabTestFieldKey,
   type LabTestFieldOption,
 } from '@/api/labTests';
-import { listLabCategories } from '@/api/labCategories';
+import { createLabCategory, listLabCategories } from '@/api/labCategories';
 import type {
   LabTestSource,
   LabGroupItem,
@@ -127,7 +127,7 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
   const { user, accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(() => listLabTests(accessToken), [accessToken]);
   const list = useMemo(() => data ?? [], [data]);
-  const { data: categoryRows } = useAsync(() => listLabCategories(accessToken), [accessToken]);
+  const { data: categoryRows, reload: reloadCategories } = useAsync(() => listLabCategories(accessToken), [accessToken]);
   const categoryOptions = useMemo(
     () => [
       { value: '', label: 'No category' },
@@ -170,6 +170,18 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
       reloadFieldOptions();
     } catch (err) {
       setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Could not delete that.' });
+    }
+  }
+
+  async function addCategoryOption(name: string) {
+    try {
+      const id = await createLabCategory({ name, image: '', sort: 0, isActive: true }, accessToken);
+      if (id) {
+        reloadCategories();
+        patch({ categoryId: id });
+      }
+    } catch (err) {
+      setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Could not add that category.' });
     }
   }
 
@@ -654,6 +666,7 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
                     value={form.categoryId}
                     onChange={(v) => patch({ categoryId: v })}
                     options={categoryOptions}
+                    onAddOption={(name) => void addCategoryOption(name)}
                   />
                 </div>
 
