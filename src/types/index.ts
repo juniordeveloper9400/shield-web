@@ -44,6 +44,7 @@ export type ModuleKey =
   | 'lab_orders'
   | 'lab_bills'
   | 'lab_tests'
+  | 'lab_charges'
   | 'appointments'
   | 'accounts'
   | 'admins'

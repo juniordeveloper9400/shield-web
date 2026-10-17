@@ -21,6 +21,7 @@ import AgentApprovalsPage from '@/pages/AgentApprovalsPage';
 import AgentApprovalDetailPage from '@/pages/AgentApprovalDetailPage';
 import AgentDetailPage from '@/pages/AgentDetailPage';
 import AgentPortalPage from '@/pages/AgentPortalPage';
+import LabChargesPage from '@/pages/LabChargesPage';
 import LabOrdersPage from '@/pages/LabOrdersPage';
 import LabBillsPage from '@/pages/LabBillsPage';
 import AppointmentsPage from '@/pages/AppointmentsPage';
@@ -220,6 +221,7 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+        <Route path="/lab-charges" element={<ProtectedRoute module="lab_charges"><LabChargesPage /></ProtectedRoute>} />
         <Route
           path="/appointments"
           element={

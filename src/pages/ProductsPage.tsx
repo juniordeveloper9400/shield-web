@@ -271,6 +271,8 @@ export default function ProductsPage() {
   const [section, setSection] = useState<SectionTab>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [manageSections, setManageSections] = useState<Parameters<typeof updateProductSections>[1] | null>(null);
+  const [manageError, setManageError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<{
     price: string;
@@ -311,9 +313,11 @@ export default function ProductsPage() {
   // "opened the page and left it alone".
   const initialDraftRef = useRef<NewProduct>(EMPTY_NEW);
   const isDraftDirty = adding && JSON.stringify(draft) !== JSON.stringify(initialDraftRef.current);
-  useUnsavedChangesGuard(isDraftDirty, {
-    label: editingProductId ? 'this product' : 'the new product',
-    onSave: saveNew,
+  const saveCurrentRef = useRef<() => Promise<boolean>>(saveNew);
+  saveCurrentRef.current = isDraftDirty ? saveNew : () => saveManageDetails(false);
+  useUnsavedChangesGuard(isDraftDirty || Boolean(selectedId && manageSections), {
+    label: adding ? (editingProductId ? 'this product' : 'the new product') : 'product visibility',
+    onSave: () => saveCurrentRef.current(),
   });
 
   // Add/remove a product from a home-feed section (Popular Items / Deals
@@ -377,6 +381,10 @@ export default function ProductsPage() {
   /** Opens the add/edit page pre-filled with an existing product. */
   async function openEdit(product: Product) {
     if (!canManage) return;
+    if (manageSections) {
+      if (!(await saveManageDetails(false))) return;
+      product = { ...product, isPopular: manageSections.isPopular, isDeal: manageSections.isDeal, isOfferOfDay: manageSections.isOfferOfDay };
+    }
     setEditingProductId(product.id);
     setAddError(null);
     setSelectedId(null);
@@ -691,6 +699,8 @@ export default function ProductsPage() {
     const product = rows.find((r) => r.id === id);
     if (!product) return;
     setSelectedId(id);
+    setManageSections(null);
+    setManageError(null);
     setEditing(false);
     setActivePreviewIdx(0);
     setOpenFaqIndex(null);
@@ -704,7 +714,40 @@ export default function ProductsPage() {
     });
   }
 
+  async function saveManageDetails(close = true): Promise<boolean> {
+    if (!selected || !canManage || saving) return false;
+    setSaving(true);
+    setManageError(null);
+    try {
+      if (manageSections) {
+        await updateProductSections(selected.id, manageSections, accessToken);
+        setManageSections(null);
+        reload();
+      }
+      if (close) setSelectedId(null);
+      return true;
+    } catch (err) {
+      setManageError(err instanceof Error ? err.message : 'Could not save product details. Please try again.');
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function closeManage() {
+    if (saving) return;
+    if (!manageSections) { setSelectedId(null); return; }
+    ask({
+      title: 'Discard unsaved changes?',
+      message: 'Home feed visibility changes have not been saved.',
+      confirmLabel: 'Discard changes',
+      danger: true,
+      onConfirm: async () => { setManageSections(null); setSelectedId(null); },
+    });
+  }
+
   async function changeStatus(id: string, next: ProductStatus) {
+    if (manageSections && !(await saveManageDetails(false))) return;
     setSaving(true);
     try {
       await setProductStatus(id, next, accessToken);
@@ -717,6 +760,7 @@ export default function ProductsPage() {
 
   async function saveEdit() {
     if (!selected) return;
+    if (manageSections && !(await saveManageDetails(false))) return;
     const price = Number(form.price);
     const mrp = Number(form.mrp);
     const stockQuantity = Number(form.stockQuantity);
@@ -1785,12 +1829,13 @@ export default function ProductsPage() {
 
       <Modal
         open={Boolean(selected)}
-        onClose={() => setSelectedId(null)}
+        onClose={closeManage}
         title={selected?.name ?? ''}
         size="xl"
         footer={
           selected && canManage && (
             <>
+              {manageError && <p role="alert" className="w-full text-sm text-rose-600">{manageError}</p>}
               {editing ? (
                 <>
                   <Button variant="secondary" disabled={saving} onClick={() => setEditing(false)}>
@@ -1802,8 +1847,12 @@ export default function ProductsPage() {
                 </>
               ) : (
                 <>
+                  <Button variant="primary" disabled={saving} onClick={() => void saveManageDetails()}>
+                    {saving ? 'Saving...' : 'Save changes'}
+                  </Button>
                   <Button
                     variant="secondary"
+                    disabled={saving}
                     onClick={() => {
                       setEditing(true);
                       setForm({
@@ -1819,6 +1868,7 @@ export default function ProductsPage() {
                   </Button>
                   <Button
                     variant="secondary"
+                    disabled={saving}
                     onClick={() => openEdit(selected)}
                   >
                     <Icon name="edit" className="h-4 w-4" /> Edit product
@@ -2172,6 +2222,7 @@ export default function ProductsPage() {
                       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
                         Home feed visibility
                       </p>
+                      <p className="mb-3 text-xs text-slate-500">Use Save changes below to save visibility and expiry dates.</p>
                       <div className="space-y-2">
                         {(
                           [
@@ -2185,61 +2236,46 @@ export default function ProductsPage() {
                               <input
                                 type="checkbox"
                                 disabled={saving || !canManage}
-                                checked={selected[key]}
-                                onChange={async (e) => {
-                                  setSaving(true);
-                                  try {
-                                    await updateProductSections(
-                                      selected.id,
-                                      {
-                                        isPopular: selected.isPopular,
-                                        isDeal: selected.isDeal,
-                                        isOfferOfDay: selected.isOfferOfDay,
-                                        [key]: e.target.checked,
-                                      },
-                                      accessToken,
-                                    );
-                                    reload();
-                                  } finally {
-                                    setSaving(false);
-                                  }
+                                checked={manageSections?.[key] ?? selected[key]}
+                                onChange={(e) => {
+                                  setManageError(null);
+                                  setManageSections({
+                                    isPopular: selected.isPopular,
+                                    isDeal: selected.isDeal,
+                                    isOfferOfDay: selected.isOfferOfDay,
+                                    popularUntil: selected.popularUntil,
+                                    dealUntil: selected.dealUntil,
+                                    offerOfDayUntil: selected.offerOfDayUntil,
+                                    ...manageSections,
+                                    [key]: e.target.checked,
+                                  });
                                 }}
                               />
                               {label}
                             </label>
-                            {selected[key] && (
+                            {(manageSections?.[key] ?? selected[key]) && (
                               <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
                                 Expires
                                 <input
                                   type="date"
                                   disabled={saving || !canManage}
-                                  value={
-                                    selected[untilKey] ? selected[untilKey]!.slice(0, 10) : ''
-                                  }
-                                  onChange={async (e) => {
-                                    setSaving(true);
-                                    try {
-                                      const until = e.target.value
-                                        ? new Date(`${e.target.value}T23:59:59`).toISOString()
-                                        : null;
-                                      await updateProductSections(
-                                        selected.id,
-                                        {
-                                          isPopular: selected.isPopular,
-                                          isDeal: selected.isDeal,
-                                          isOfferOfDay: selected.isOfferOfDay,
-                                          [untilKey]: until,
-                                        },
-                                        accessToken,
-                                      );
-                                      reload();
-                                    } finally {
-                                      setSaving(false);
-                                    }
+                                  value={(manageSections ? manageSections[untilKey] : selected[untilKey])?.slice(0, 10) ?? ''}
+                                  onChange={(e) => {
+                                    setManageError(null);
+                                    setManageSections({
+                                      isPopular: selected.isPopular,
+                                      isDeal: selected.isDeal,
+                                      isOfferOfDay: selected.isOfferOfDay,
+                                      popularUntil: selected.popularUntil,
+                                      dealUntil: selected.dealUntil,
+                                      offerOfDayUntil: selected.offerOfDayUntil,
+                                      ...manageSections,
+                                      [untilKey]: e.target.value ? new Date(`${e.target.value}T23:59:59`).toISOString() : null,
+                                    });
                                   }}
                                   className="rounded border border-slate-200 px-1.5 py-0.5 text-xs"
                                 />
-                                {isPast(selected[untilKey]) && (
+                                {isPast((manageSections ? manageSections[untilKey] : selected[untilKey]) ?? null) && (
                                   <span className="font-medium text-rose-500">expired</span>
                                 )}
                               </label>

@@ -2,6 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ROLE_PERMISSIONS, STORE_BOUND_ROLES, canAccess, scopeToStore, scopeUsersToStore } from '../src/config/permissions.ts';
 
+test('Lab Charges is available to administrators and respects custom permissions', () => {
+  for (const role of ['admin', 'superadmin', 'lab']) assert.equal(canAccess({ role }, 'lab_charges'), true);
+  for (const role of ['pharmacy', 'lab_technician', 'delivery']) assert.equal(canAccess({ role }, 'lab_charges'), false);
+  assert.equal(canAccess({ role: 'admin', modules: ['lab_orders'] }, 'lab_charges'), false);
+  assert.equal(canAccess({ role: 'admin', modules: ['lab_charges'] }, 'lab_charges'), true);
+});
+
 test('store admins can open Users', () => {
   assert.equal(canAccess({ role: 'pharmacy' }, 'users'), true);
 });

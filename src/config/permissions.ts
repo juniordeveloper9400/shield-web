@@ -124,6 +124,13 @@ export const MODULES: NavItem[] = [
     description: 'Diagnostic packages',
   },
   {
+    key: 'lab_charges',
+    label: 'Lab Charges',
+    path: '/lab-charges',
+    icon: 'receipt',
+    description: 'Technician fees and collection distance rates',
+  },
+  {
     key: 'appointments',
     label: 'Appointments',
     path: '/appointments',
@@ -206,6 +213,7 @@ const APP_MODULES: ModuleKey[] = [
   'lab_orders',
   'lab_bills',
   'lab_tests',
+  'lab_charges',
   'appointments',
   'accounts',
   'deliveries',
@@ -228,7 +236,7 @@ export const ROLE_PERMISSIONS: Record<Role, ModuleKey[]> = {
   // exist for their store, the same as any other order — LabOrdersPage
   // itself redacts the patient/test detail for this role; see its own doc.
   pharmacy: ['dashboard', 'orders', 'bills', 'prescriptions', 'products', 'deliveries', 'lab_orders', 'commission_reserve', 'users'],
-  lab: ['dashboard', 'stores', 'lab_orders', 'lab_bills', 'lab_tests'],
+  lab: ['dashboard', 'stores', 'lab_orders', 'lab_bills', 'lab_tests', 'lab_charges'],
   appointments: ['dashboard', 'appointments'],
   delivery: ['dashboard', 'deliveries'],
   // No 'stores'/'lab_tests' — a technician works their one already-assigned
