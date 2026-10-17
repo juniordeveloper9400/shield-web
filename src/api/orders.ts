@@ -22,6 +22,14 @@ export async function listOrders(token: string | null): Promise<Order[]> {
   return api.get<Order[]>('/v1/staff/order-board', token);
 }
 
+/** One member's own pharmacy orders, newest first — the User detail page's
+ *  own Orders tab. Client-filtered off the same board every other order
+ *  screen reads, same pattern `listPrescriptionsForMember` already uses. */
+export async function listOrdersForMember(memberId: string, token: string | null): Promise<Order[]> {
+  const all = await listOrders(token);
+  return all.filter((o) => o.memberId === memberId);
+}
+
 /** One order by id, if this staff member may see it. Null when it is not theirs or does not exist. */
 export async function getOrder(id: string, token: string | null): Promise<Order | null> {
   try {

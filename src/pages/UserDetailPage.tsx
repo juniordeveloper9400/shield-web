@@ -33,6 +33,8 @@ import { listActivationsForMember } from '@/api/activations';
 import { listMemberTransactions, moneyFlowKindLabel } from '@/api/accounts';
 import { buildLedger, type LedgerRow } from '@/lib/ledger';
 import { listPrescriptionsForMember } from '@/api/prescriptions';
+import { listOrdersForMember } from '@/api/orders';
+import { listLabBookingsForMember } from '@/api/labBookings';
 import { PrescriptionReviewModal } from '@/components/prescriptions/PrescriptionReviewModal';
 import { GeoSlotPicker } from '@/components/agents/GeoSlotPicker';
 import type {
@@ -69,7 +71,9 @@ type Tab =
   | 'addresses'
   | 'plans'
   | 'transactions'
-  | 'prescriptions';
+  | 'orders';
+
+type OrderSubTab = 'prescription' | 'lab' | 'pharmacy';
 
 // Display labels only — see the identical note in PrescriptionsPage.tsx.
 const RX_STATUS_LABEL: Record<PrescriptionStatus, string> = {
@@ -160,13 +164,18 @@ export default function UserDetailPage() {
   const plans = useAsync(() => listActivationsForMember(id, accessToken), [id, accessToken]);
   const transactions = useAsync(() => listMemberTransactions(id, accessToken), [id, accessToken]);
   const prescriptions = useAsync(() => listPrescriptionsForMember(id, accessToken), [id, accessToken]);
+  const memberOrders = useAsync(() => listOrdersForMember(id, accessToken), [id, accessToken]);
+  const memberLabBookings = useAsync(() => listLabBookingsForMember(id, accessToken), [id, accessToken]);
   const selected = user.data;
   const planRows = plans.data ?? [];
   const headlinePlan = planRows.find((p) => p.status === 'approved') ?? planRows[0];
   const txnRows = transactions.data ?? [];
   const rxRows = prescriptions.data ?? [];
+  const pharmacyOrderRows = memberOrders.data ?? [];
+  const labOrderRows = memberLabBookings.data ?? [];
 
   const [tab, setTab] = useState<Tab>('overview');
+  const [orderSubTab, setOrderSubTab] = useState<OrderSubTab>('prescription');
   const [mode, setMode] = useState<'view' | 'agent' | 'investor'>('view');
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -176,7 +185,8 @@ export default function UserDetailPage() {
   // Confirm step for deleting the account outright — blocks app sign-in.
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // The prescription open in the review modal, for the Prescriptions tab.
+  // The prescription open in the review modal, for the Orders tab's own
+  // Prescription sub-tab.
   const [selectedRxId, setSelectedRxId] = useState<string | null>(null);
   const selectedRx = rxRows.find((r) => r.id === selectedRxId) ?? null;
 
@@ -540,9 +550,9 @@ export default function UserDetailPage() {
                   },
                   { key: 'plans', label: 'Plan details', count: planRows.length },
                   {
-                    key: 'prescriptions',
-                    label: 'Prescriptions',
-                    count: rxRows.length,
+                    key: 'orders',
+                    label: 'Orders',
+                    count: rxRows.length + labOrderRows.length + pharmacyOrderRows.length,
                   },
                   {
                     key: 'transactions',
@@ -835,45 +845,142 @@ export default function UserDetailPage() {
                 </Card>
               )}
 
-              {tab === 'prescriptions' && (
+              {tab === 'orders' && (
                 <Card>
                   <CardHeader
-                    title={`Prescriptions${rxRows.length > 0 ? ` (${rxRows.length})` : ''}`}
-                    subtitle="Scripts this member has uploaded — open one to see the script and send or update its intake card."
+                    title="Orders"
+                    subtitle="Every order this member has placed — prescription scripts, lab bookings and pharmacy orders, each on its own tab."
                   />
-                  <div className="p-5">
-                    {prescriptions.loading ? (
-                      <p className="text-sm text-slate-400">Loading…</p>
-                    ) : rxRows.length === 0 ? (
-                      <p className="text-sm text-slate-400">
-                        No prescriptions uploaded.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {rxRows.map((rx) => (
-                          <button
-                            key={rx.id}
-                            type="button"
-                            onClick={() => setSelectedRxId(rx.id)}
-                            className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 text-left text-sm transition hover:border-brand-300 hover:bg-slate-50"
-                          >
-                            <span className="min-w-0">
-                              <span className="block truncate font-medium text-slate-800">
-                                {rx.code} · {rx.patientName}
-                              </span>
-                              <span className="text-xs text-slate-400">
-                                {rx.doctor || 'No doctor named'} ·{' '}
-                                {formatDateTime(rx.createdAt)}
-                              </span>
-                            </span>
-                            <Badge tone={toneForStatus(rx.status)}>
-                              {RX_STATUS_LABEL[rx.status]}
-                            </Badge>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  <div className="flex gap-1 border-b border-slate-200 px-5">
+                    {(
+                      [
+                        { key: 'prescription', label: 'Prescription', count: rxRows.length },
+                        { key: 'lab', label: 'Lab', count: labOrderRows.length },
+                        { key: 'pharmacy', label: 'Pharmacy', count: pharmacyOrderRows.length },
+                      ] as { key: OrderSubTab; label: string; count: number }[]
+                    ).map((t) => (
+                      <button
+                        key={t.key}
+                        type="button"
+                        onClick={() => setOrderSubTab(t.key)}
+                        className={`border-b-2 px-3 py-2.5 text-sm font-medium transition ${
+                          orderSubTab === t.key
+                            ? 'border-brand-600 text-brand-700'
+                            : 'border-transparent text-slate-500 hover:text-slate-700'
+                        }`}
+                      >
+                        {t.label}
+                        {t.count > 0 && (
+                          <span className="ml-1.5 text-xs text-slate-400">({t.count})</span>
+                        )}
+                      </button>
+                    ))}
                   </div>
+
+                  {orderSubTab === 'prescription' && (
+                    <div className="p-5">
+                      {prescriptions.loading ? (
+                        <p className="text-sm text-slate-400">Loading…</p>
+                      ) : rxRows.length === 0 ? (
+                        <p className="text-sm text-slate-400">
+                          No prescriptions uploaded.
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {rxRows.map((rx) => (
+                            <button
+                              key={rx.id}
+                              type="button"
+                              onClick={() => setSelectedRxId(rx.id)}
+                              className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 text-left text-sm transition hover:border-brand-300 hover:bg-slate-50"
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate font-medium text-slate-800">
+                                  {rx.code} · {rx.patientName}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {rx.doctor || 'No doctor named'} ·{' '}
+                                  {formatDateTime(rx.createdAt)}
+                                </span>
+                              </span>
+                              <Badge tone={toneForStatus(rx.status)}>
+                                {RX_STATUS_LABEL[rx.status]}
+                              </Badge>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {orderSubTab === 'lab' && (
+                    <div className="p-5">
+                      {memberLabBookings.loading ? (
+                        <p className="text-sm text-slate-400">Loading…</p>
+                      ) : labOrderRows.length === 0 ? (
+                        <p className="text-sm text-slate-400">No lab bookings yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {labOrderRows.map((lb) => (
+                            <div
+                              key={lb.id}
+                              className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 text-sm"
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate font-medium text-slate-800">
+                                  {lb.code} · {lb.packageName}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {lb.storeName || 'No branch set'} ·{' '}
+                                  {formatDateTime(lb.createdAt)}
+                                </span>
+                              </span>
+                              <span className="flex shrink-0 items-center gap-2">
+                                <span className="text-sm font-medium text-slate-700">
+                                  {formatCurrency(lb.totalPrice)}
+                                </span>
+                                <Badge tone={toneForStatus(lb.status)}>{titleCase(lb.status)}</Badge>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {orderSubTab === 'pharmacy' && (
+                    <div className="p-5">
+                      {memberOrders.loading ? (
+                        <p className="text-sm text-slate-400">Loading…</p>
+                      ) : pharmacyOrderRows.length === 0 ? (
+                        <p className="text-sm text-slate-400">No pharmacy orders yet.</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {pharmacyOrderRows.map((o) => (
+                            <div
+                              key={o.id}
+                              className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 p-3 text-sm"
+                            >
+                              <span className="min-w-0">
+                                <span className="block truncate font-medium text-slate-800">
+                                  {o.code} · {titleCase(o.kind)}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {o.itemCount} item{o.itemCount === 1 ? '' : 's'}
+                                </span>
+                              </span>
+                              <span className="flex shrink-0 items-center gap-2">
+                                <span className="text-sm font-medium text-slate-700">
+                                  {formatCurrency(o.paidTotal || o.mrpTotal)}
+                                </span>
+                                <Badge tone={toneForStatus(o.status)}>{titleCase(o.status)}</Badge>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </Card>
               )}
 

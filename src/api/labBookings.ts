@@ -14,6 +14,7 @@ import type {
 interface LabBookingApiRow {
   id: number;
   code: string;
+  memberId: number;
   memberName: string | null;
   memberPhone: string | null;
   packageName: string | null;
@@ -54,6 +55,7 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
   return {
     id: String(r.id),
     code: r.code,
+    memberId: String(r.memberId),
     memberName: r.memberName ?? '—',
     memberPhone: r.memberPhone ?? '',
     packageName: r.packageName ?? '—',
@@ -102,6 +104,14 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
 export async function listLabBookings(token: string | null): Promise<LabBooking[]> {
   const rows = await api.get<LabBookingApiRow[]>('/v1/staff/lab-bookings', token);
   return rows.map(toLabBooking);
+}
+
+/** One member's own lab bookings, newest first — the User detail page's
+ *  own Orders tab. Client-filtered off the same staff list every other lab
+ *  screen reads, same pattern `listPrescriptionsForMember` already uses. */
+export async function listLabBookingsForMember(memberId: string, token: string | null): Promise<LabBooking[]> {
+  const all = await listLabBookings(token);
+  return all.filter((b) => b.memberId === memberId);
 }
 
 /**

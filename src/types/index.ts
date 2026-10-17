@@ -38,6 +38,7 @@ export type ModuleKey =
   | 'activations'
   | 'agent_approvals'
   | 'agent_withdrawals'
+  | 'agent_portal'
   | 'users'
   | 'lab_orders'
   | 'lab_bills'
@@ -726,6 +727,47 @@ export interface AgentRow {
   parentCode: string;
   parentName: string;
   createdAt: string;
+  /** Lifetime commission credited (`app.agent.earned`). */
+  earned: number;
+  /** Lifetime commission already withdrawn/paid out. */
+  redeemed: number;
+  /** Direct Health Pass sales this agent personally made. */
+  personalSales: number;
+  /** How much of `earned` has been moved into this agent's member wallet. */
+  movedToWallet: number;
+  /** Health Pass plans activated through this agent's own direct customers. */
+  plansSold: number;
+}
+
+/** One Health Pass plan an agent's own direct customer activated — part of
+ *  [AgentCustomer.plans], the Agent Portal's own money-flow detail. */
+export interface AgentCustomerPlan {
+  id: string;
+  tierKind: string;
+  amount: number;
+  activatedOn: string;
+}
+
+/** One member an agent personally linked as a "direct sale" — `app.agent_
+ *  customer`, with every plan they've since activated. */
+export interface AgentCustomer {
+  id: string;
+  name: string;
+  phone: string;
+  createdAt: string;
+  plans: AgentCustomerPlan[];
+}
+
+/** One `app.agent_withdrawal` row, as the Agent Portal's money-flow detail
+ *  reads it back for a specific agent (staff view, not the agent's own). */
+export interface AgentWithdrawalEntry {
+  id: string;
+  amount: number;
+  status: 'pending' | 'paid' | 'rejected';
+  requestedOn: string;
+  approvedAt: string | null;
+  paymentReference: string;
+  note: string;
 }
 
 /** A patient a member added — one row of `app.patient`. */
@@ -839,6 +881,9 @@ export interface LabReportPage {
 export interface LabBooking {
   id: string;
   code: string;
+  /** `app.users.id` of the member — the User detail page's Orders tab
+   *  filters the staff list down to one member's own bookings with it. */
+  memberId: string;
   memberName: string;
   memberPhone: string;
   packageName: string;
