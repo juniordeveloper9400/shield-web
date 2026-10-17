@@ -127,6 +127,8 @@ function BookingWindow({
 }) {
   const { accessToken, user } = useAuth();
   const [editingOrder, setEditingOrder] = useState(false);
+  const [inlineBusy, setInlineBusy] = useState(false);
+  const [inlineVersion, setInlineVersion] = useState(0);
   const fullOrderEditor = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'lab';
   const navigate = useNavigate();
   const [schedule, setSchedule] = useState(toLocalInput(booking.scheduledFor));
@@ -543,22 +545,30 @@ function BookingWindow({
       : []),
   ];
 
-  if (editingOrder) return <LabOrderDetailsEditor booking={booking} onClose={() => setEditingOrder(false)} onSaved={() => { onChanged(); onClose(); }} />;
+  function closeOrder() {
+    if (inlineBusy) return;
+    if (!editingOrder) { onClose(); return; }
+    ask({ title: 'Discard order changes?', message: 'Your inline edits have not been saved.', confirmLabel: 'Discard changes', danger: true,
+      onConfirm: async () => { setEditingOrder(false); onClose(); } });
+  }
 
   return (
     <>
       <Modal
         open
         size="full"
-        onClose={onClose}
+        onClose={closeOrder}
         title={booking.code}
         footer={
           <>
-            {fullOrderEditor && <Button variant="secondary" disabled={busy !== null} onClick={() => setEditingOrder(true)}>Edit order details</Button>}
+            {fullOrderEditor && editingOrder && <>
+              <Button variant="secondary" disabled={inlineBusy} onClick={() => { setInlineVersion(v => v + 1); setEditingOrder(false); }}>Cancel changes</Button>
+              <Button form="lab-order-inline-details" type="submit" disabled={inlineBusy}>{inlineBusy ? 'Saving...' : 'Save changes'}</Button>
+            </>}
             {status !== 'cancelled' && status !== 'report_ready' && (
               <Button
                 variant="danger"
-                disabled={busy !== null}
+                disabled={busy !== null || editingOrder || inlineBusy}
                 onClick={() =>
                   ask({
                     title: 'Cancel this booking?',
@@ -577,7 +587,7 @@ function BookingWindow({
             {next && (
               <Button
                 variant="primary"
-                disabled={busy !== null || blocker !== null || staffRequiredBlocker !== null || dirty}
+                disabled={busy !== null || editingOrder || inlineBusy || blocker !== null || staffRequiredBlocker !== null || dirty}
                 title={
                   blocker ??
                   staffRequiredBlocker ??
@@ -605,6 +615,9 @@ function BookingWindow({
           <p className="mb-3 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
         )}
 
+        {fullOrderEditor ? <LabOrderDetailsEditor key={`${booking.id}-${inlineVersion}`} booking={booking}
+          onEditing={() => setEditingOrder(true)} onBusy={setInlineBusy}
+          onSaved={() => { setEditingOrder(false); onChanged(); onClose(); }} /> : (
         <DetailList
           rows={[
             { label: 'Member', value: booking.contactName ?? booking.memberName },
@@ -687,11 +700,14 @@ function BookingWindow({
           ]}
         />
 
+        )}
+
+        <fieldset disabled={editingOrder || inlineBusy} className="min-w-0">
         {/* ---- Assigned staff (home collection only) — its own immediate
             save, separate from the batched "Booking details" edits below;
             see onAssignStaff's own doc. Mandatory before this booking can be
             confirmed (staffRequiredBlocker above gates the Confirm button). */}
-        {homeCollection && (
+        {!fullOrderEditor && homeCollection && (
           <section className="mt-4 rounded-lg border border-slate-200 p-4">
             <h3 className="text-sm font-semibold text-slate-800">Assigned staff</h3>
             <p className="mt-0.5 text-xs text-slate-400">
@@ -805,7 +821,7 @@ function BookingWindow({
                   {detailsEditable && (
                     <button
                       type="button"
-                      disabled={busy !== null}
+                      disabled={busy !== null || editingOrder || inlineBusy}
                       onClick={addPatientRow}
                       className="text-xs font-medium text-brand-600"
                     >
@@ -835,7 +851,7 @@ function BookingWindow({
                         {detailsEditable && patients.length > 1 && (
                           <button
                             type="button"
-                            disabled={busy !== null}
+                            disabled={busy !== null || editingOrder || inlineBusy}
                             onClick={() => removePatientRow(i)}
                             title="Remove this patient"
                             className="rounded-md border border-slate-200 p-1.5 text-rose-500 hover:bg-rose-50"
@@ -913,7 +929,7 @@ function BookingWindow({
                   <Button
                     size="sm"
                     variant="secondary"
-                    disabled={busy !== null}
+                    disabled={busy !== null || editingOrder || inlineBusy}
                     onClick={() => fileInput.current?.click()}
                   >
                     <Icon name="plus" className="h-3.5 w-3.5" />
@@ -958,7 +974,7 @@ function BookingWindow({
                       {canRemoveReportPage(status, pages.length) && (
                         <button
                           type="button"
-                          disabled={busy !== null}
+                          disabled={busy !== null || editingOrder || inlineBusy}
                           onClick={() =>
                             ask({
                               title: 'Remove this report page?',
@@ -1124,6 +1140,7 @@ function BookingWindow({
             </>
           )}
         </section>
+        </fieldset>
       </Modal>
 
       {preview && (
