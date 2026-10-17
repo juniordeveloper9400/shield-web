@@ -31,7 +31,9 @@ export type IconName =
   | 'more-vertical'
   | 'sort'
   | 'edit'
-  | 'trash';
+  | 'trash'
+  | 'eye'
+  | 'eye-off';
 
 const ICONS: Record<IconName, ReactNode> = {
   dashboard: (
@@ -209,6 +211,20 @@ const ICONS: Record<IconName, ReactNode> = {
       <path d="M3 6h18" />
       <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m2 0-.8 13.2a2 2 0 0 1-2 1.8H8.8a2 2 0 0 1-2-1.8L6 6h12Z" />
       <path d="M10 11v6M14 11v6" />
+    </>
+  ),
+  // An open eye -- "show password" trigger.
+  eye: (
+    <>
+      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  // The same eye, crossed out -- "hide password" trigger.
+  'eye-off': (
+    <>
+      <path d="M17.94 17.94A10.9 10.9 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 4.22-5.19M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+      <path d="M1 1l22 22" />
     </>
   ),
 };

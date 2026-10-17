@@ -23,7 +23,7 @@ import {
   allowedModules,
   canAccess,
 } from '@/config/permissions';
-import type { ModuleKey, Role } from '@/types';
+import type { ModuleKey, Role, StoreType } from '@/types';
 
 const ROLES = Object.keys(ROLE_LABELS) as Role[];
 
@@ -36,6 +36,27 @@ const ROLE_COLOR: Record<Role, string> = {
   delivery: '#c2410c',
   lab_technician: '#a1650d',
 };
+
+/** Roles that need the branch to actually run that side of the business —
+ *  checked against the branch's own `storeType` (StoresPage's "Standalone
+ *  Pharmacy / Standalone Lab / Pharmacy + Lab" picker). `lab`/`appointments`/
+ *  `superadmin`/`admin` aren't store-bound at all (STORE_BOUND_ROLES), so
+ *  they never reach this check. */
+const PHARMACY_CAPABLE_ROLES: Role[] = ['pharmacy', 'delivery'];
+const LAB_CAPABLE_ROLES: Role[] = ['lab_technician'];
+
+/** Why [role] can't be granted at [storeType], or null when it's fine.
+ *  Mirrors StoresPage's own STORE_TYPE_OPTIONS labels so the reason reads
+ *  as the same vocabulary the admin just picked on the branch itself. */
+function roleStoreTypeProblem(role: Role, storeType: StoreType): string | null {
+  if (PHARMACY_CAPABLE_ROLES.includes(role) && storeType === 'lab') {
+    return `${ROLE_LABELS[role]} needs a branch that handles pharmacy orders — this one is set up as a Standalone Lab. Pick a different branch, or change this branch's store type on the Stores page.`;
+  }
+  if (LAB_CAPABLE_ROLES.includes(role) && storeType === 'pharmacy') {
+    return `${ROLE_LABELS[role]} needs a branch that takes lab bookings — this one is set up as a Standalone Pharmacy. Pick a different branch, or change this branch's store type on the Stores page.`;
+  }
+  return null;
+}
 
 /** What a role grants before any per-account customization. */
 function roleDefaultModules(role: Role): ModuleKey[] {
@@ -88,7 +109,12 @@ export default function AdminsPage() {
 
   const { data: storeRows } = useAsync(() => listStores(accessToken), [accessToken]);
   const storeOptions = useMemo(
-    () => (storeRows ?? []).map((s) => ({ value: s.id, label: `${s.name} (${s.code})` })),
+    () =>
+      (storeRows ?? []).map((s) => ({
+        value: s.id,
+        label: `${s.name} (${s.code})`,
+        storeType: s.storeType,
+      })),
     [storeRows],
   );
 
@@ -172,6 +198,12 @@ export default function AdminsPage() {
     }
     if (STORE_BOUND_ROLES.includes(form.role) && !form.storeId) {
       setFormError('Pick the branch this account works.');
+      return;
+    }
+    const chosenStore = storeOptions.find((s) => s.value === form.storeId);
+    const storeTypeProblem = chosenStore ? roleStoreTypeProblem(form.role, chosenStore.storeType) : null;
+    if (storeTypeProblem) {
+      setFormError(storeTypeProblem);
       return;
     }
     if (form.modules.length === 0) {
@@ -550,14 +582,18 @@ function AddStaffPage({
   toggleModule: (key: ModuleKey) => void;
   resetModulesToRoleDefault: () => void;
   grantableRoles: Role[];
-  storeOptions: { value: string; label: string }[];
+  storeOptions: { value: string; label: string; storeType: StoreType }[];
   formError: string | null;
   submitting: boolean;
   onCancel: () => void;
   onSave: () => void;
 }) {
+  const [showPassword, setShowPassword] = useState(false);
   const storeBound = STORE_BOUND_ROLES.includes(form.role);
   const isCustom = !sameSet(form.modules, roleDefaultModules(form.role));
+  const selectedStore = storeOptions.find((s) => s.value === form.storeId);
+  const storeTypeProblem =
+    storeBound && selectedStore ? roleStoreTypeProblem(form.role, selectedStore.storeType) : null;
 
   return (
     <>
@@ -586,13 +622,23 @@ function AddStaffPage({
               />
             </Field>
             <Field label={editing ? 'New password — optional' : 'Password'}>
-              <input
-                type="password"
-                value={form.password}
-                onChange={(e) => patchForm({ password: e.target.value })}
-                placeholder={editing ? 'Leave blank to keep the current password' : 'At least 8 characters'}
-                className={inputClass}
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={form.password}
+                  onChange={(e) => patchForm({ password: e.target.value })}
+                  placeholder={editing ? 'Leave blank to keep the current password' : 'At least 8 characters'}
+                  className={`${inputClass} pr-10`}
+                />
+                <button
+                  type="button"
+                  title={showPassword ? 'Hide password' : 'Show password'}
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="absolute inset-y-0 right-0 flex items-center px-3 text-slate-400 hover:text-slate-600"
+                >
+                  <Icon name={showPassword ? 'eye-off' : 'eye'} className="h-4 w-4" />
+                </button>
+              </div>
             </Field>
 
             <Field label="Role">
@@ -601,6 +647,11 @@ function AddStaffPage({
                 value={form.role}
                 onChange={(role) => patchForm({ role })}
               />
+              {storeTypeProblem && (
+                <p className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {storeTypeProblem}
+                </p>
+              )}
             </Field>
 
             {storeBound && (
@@ -608,7 +659,7 @@ function AddStaffPage({
                 <select
                   value={form.storeId}
                   onChange={(e) => patchForm({ storeId: e.target.value })}
-                  className={`${inputClass} bg-white`}
+                  className={`${inputClass} bg-white ${storeTypeProblem ? 'border-rose-300' : ''}`}
                 >
                   <option value="">Select a branch…</option>
                   {storeOptions.map((s) => (
@@ -631,7 +682,12 @@ function AddStaffPage({
             <Button variant="secondary" disabled={submitting} onClick={onCancel}>
               Cancel
             </Button>
-            <Button variant="primary" disabled={submitting} onClick={onSave}>
+            <Button
+              variant="primary"
+              disabled={submitting || storeTypeProblem !== null}
+              title={storeTypeProblem ?? undefined}
+              onClick={onSave}
+            >
               {submitting ? 'Saving…' : editing ? 'Save changes' : 'Create account'}
             </Button>
           </div>
