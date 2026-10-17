@@ -121,6 +121,7 @@ export function blankLabTest(): LabTestInput {
     specification2: '',
     specification3: '',
     fasting: '',
+    symptoms: [],
     resultTemplate: '',
     isActive: true,
   };

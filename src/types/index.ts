@@ -1134,6 +1134,10 @@ export interface LabTestInput {
    *  the Test Master form and synced onto the member-facing package's own
    *  `fasting` fact chip. */
   fasting: string;
+  /** Chips for "Symptoms that may indicate this test" on the member-facing
+   *  detail screen — staff-entered, synced onto the package listing the same
+   *  way [fasting] is. */
+  symptoms: string[];
   resultTemplate: string;
   isActive: boolean;
 }

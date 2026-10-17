@@ -894,12 +894,18 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
             />
           )}
           {tab === 'spec2' && (
-            <LisTextarea
-              label="Why this test"
-              value={form.specification2}
-              onChange={(v) => patch({ specification2: v })}
-              rows={12}
-            />
+            <div className="space-y-5">
+              <LisTextarea
+                label="Why this test"
+                value={form.specification2}
+                onChange={(v) => patch({ specification2: v })}
+                rows={12}
+              />
+              <SymptomsInput
+                value={form.symptoms}
+                onChange={(v) => patch({ symptoms: v })}
+              />
+            </div>
           )}
           {tab === 'spec3' && (
             <LisTextarea
@@ -1069,5 +1075,66 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
         <p className="text-sm text-slate-600">{confirm?.message}</p>
       </Modal>
     </>
+  );
+}
+
+/**
+ * "Symptoms that may indicate this test" — the chips shown on the
+ * member-facing detail screen, entered here rather than hardcoded in either
+ * app. Type a symptom and press Enter (or comma) to add it as a chip.
+ */
+function SymptomsInput({
+  value,
+  onChange,
+}: {
+  value: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+
+  function commit() {
+    const symptom = draft.trim();
+    setDraft('');
+    if (!symptom || value.some((s) => s.toLowerCase() === symptom.toLowerCase())) return;
+    onChange([...value, symptom]);
+  }
+
+  return (
+    <div>
+      <span className="mb-1.5 block text-sm font-medium text-slate-700">
+        Symptoms that may indicate this test
+      </span>
+      <div className="flex flex-wrap gap-2 rounded-lg border border-slate-300 p-2">
+        {value.map((symptom, index) => (
+          <span
+            key={`${symptom}-${index}`}
+            className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700"
+          >
+            {symptom}
+            <button
+              type="button"
+              onClick={() => onChange(value.filter((_, i) => i !== index))}
+              className="text-slate-400 hover:text-slate-700"
+              aria-label={`Remove ${symptom}`}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ',') {
+              e.preventDefault();
+              commit();
+            }
+          }}
+          onBlur={commit}
+          placeholder="Type a symptom and press Enter…"
+          className="min-w-[180px] flex-1 border-none px-1 py-1 text-sm outline-none"
+        />
+      </div>
+    </div>
   );
 }
