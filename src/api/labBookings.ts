@@ -46,6 +46,7 @@ interface LabBookingApiRow {
   assignedStaffId: number | null;
   assignedStaffName: string | null;
   unitPrice: string | number;
+  fixCharge?: string | number;
   totalPrice: string | number;
   status: string;
   scheduledFor: string | null;
@@ -96,6 +97,7 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
     assignedStaffId: r.assignedStaffId == null ? '' : String(r.assignedStaffId),
     assignedStaffName: r.assignedStaffName ?? '',
     unitPrice: Number(r.unitPrice),
+    fixCharge: Number(r.fixCharge || 0),
     totalPrice: Number(r.totalPrice),
     status: fromEnum<LabBookingStatus>(r.status),
     scheduledFor: r.scheduledFor ?? '',

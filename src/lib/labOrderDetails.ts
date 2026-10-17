@@ -29,6 +29,7 @@ export function labOrderDetailsDraft(booking: LabBooking) {
     fulfillmentType: booking.fulfillmentType.toUpperCase(),
     assignedStaffId: booking.assignedStaffId,
     unitPrice: String(booking.unitPrice),
+    fixCharge: String(booking.fixCharge ?? 0),
     address: booking.address,
     scheduledFor: toLocalInput(booking.scheduledFor),
     note: booking.note,
@@ -52,6 +53,7 @@ export function validateLabOrderDetails(draft: LabOrderDetailsDraft): string | n
   if (!/^\d+$/.test(draft.labPackageId)) return 'Choose a test or package.';
   if (!/^\d+$/.test(draft.storeId)) return 'Choose a branch.';
   if (!draft.unitPrice.trim() || !Number.isFinite(Number(draft.unitPrice)) || Number(draft.unitPrice) < 0 || !/^\d+(\.\d{1,2})?$/.test(draft.unitPrice)) return 'Enter a non-negative unit price with at most two decimal places.';
+  if (draft.fixCharge && (!Number.isFinite(Number(draft.fixCharge)) || Number(draft.fixCharge) < 0 || !/^\d+(\.\d{1,2})?$/.test(draft.fixCharge))) return 'Enter a non-negative fixed charge with at most two decimal places.';
   if (!draft.patients.length) return 'Add at least one patient.';
   for (const p of draft.patients) {
     if (!p.name.trim()) return 'Enter a name for every patient.';
@@ -69,7 +71,7 @@ export function labOrderDetailsInput(draft: LabOrderDetailsDraft) {
     labPackageId: Number(draft.labPackageId), storeId: Number(draft.storeId),
     fulfillmentType: draft.fulfillmentType as 'HOME_COLLECTION' | 'STORE_VISIT',
     assignedStaffId: draft.fulfillmentType === 'HOME_COLLECTION' && draft.assignedStaffId ? Number(draft.assignedStaffId) : null,
-    unitPrice: Number(draft.unitPrice), address: draft.address.trim(),
+    unitPrice: Number(draft.unitPrice), fixCharge: Number(draft.fixCharge || 0), address: draft.address.trim(),
     scheduledFor: fromLocalInput(draft.scheduledFor), note: draft.note.trim(),
     patients: draft.patients.map((p) => ({ ...p, name: p.name.trim(), age: p.age === '' ? undefined : Number(p.age), phone: p.phone.trim() })),
   };

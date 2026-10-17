@@ -695,6 +695,9 @@ function BookingWindow({
               ? [{ label: 'Assigned staff', value: booking.assignedStaffName || <span className="font-normal text-rose-500">Not assigned</span> }]
               : []),
             { label: 'Unit price', value: formatCurrency(booking.unitPrice) },
+            ...(Number(booking.fixCharge || 0) > 0
+              ? [{ label: 'Fixed charge', value: formatCurrency(booking.fixCharge!) }]
+              : []),
             { label: 'Total', value: formatCurrency(booking.totalPrice) },
             { label: 'Booked', value: formatDateTime(booking.createdAt) },
           ]}

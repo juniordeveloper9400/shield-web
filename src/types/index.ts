@@ -918,6 +918,7 @@ export interface LabBooking {
   /** Contact number saved on that address, or ''. */
   addressPhone: string;
   unitPrice: number;
+  fixCharge?: number;
   totalPrice: number;
   status: LabBookingStatus;
   scheduledFor: string;
