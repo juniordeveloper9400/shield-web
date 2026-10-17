@@ -75,8 +75,9 @@ export function canEditBookingDetails(status: LabStatus): boolean {
   return status !== 'cancelled';
 }
 
-/** Whether pages can be attached: from sample collection onward, never once cancelled. */
-export function canAttachReport(status: LabStatus): boolean {
+/** Whether pages can be attached: from sample collection onward, never once cancelled. Store visit can attach from confirmed. */
+export function canAttachReport(status: LabStatus, fulfillmentType?: string): boolean {
+  if (fulfillmentType === 'store_visit' && status === 'confirmed') return true;
   return status === 'sample_collected' || status === 'report_ready';
 }
 
@@ -100,8 +101,12 @@ export function canBillBooking(status: LabStatus): boolean {
 export function nextStepBlocker(
   current: LabStatus,
   reportPages: number,
+  fulfillmentType?: string,
 ): string | null {
-  if (current === 'sample_collected' && reportPages === 0) {
+  if (
+    (current === 'sample_collected' || (fulfillmentType === 'store_visit' && current === 'confirmed')) &&
+    reportPages === 0
+  ) {
     return 'Attach the report pages first — the member is told their report is ready.';
   }
   return null;

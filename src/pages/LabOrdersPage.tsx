@@ -12,7 +12,7 @@ import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { formatCurrency, formatDateTime, toneForStatus } from '@/lib/format';
 import { LabBookingModal } from '@/components/labs/LabBookingModal';
 import { useAsync } from '@/lib/useAsync';
-import { listLabBookings } from '@/api/labBookings';
+import { listLabBookings, setLabBookingStatus } from '@/api/labBookings';
 import type { LabBooking, LabBookingStatus } from '@/types';
 
 /** Where a booking actually stands, at a glance — the raw `status` column
@@ -28,6 +28,9 @@ function labOrderDisplayStatus(row: LabBooking): LabOrderDisplayStatus {
   if (row.status === 'cancelled') return 'cancelled';
   if (row.status === 'report_ready') return 'report_ready';
   if (row.billAmount > 0) return 'billed';
+  if (row.fulfillmentType === 'store_visit' && row.status === 'sample_collected') {
+    return 'confirmed';
+  }
   return row.status;
 }
 
@@ -69,6 +72,28 @@ export default function LabOrdersPage() {
   const [status, setStatus] = useState('all');
   const [store, setStore] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  async function handleMarkSampleCollected(booking: LabBooking) {
+    setBusyId(booking.id);
+    setActionError(null);
+    try {
+      if (booking.status === 'requested') {
+        try {
+          await setLabBookingStatus(booking.id, 'confirmed', accessToken);
+        } catch {
+          // Allow direct or already confirmed
+        }
+      }
+      await setLabBookingStatus(booking.id, 'sample_collected', accessToken);
+      await reload();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : 'Could not update status to Sample collected.');
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   // A Lab Technician only ever has their own branch's bookings to look at —
   // Pharmacy sees this same scoping, but with the patient/test detail
@@ -114,8 +139,8 @@ export default function LabOrdersPage() {
 
   const counts = {
     requested: scoped.filter((r) => r.status === 'requested').length,
-    confirmed: scoped.filter((r) => r.status === 'confirmed').length,
-    collected: scoped.filter((r) => r.status === 'sample_collected').length,
+    confirmed: scoped.filter((r) => r.status === 'confirmed' || (r.fulfillmentType === 'store_visit' && r.status === 'sample_collected')).length,
+    collected: scoped.filter((r) => r.status === 'sample_collected' && r.fulfillmentType !== 'store_visit').length,
     billed: scoped.filter((r) => labOrderDisplayStatus(r) === 'billed').length,
     ready: scoped.filter((r) => r.status === 'report_ready').length,
   };
@@ -232,11 +257,32 @@ export default function LabOrdersPage() {
           {
             key: 'actions',
             header: '',
-            render: (row) => (
-              <Button variant="secondary" size="sm" onClick={() => setSelectedId(row.id)}>
-                Manage
-              </Button>
-            ),
+            render: (row) => {
+              const isHomeCollection = row.fulfillmentType !== 'store_visit';
+              const canCollect =
+                isHomeCollection &&
+                (row.status === 'requested' || row.status === 'confirmed');
+              return (
+                <div className="flex items-center justify-end gap-2">
+                  {canCollect && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      disabled={busyId === row.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleMarkSampleCollected(row);
+                      }}
+                    >
+                      {busyId === row.id ? 'Updating…' : 'Sample collected'}
+                    </Button>
+                  )}
+                  <Button variant="secondary" size="sm" onClick={() => setSelectedId(row.id)}>
+                    Manage
+                  </Button>
+                </div>
+              );
+            },
             className: 'text-right',
           },
         ] as Column<LabBooking>[])),
@@ -262,6 +308,19 @@ export default function LabOrdersPage() {
         <StatCard label="Billed" value={counts.billed} icon="receipt" tone="violet" />
         <StatCard label="Report ready" value={counts.ready} icon="check" tone="green" />
       </div>
+
+      {actionError && (
+        <div className="mb-4 flex items-center justify-between rounded-md bg-rose-50 p-3 text-sm text-rose-700">
+          <span>{actionError}</span>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="text-xs font-semibold uppercase hover:underline"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <Card>
         <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">

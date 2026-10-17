@@ -437,8 +437,10 @@ function BookingWindow({
     (canEditNote(status) && noteChanged) ||
     (detailsEditable && (storeCodeChanged || addressChanged || patientsChanged));
 
-  const next = NEXT[status];
-  const blocker = nextStepBlocker(status, pages.length || booking.reportPages);
+  const isStoreVisit = booking.fulfillmentType === 'store_visit';
+  const next = isStoreVisit && status === 'confirmed' ? 'report_ready' : NEXT[status];
+  const nextLabel = isStoreVisit && status === 'confirmed' ? 'Report ready' : NEXT_LABEL[status];
+  const blocker = nextStepBlocker(status, pages.length || booking.reportPages, booking.fulfillmentType);
   // Mirrors the backend's own STAFF_REQUIRED gate (BookingService.
   // updateLabBookingStatus) — caught here too so the button is disabled with
   // a clear reason instead of a confirm click bouncing off a 409.
@@ -596,14 +598,16 @@ function BookingWindow({
                 onClick={() => void changeStatus(next)}
               >
                 {status === 'requested' && <Icon name="check" className="h-4 w-4" />}
-                {NEXT_LABEL[status]}
+                {nextLabel}
               </Button>
             )}
           </>
         }
       >
         <div className="mb-3 flex items-center gap-2">
-          <Badge tone={toneForStatus(status)}>{STATUS_LABEL[status]}</Badge>
+          <Badge tone={toneForStatus(isStoreVisit && status === 'sample_collected' ? 'confirmed' : status)}>
+            {isStoreVisit && status === 'sample_collected' ? STATUS_LABEL['confirmed'] : STATUS_LABEL[status]}
+          </Badge>
           {booking.scheduledFor && (
             <span className="text-xs text-slate-500">
               Scheduled {formatDateTime(booking.scheduledFor)}
@@ -897,252 +901,6 @@ function BookingWindow({
             </>
           )}
         </section>}
-
-        {/* ---- Report ---- */}
-        <section className="mt-4 rounded-lg border border-slate-200 p-4">
-          <button
-            type="button"
-            onClick={() => setReportOpen((v) => !v)}
-            className="flex w-full items-center justify-between gap-3 text-left"
-          >
-            <h3 className="text-sm font-semibold text-slate-800">
-              Lab report{' '}
-              <span className="font-normal text-slate-400">
-                ({pages.length || booking.reportPages}/{MAX_REPORT_PAGES} pages)
-              </span>
-            </h3>
-            <Icon
-              name="chevron-down"
-              className={`h-4 w-4 shrink-0 text-slate-400 ${reportOpen ? 'rotate-180' : ''}`}
-            />
-          </button>
-
-          {reportOpen && (
-            <>
-              {canAttachReport(status) && (
-                <div className="mt-3 flex justify-end">
-                  <input
-                    ref={fileInput}
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => void onPickFiles(e.target.files)}
-                  />
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={busy !== null || editingOrder || inlineBusy}
-                    onClick={() => fileInput.current?.click()}
-                  >
-                    <Icon name="plus" className="h-3.5 w-3.5" />
-                    {busy === 'upload' ? 'Uploading…' : 'Add pages'}
-                  </Button>
-                </div>
-              )}
-
-              {!canAttachReport(status) ? (
-                <p className="mt-2 text-xs text-slate-400">
-                  {closed
-                    ? 'This booking was cancelled.'
-                    : 'The report can be attached once the sample has been collected.'}
-                </p>
-              ) : pagesLoading ? (
-                <p className="mt-3 text-sm text-slate-400">Loading report…</p>
-              ) : pages.length === 0 ? (
-                <p className="mt-2 text-xs text-slate-500">
-                  Attach a photo or scan of each report page (JPG or PNG). You can mark the booking
-                  Report ready once at least one page is attached — the member can then open it from
-                  the app.
-                </p>
-              ) : (
-                <ul className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {pages.map((page, i) => (
-                    <li key={page.id} className="group relative">
-                      <button
-                        type="button"
-                        onClick={() => setPreview(page)}
-                        className="block w-full overflow-hidden rounded-md border border-slate-200 bg-slate-50"
-                        title={page.name || `Page ${i + 1}`}
-                      >
-                        <img
-                          src={page.image}
-                          alt={`Report page ${i + 1}`}
-                          className="h-28 w-full object-cover"
-                        />
-                      </button>
-                      <span className="absolute left-1 top-1 rounded bg-slate-900/70 px-1.5 text-[10px] font-medium text-white">
-                        {i + 1}
-                      </span>
-                      {canRemoveReportPage(status, pages.length) && (
-                        <button
-                          type="button"
-                          disabled={busy !== null || editingOrder || inlineBusy}
-                          onClick={() =>
-                            ask({
-                              title: 'Remove this report page?',
-                              message: `Page ${i + 1} of ${booking.code}'s report will be removed. This cannot be undone.`,
-                              confirmLabel: 'Remove page',
-                              danger: true,
-                              onConfirm: () => removePage(page),
-                            })
-                          }
-                          title="Remove this page"
-                          className="absolute right-1 top-1 rounded bg-white/90 p-1 text-rose-600 shadow hover:bg-rose-50 disabled:opacity-50"
-                        >
-                          <Icon name="close" className="h-3 w-3" />
-                        </button>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
-
-              {blocker && canAttachReport(status) && (
-                <p className="mt-3 text-xs text-amber-600">{blocker}</p>
-              )}
-            </>
-          )}
-        </section>
-
-        {/* ---- Billing ---- */}
-        <section className="mt-4 rounded-lg border border-slate-200 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-slate-800">Billing</h3>
-            {billed && (
-              <Badge tone={effectivePaid ? 'green' : 'amber'}>
-                {effectivePaid ? 'Paid' : 'Awaiting payment'}
-              </Badge>
-            )}
-          </div>
-
-          {closed ? (
-            <p className="mt-2 text-xs text-slate-400">This booking was cancelled.</p>
-          ) : effectivePaid ? (
-            <div className="mt-3 space-y-1 text-sm text-slate-700">
-              <p>
-                Bill total <span className="font-semibold">{formatCurrency(booking.billAmount)}</span>
-              </p>
-              <p className="text-xs text-slate-500">
-                {formatCurrency(collected?.walletAmount ?? booking.billWalletCollected)} from wallet
-                {(collected?.cashAmount ?? booking.billCashCollected) > 0 && (
-                  <> · {formatCurrency(collected?.cashAmount ?? booking.billCashCollected)} in cash</>
-                )}
-              </p>
-            </div>
-          ) : !canBillBooking(status) ? (
-            <p className="mt-2 text-xs text-slate-400">
-              Billing opens up once the report is ready — attach the report pages above and mark
-              this booking Report ready first.
-            </p>
-          ) : (
-            <>
-              {billError && (
-                <p className="mt-2 rounded-md bg-rose-50 px-3 py-2 text-xs text-rose-700">{billError}</p>
-              )}
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <label className="block text-xs font-medium text-slate-600">
-                  Disc. amount
-                  <input
-                    type="number"
-                    min={0}
-                    value={billDiscount || ''}
-                    disabled={billBusy}
-                    onChange={(e) => setBillDiscount(Number(e.target.value) || 0)}
-                    className={`${inputClass} mt-1`}
-                  />
-                </label>
-                <div className="text-xs font-medium text-slate-600">
-                  Bill total
-                  <p className="mt-1 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-sm font-semibold text-slate-800">
-                    {formatCurrency(netTotal)}
-                  </p>
-                </div>
-                <label className="block text-xs font-medium text-slate-600 sm:col-span-2">
-                  Invoice photo (optional)
-                  <input
-                    ref={billFileInput}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(e) => void onPickBillImage(e.target.files?.[0] ?? null)}
-                  />
-                  <div className="mt-1 flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      disabled={billImageBusy || billBusy}
-                      onClick={() => billFileInput.current?.click()}
-                    >
-                      {billImageBusy ? 'Reading…' : billImage ? 'Replace photo' : 'Add photo'}
-                    </Button>
-                    {billImage && (
-                      <img src={billImage} alt="Invoice" className="h-10 w-10 rounded object-cover" />
-                    )}
-                  </div>
-                </label>
-              </div>
-              {!showOtpPopover ? (
-                <div className="mt-3 flex justify-end">
-                  <Button size="sm" disabled={billBusy} onClick={() => void sendBill()}>
-                    {billBusy ? 'Converting…' : billed ? 'Update bill' : 'Convert to bill →'}
-                  </Button>
-                </div>
-              ) : (
-                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3">
-                  <WalletBreakdown
-                    walletBalance={walletBalance ?? 0}
-                    monthlyRedeemable={null}
-                    redeemedThisMonth={null}
-                    availableAllowance={null}
-                    walletShare={walletCoverage}
-                    walletShareLabel="Will draw from wallet"
-                    cashOwed={cashOwed}
-                    format={formatCurrency}
-                  />
-                  {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
-                  {walletCoverage <= 0 ? (
-                    // Nothing in the wallet to draw on — no code for the
-                    // member to read out, so no OTP step at all. Just
-                    // confirm the cash was collected at the counter.
-                    <div className="mt-2 flex justify-end">
-                      <Button size="sm" disabled={otpBusy} onClick={() => void collectCashOnly()}>
-                        {otpBusy ? 'Collecting…' : `Collect ${formatCurrency(cashOwed)} as cash`}
-                      </Button>
-                    </div>
-                  ) : otpBusy && !otpConfirmation ? (
-                    <p className="mt-2 text-xs text-slate-500">Sending the code to {booking.memberPhone}…</p>
-                  ) : otpConfirmation ? (
-                    <div className="mt-2 flex items-center gap-2">
-                      <input
-                        value={otpCode}
-                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                        placeholder="6-digit code"
-                        inputMode="numeric"
-                        disabled={otpBusy}
-                        className={`${inputClass} w-32`}
-                      />
-                      <Button
-                        size="sm"
-                        disabled={otpBusy || !/^\d{6}$/.test(otpCode.trim())}
-                        onClick={() => void verifyAndCollect()}
-                      >
-                        {otpBusy ? 'Verifying…' : 'Verify & collect'}
-                      </Button>
-                      <Button size="sm" variant="ghost" disabled={otpBusy} onClick={() => void sendOtp()}>
-                        Resend
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button size="sm" disabled={otpBusy} onClick={() => void sendOtp()}>
-                      Send code
-                    </Button>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </section>
         </fieldset>
       </Modal>
 
