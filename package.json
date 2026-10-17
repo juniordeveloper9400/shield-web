@@ -16,6 +16,7 @@
     "test:permissions": "node --experimental-strip-types --test tests/permissions.test.mjs",
     "test:reserve-by-store": "node --experimental-strip-types --test tests/reserveByStore.test.mjs",
     "test:bill-cash": "node --experimental-strip-types --test tests/billCash.test.mjs",
+    "test:health-pass": "node --experimental-strip-types --test tests/healthPass.test.mjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
