@@ -1,10 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Combobox } from '@/components/ui/Combobox';
 import { Icon } from '@/components/ui/Icon';
 import { formatCurrency } from '@/lib/format';
 import { groupTotal, nextSetOrder, TEST_TYPE_LABELS } from '@/lib/labTests';
-import type { LabGroupItem, LabTestSummary, LabTestType } from '@/types';
+import type { LabCategory, LabGroupItem, LabTestSummary, LabTestType } from '@/types';
 
 const cell = 'border-b border-slate-200 px-3 py-2';
 const numberInput =
@@ -22,6 +22,7 @@ export function GroupTestTab({
   onChange,
   pickable,
   totalAmount,
+  categories,
 }: {
   testType: LabTestType;
   items: LabGroupItem[];
@@ -32,8 +33,13 @@ export function GroupTestTab({
    *  "(Inactive)" in the picker so that's not a surprise. */
   pickable: LabTestSummary[];
   totalAmount: number;
+  /** Every test category, for the "Add by category" bulk picker below the
+   *  table — adds every not-yet-taken test under the chosen category in one
+   *  go, rather than one row at a time. */
+  categories: LabCategory[];
 }) {
   const byId = useMemo(() => new Map(pickable.map((t) => [t.id, t])), [pickable]);
+  const [bulkCategoryId, setBulkCategoryId] = useState('');
 
   if (testType === 'TEST') {
     return (
@@ -63,6 +69,27 @@ export function GroupTestTab({
     });
   }
 
+  /** Adds every not-yet-taken test under [categoryId] as its own row, each
+   *  starting at that test's own price — the same starting point a single
+   *  Add Row + choose would give it, just for a whole category at once. */
+  function addByCategory(categoryId: string) {
+    if (!categoryId) return;
+    const taken = new Set(items.map((item) => item.testId));
+    const additions = pickable
+      .filter((t) => t.categoryId === categoryId && !taken.has(t.id))
+      .map((t, i) => ({
+        testId: t.id,
+        name: t.name,
+        department: t.department,
+        sample: t.sample,
+        amount: t.amount,
+        setOrder: nextSetOrder(items) + i,
+        isSubhead: false,
+      }));
+    if (additions.length > 0) onChange([...items, ...additions]);
+    setBulkCategoryId('');
+  }
+
   const groupAmount = groupTotal(items);
   const saving = groupAmount - totalAmount;
 
@@ -74,6 +101,7 @@ export function GroupTestTab({
             <tr>
               <th className="px-3 py-2">SINO</th>
               <th className="px-3 py-2">Test Name</th>
+              <th className="px-3 py-2">Category</th>
               <th className="px-3 py-2">Amount</th>
               <th className="px-3 py-2">Setorder</th>
               <th className="px-3 py-2">Is Subhead</th>
@@ -85,7 +113,7 @@ export function GroupTestTab({
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-3 py-8 text-center text-sm text-slate-400">
+                <td colSpan={9} className="px-3 py-8 text-center text-sm text-slate-400">
                   No tests yet — press Add Row.
                 </td>
               </tr>
@@ -108,6 +136,9 @@ export function GroupTestTab({
                       placeholder="Choose a test…"
                       searchPlaceholder="Search tests…"
                     />
+                  </td>
+                  <td className={`${cell} text-slate-600`}>
+                    {byId.get(item.testId)?.categoryName || '—'}
                   </td>
                   <td className={cell}>
                     <input
@@ -162,27 +193,43 @@ export function GroupTestTab({
       </div>
 
       <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={() =>
-            onChange([
-              ...items,
-              {
-                testId: '',
-                name: '',
-                department: '',
-                sample: '',
-                amount: 0,
-                setOrder: nextSetOrder(items),
-                isSubhead: false,
-              },
-            ])
-          }
-          disabled={pickable.length === 0}
-        >
-          <Icon name="plus" className="h-3.5 w-3.5" /> Add Row
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() =>
+              onChange([
+                ...items,
+                {
+                  testId: '',
+                  name: '',
+                  department: '',
+                  sample: '',
+                  amount: 0,
+                  setOrder: nextSetOrder(items),
+                  isSubhead: false,
+                },
+              ])
+            }
+            disabled={pickable.length === 0}
+          >
+            <Icon name="plus" className="h-3.5 w-3.5" /> Add Row
+          </Button>
+
+          {categories.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-400">or</span>
+              <Combobox
+                value={bulkCategoryId}
+                onChange={addByCategory}
+                options={categories.map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Add a whole category…"
+                searchPlaceholder="Search categories…"
+                className="min-w-[200px]"
+              />
+            </div>
+          )}
+        </div>
 
         <dl className="text-right text-sm">
           <div className="flex justify-end gap-2">

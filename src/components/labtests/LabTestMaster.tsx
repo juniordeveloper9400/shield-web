@@ -852,6 +852,7 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
               onChange={changeItems}
               pickable={pickable}
               totalAmount={form.amount}
+              categories={categoryRows ?? []}
             />
           )}
 
