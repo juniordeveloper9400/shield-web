@@ -1,6 +1,13 @@
 import { api, ApiError } from '@/lib/api';
-import { fromEnum } from '@/lib/mappers';
-import type { AgentLevel, AgentRow, PendingAgent } from '@/types';
+import { fromEnum, num } from '@/lib/mappers';
+import type {
+  AgentCustomer,
+  AgentCustomerPlan,
+  AgentLevel,
+  AgentRow,
+  AgentWithdrawalEntry,
+  PendingAgent,
+} from '@/types';
 
 /** A `GET /v1/staff/agent-requests[/:id]` row — several ids come back as
  *  JSON numbers (bigint columns), not the string ids shieldweb's own types
@@ -145,6 +152,13 @@ interface AgentApiRow {
   createdAt: string;
   parentCode: string | null;
   parentName: string | null;
+  earned: unknown;
+  redeemed: unknown;
+  personalSales: unknown;
+  movedToWallet: unknown;
+  /** Only on `listApprovedAgents`'s own roster read — absent on the plain
+   *  `getApprovedAgent` by-id read, which has no reason to join it in. */
+  plansSold?: unknown;
 }
 
 function toAgentRow(r: AgentApiRow): AgentRow {
@@ -161,6 +175,11 @@ function toAgentRow(r: AgentApiRow): AgentRow {
     parentCode: r.parentCode ?? '',
     parentName: r.parentName ?? '',
     createdAt: r.createdAt,
+    earned: num(r.earned),
+    redeemed: num(r.redeemed),
+    personalSales: num(r.personalSales),
+    movedToWallet: num(r.movedToWallet),
+    plansSold: r.plansSold == null ? 0 : num(r.plansSold),
   };
 }
 
@@ -213,4 +232,65 @@ export async function updateAgentPosition(
  *  not a delete, is what "remove" means here. */
 export async function setAgentActive(id: string, active: boolean, token: string | null): Promise<void> {
   await api.patch(`/v1/staff/agents/${id}/active`, { active }, token);
+}
+
+// ---- Agent Portal: money flow for one agent --------------------------
+
+interface AgentCustomerPlanApiRow {
+  id: number;
+  agentCustomerId: number;
+  tierKind: string;
+  amount: unknown;
+  activatedOn: string;
+}
+
+interface AgentCustomerApiRow {
+  id: number;
+  name: string;
+  phone: string;
+  createdAt: string;
+  plans: AgentCustomerPlanApiRow[];
+}
+
+function toPlan(p: AgentCustomerPlanApiRow): AgentCustomerPlan {
+  return { id: String(p.id), tierKind: p.tierKind, amount: num(p.amount), activatedOn: p.activatedOn };
+}
+
+/** This agent's own direct customers and the plans they've activated —
+ *  what generated [AgentRow.personalSales]/[AgentRow.earned], not just the
+ *  totals themselves. */
+export async function listAgentCustomers(id: string, token: string | null): Promise<AgentCustomer[]> {
+  const rows = await api.get<AgentCustomerApiRow[]>(`/v1/staff/agents/${id}/customers`, token);
+  return rows.map((r) => ({
+    id: String(r.id),
+    name: r.name,
+    phone: r.phone,
+    createdAt: r.createdAt,
+    plans: r.plans.map(toPlan),
+  }));
+}
+
+interface AgentWithdrawalApiRow {
+  id: number;
+  amount: unknown;
+  status: string;
+  requestedOn: string;
+  approvedAt: string | null;
+  paymentReference: string | null;
+  note: string | null;
+}
+
+/** This agent's own withdrawal history — money actually paid out, or still
+ *  pending/rejected. */
+export async function listAgentWithdrawals(id: string, token: string | null): Promise<AgentWithdrawalEntry[]> {
+  const rows = await api.get<AgentWithdrawalApiRow[]>(`/v1/staff/agents/${id}/withdrawals`, token);
+  return rows.map((r) => ({
+    id: String(r.id),
+    amount: num(r.amount),
+    status: r.status.toLowerCase() as AgentWithdrawalEntry['status'],
+    requestedOn: r.requestedOn,
+    approvedAt: r.approvedAt,
+    paymentReference: r.paymentReference ?? '',
+    note: r.note ?? '',
+  }));
 }

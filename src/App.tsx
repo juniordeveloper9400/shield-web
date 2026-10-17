@@ -19,6 +19,7 @@ import MemberActivationsPage from '@/pages/MemberActivationsPage';
 import AgentApprovalsPage from '@/pages/AgentApprovalsPage';
 import AgentApprovalDetailPage from '@/pages/AgentApprovalDetailPage';
 import AgentDetailPage from '@/pages/AgentDetailPage';
+import AgentPortalPage from '@/pages/AgentPortalPage';
 import LabOrdersPage from '@/pages/LabOrdersPage';
 import LabBillsPage from '@/pages/LabBillsPage';
 import AppointmentsPage from '@/pages/AppointmentsPage';
@@ -173,8 +174,16 @@ export default function App() {
         <Route
           path="/agents/:id"
           element={
-            <ProtectedRoute module="agent_approvals">
+            <ProtectedRoute module={['agent_approvals', 'agent_portal']}>
               <AgentDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/agent-portal"
+          element={
+            <ProtectedRoute module="agent_portal">
+              <AgentPortalPage />
             </ProtectedRoute>
           }
         />

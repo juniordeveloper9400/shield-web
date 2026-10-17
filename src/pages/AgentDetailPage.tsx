@@ -1,23 +1,27 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { canApproveAgents } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
+import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { DetailList } from '@/components/ui/DetailList';
+import { DataTable, type Column } from '@/components/ui/DataTable';
 import { Icon } from '@/components/ui/Icon';
 import { GeoSlotPicker } from '@/components/agents/GeoSlotPicker';
-import { titleCase } from '@/lib/format';
+import { formatCurrency, formatDate, titleCase } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import {
   getApprovedAgent,
+  listAgentCustomers,
+  listAgentWithdrawals,
   setAgentActive,
   updateAgentPosition,
 } from '@/api/agents';
 import { listAgentOptions } from '@/api/users';
-import type { AgentLevel } from '@/types';
+import type { AgentCustomer, AgentLevel, AgentWithdrawalEntry } from '@/types';
 
 const AGENT_LEVELS: AgentLevel[] = [
   'national',
@@ -49,6 +53,17 @@ export default function AgentDetailPage() {
     [id, accessToken],
   );
   const agentOptions = useAsync(() => listAgentOptions(accessToken), [accessToken]);
+  const { data: customersData, loading: customersLoading } = useAsync(
+    () => listAgentCustomers(id, accessToken),
+    [id, accessToken],
+  );
+  const { data: withdrawalsData, loading: withdrawalsLoading } = useAsync(
+    () => listAgentWithdrawals(id, accessToken),
+    [id, accessToken],
+  );
+  const customers = useMemo(() => customersData ?? [], [customersData]);
+  const withdrawals = useMemo(() => withdrawalsData ?? [], [withdrawalsData]);
+  const plansSold = useMemo(() => customers.reduce((sum, c) => sum + c.plans.length, 0), [customers]);
 
   const [editing, setEditing] = useState(false);
   const [level, setLevel] = useState<AgentLevel>('ward');
@@ -59,7 +74,9 @@ export default function AgentDetailPage() {
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const back = () => navigate('/agent-approvals');
+  // Reached from both Agent approvals and the Agent Portal — goes back to
+  // whichever one actually led here, rather than a fixed path.
+  const back = () => navigate(-1);
 
   function startEditing() {
     if (!agent) return;
@@ -161,103 +178,169 @@ export default function AgentDetailPage() {
                 },
               ]}
             />
-
-            {canManage && (
-              <div className="mt-5 border-t border-slate-200 pt-4">
-                {!editing ? (
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="secondary" onClick={startEditing}>
-                      Change level / position
-                    </Button>
-                    <Button
-                      variant={agent.active ? 'danger' : 'success'}
-                      disabled={saving}
-                      onClick={toggleActive}
-                    >
-                      {agent.active ? 'Deactivate' : 'Reactivate'}
-                    </Button>
-                  </div>
-                ) : (
-                  <>
-                    <p className="mb-3 text-sm font-medium text-slate-700">
-                      Move this agent
-                    </p>
-                    <div className="space-y-3">
-                      <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Level
-                        <select
-                          value={level}
-                          onChange={(e) => {
-                            setLevel(e.target.value as AgentLevel);
-                            setPosition({ areaId: null, area: '' });
-                          }}
-                          className={`mt-1 ${fieldCls}`}
-                        >
-                          {AGENT_LEVELS.map((l) => (
-                            <option key={l} value={l}>
-                              {titleCase(l)}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
-                        Parent agent{' '}
-                        <span className="font-normal text-slate-400">
-                          — optional
-                        </span>
-                        <select
-                          value={parentId}
-                          onChange={(e) => setParentId(e.target.value)}
-                          className={`mt-1 ${fieldCls}`}
-                        >
-                          <option value="">(top of tree)</option>
-                          {parentChoices.map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.code} · {a.name} ({titleCase(a.level)})
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <GeoSlotPicker level={level} onChange={setPosition} />
-                    </div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <Button
-                        variant="secondary"
-                        disabled={saving}
-                        onClick={() => {
-                          setEditing(false);
-                          setActionError(null);
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button variant="primary" disabled={saving} onClick={save}>
-                        Save position
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {!canManage && (
-              <p className="mt-4 flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 ring-1 ring-inset ring-slate-200">
-                <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>
-                  Only a Super Admin or Admin can move or deactivate an agent.
-                </span>
-              </p>
-            )}
-
-            {actionError && (
-              <div className="mt-3 flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
-                <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{actionError}</span>
-              </div>
-            )}
           </>
         )}
       </Card>
+
+      {!loading && !error && agent && (
+        <>
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <StatCard label="Earned" value={formatCurrency(agent.earned)} tone="violet" />
+            <StatCard label="Redeemed" value={formatCurrency(agent.redeemed)} tone="blue" />
+            <StatCard label="Moved to wallet" value={formatCurrency(agent.movedToWallet)} tone="amber" />
+            <StatCard label="Personal sales" value={formatCurrency(agent.personalSales)} tone="green" />
+            <StatCard label="Plans sold" value={plansSold} icon="check" />
+          </div>
+
+          <Card className="mt-6">
+            <div className="border-b border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-800">Direct customers</h3>
+              <p className="text-xs text-slate-400">
+                Members this agent personally linked, and the Health Pass plans each has activated.
+              </p>
+            </div>
+            <DataTable
+              columns={customerColumns}
+              rows={customers}
+              loading={customersLoading}
+              empty="No customers linked yet."
+            />
+          </Card>
+
+          <Card className="mt-6">
+            <div className="border-b border-slate-200 p-4">
+              <h3 className="text-sm font-semibold text-slate-800">Withdrawal history</h3>
+              <p className="text-xs text-slate-400">Earnings this agent has requested paid out.</p>
+            </div>
+            <DataTable
+              columns={withdrawalColumns}
+              rows={withdrawals}
+              loading={withdrawalsLoading}
+              empty="No withdrawals requested yet."
+            />
+          </Card>
+        </>
+      )}
+
+      {!loading && !error && agent && (
+        <Card className="mt-6 p-5">
+          {canManage ? (
+            !editing ? (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="secondary" onClick={startEditing}>
+                  Change level / position
+                </Button>
+                <Button
+                  variant={agent.active ? 'danger' : 'success'}
+                  disabled={saving}
+                  onClick={toggleActive}
+                >
+                  {agent.active ? 'Deactivate' : 'Reactivate'}
+                </Button>
+              </div>
+            ) : (
+              <>
+                <p className="mb-3 text-sm font-medium text-slate-700">Move this agent</p>
+                <div className="space-y-3">
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Level
+                    <select
+                      value={level}
+                      onChange={(e) => {
+                        setLevel(e.target.value as AgentLevel);
+                        setPosition({ areaId: null, area: '' });
+                      }}
+                      className={`mt-1 ${fieldCls}`}
+                    >
+                      {AGENT_LEVELS.map((l) => (
+                        <option key={l} value={l}>
+                          {titleCase(l)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Parent agent{' '}
+                    <span className="font-normal text-slate-400">— optional</span>
+                    <select
+                      value={parentId}
+                      onChange={(e) => setParentId(e.target.value)}
+                      className={`mt-1 ${fieldCls}`}
+                    >
+                      <option value="">(top of tree)</option>
+                      {parentChoices.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code} · {a.name} ({titleCase(a.level)})
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <GeoSlotPicker level={level} onChange={setPosition} />
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    variant="secondary"
+                    disabled={saving}
+                    onClick={() => {
+                      setEditing(false);
+                      setActionError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button variant="primary" disabled={saving} onClick={save}>
+                    Save position
+                  </Button>
+                </div>
+              </>
+            )
+          ) : (
+            <p className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500 ring-1 ring-inset ring-slate-200">
+              <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>Only a Super Admin or Admin can move or deactivate an agent.</span>
+            </p>
+          )}
+
+          {actionError && (
+            <div className="mt-3 flex items-start gap-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 ring-1 ring-inset ring-rose-200">
+              <Icon name="alert" className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{actionError}</span>
+            </div>
+          )}
+        </Card>
+      )}
     </>
   );
 }
+
+const customerColumns: Column<AgentCustomer>[] = [
+  { key: 'name', header: 'Customer', render: (c) => c.name },
+  { key: 'phone', header: 'Phone', render: (c) => c.phone || '—' },
+  { key: 'linked', header: 'Linked on', render: (c) => formatDate(c.createdAt) },
+  {
+    key: 'plans',
+    header: 'Plans activated',
+    render: (c) =>
+      c.plans.length === 0
+        ? '—'
+        : c.plans
+            .map((p) => `${titleCase(p.tierKind.toLowerCase())} (${formatCurrency(p.amount)}) · ${formatDate(p.activatedOn)}`)
+            .join(', '),
+  },
+];
+
+const withdrawalColumns: Column<AgentWithdrawalEntry>[] = [
+  { key: 'amount', header: 'Amount', render: (w) => formatCurrency(w.amount) },
+  {
+    key: 'status',
+    header: 'Status',
+    render: (w) => (
+      <Badge tone={w.status === 'paid' ? 'green' : w.status === 'rejected' ? 'red' : 'amber'}>
+        {titleCase(w.status)}
+      </Badge>
+    ),
+  },
+  { key: 'requested', header: 'Requested on', render: (w) => formatDate(w.requestedOn) },
+  { key: 'approved', header: 'Approved on', render: (w) => (w.approvedAt ? formatDate(w.approvedAt) : '—') },
+  { key: 'reference', header: 'Payment reference', render: (w) => w.paymentReference || '—' },
+];

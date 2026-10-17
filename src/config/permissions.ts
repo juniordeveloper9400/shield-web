@@ -89,6 +89,13 @@ export const MODULES: NavItem[] = [
     description: 'Verify, approve and record agent earnings withdrawals',
   },
   {
+    key: 'agent_portal',
+    label: 'Agent Portal',
+    path: '/agent-portal',
+    icon: 'users',
+    description: 'Every agent, National down to Ward, with their own money flow',
+  },
+  {
     key: 'lab_orders',
     label: 'Lab Orders',
     path: '/lab-orders',
@@ -186,6 +193,7 @@ const APP_MODULES: ModuleKey[] = [
   'activations',
   'agent_approvals',
   'agent_withdrawals',
+  'agent_portal',
   'users',
   'lab_orders',
   'lab_bills',
