@@ -14,6 +14,7 @@ import BillsPage from '@/pages/BillsPage';
 import ManualCashPage from '@/pages/ManualCashPage';
 import PrescriptionsPage from '@/pages/PrescriptionsPage';
 import ActivationsPage from '@/pages/ActivationsPage';
+import HealthPassesPage from '@/pages/HealthPassesPage';
 import ActivationDetailPage from '@/pages/ActivationDetailPage';
 import MemberActivationsPage from '@/pages/MemberActivationsPage';
 import AgentApprovalsPage from '@/pages/AgentApprovalsPage';
@@ -140,9 +141,17 @@ export default function App() {
           }
         />
         <Route
+          path="/health-passes"
+          element={
+            <ProtectedRoute module="health_passes">
+              <HealthPassesPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/activations/member/:memberId"
           element={
-            <ProtectedRoute module="activations">
+            <ProtectedRoute module={['activations', 'health_passes']}>
               <MemberActivationsPage />
             </ProtectedRoute>
           }

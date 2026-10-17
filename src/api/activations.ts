@@ -4,6 +4,7 @@ import type {
   PrivilegeActivation,
   PrivilegeActivationStatus,
   WalletActivity,
+  WalletSummary,
 } from '@/types';
 
 /** The shape `GET/PATCH /v1/staff/wallet-cards*` sends back —
@@ -30,6 +31,7 @@ interface ActivationApiRow {
   submittedAt: string;
   reviewedAt: string | null;
   issuedOn: string | null;
+  rechargedOn: string | null;
   expiresOn: string | null;
   verifiedReference: string | null;
   receivedOn: string | null;
@@ -61,6 +63,7 @@ function toActivation(r: ActivationApiRow): PrivilegeActivation {
     reviewerNote: r.reviewerNote || '',
     submittedAt: r.submittedAt || new Date(0).toISOString(),
     issuedOn: r.issuedOn || '',
+    rechargedOn: r.rechargedOn || '',
     expiresOn: r.expiresOn || '',
     reviewedAt: r.reviewedAt ?? undefined,
     verifiedReference: r.verifiedReference || '',
@@ -102,6 +105,32 @@ export async function getActivation(id: string, token: string | null): Promise<P
 export async function listActivationsForMember(memberId: string, token: string | null): Promise<PrivilegeActivation[]> {
   const rows = await api.get<ActivationApiRow[]>(`/v1/staff/wallet-cards/member/${memberId}`, token);
   return rows.map(toActivation);
+}
+
+/**
+ * A member's Health Pass wallet at a glance — balance, and this month's
+ * redeemable/redeemed/available allowance (the "MONTHLY ALLOWANCE +
+ * CARRY-FORWARD" figures the member's own app shows on their wallet card
+ * front). `GET /v1/staff/wallet-cards/member/:memberId/summary`
+ * (`WalletService.getMemberWalletSummaryForStaff`) — reads the same
+ * `wallet-month.ts` pure functions the order-billing preview does, so this
+ * never disagrees with what a bill collection would actually draw.
+ */
+export async function getMemberWalletSummary(memberId: string, token: string | null): Promise<WalletSummary> {
+  const r = await api.get<{
+    balance: number;
+    monthlyRedeemable: number;
+    redeemedThisMonth: number;
+    availableAllowance: number;
+    monthlyBalance?: number;
+  }>(`/v1/staff/wallet-cards/member/${memberId}/summary`, token);
+  return {
+    balance: num(r.balance),
+    monthlyRedeemable: num(r.monthlyRedeemable),
+    redeemedThisMonth: num(r.redeemedThisMonth),
+    availableAllowance: num(r.availableAllowance),
+    monthlyBalance: r.monthlyBalance != null ? num(r.monthlyBalance) : undefined,
+  };
 }
 
 /**

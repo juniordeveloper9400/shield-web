@@ -36,6 +36,7 @@ export type ModuleKey =
   | 'bills'
   | 'prescriptions'
   | 'activations'
+  | 'health_passes'
   | 'agent_approvals'
   | 'agent_withdrawals'
   | 'agent_portal'
@@ -1216,6 +1217,9 @@ export interface PrivilegeActivation {
   /** When the plan was taken out, and when its validity runs out. Only
    *  meaningful once `status` is `approved` — see `ActivationDetailPage`. */
   issuedOn: string;
+  /** When money last went onto this card — the issue date until it's
+   *  topped up. Only meaningful once `status` is `approved`. */
+  rechargedOn: string;
   expiresOn: string;
   reviewedAt?: string;
 
@@ -1241,6 +1245,18 @@ export interface PrivilegeActivation {
 export interface WalletActivity {
   balance: number;
   rewardPoints: number;
+}
+
+/** A member's Health Pass wallet at a glance, for the Health Passes page —
+ *  the same figures the member's own app shows on the front of their
+ *  wallet card ("MONTHLY ALLOWANCE + CARRY-FORWARD"). `monthlyBalance` is
+ *  absent for a member with no wallet row at all (nothing to show yet). */
+export interface WalletSummary {
+  balance: number;
+  monthlyRedeemable: number;
+  redeemedThisMonth: number;
+  availableAllowance: number;
+  monthlyBalance?: number;
 }
 
 /** Which swipeable banner strip a row belongs to (migration 0069) — the

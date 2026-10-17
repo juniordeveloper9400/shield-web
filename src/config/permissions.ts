@@ -75,6 +75,13 @@ export const MODULES: NavItem[] = [
     description: 'Health Pass plan activations awaiting approval',
   },
   {
+    key: 'health_passes',
+    label: 'Health Passes',
+    path: '/health-passes',
+    icon: 'wallet',
+    description: "Every member's activated Health Pass plans — balance, monthly allowance and expiry",
+  },
+  {
     key: 'agent_approvals',
     label: 'Agent approvals',
     path: '/agent-approvals',
@@ -191,6 +198,7 @@ const APP_MODULES: ModuleKey[] = [
   'bills',
   'prescriptions',
   'activations',
+  'health_passes',
   'agent_approvals',
   'agent_withdrawals',
   'agent_portal',
