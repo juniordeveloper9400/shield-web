@@ -1008,6 +1008,11 @@ export interface LabPackage {
   forWhom: string;
   sample: string;
   preparation: string;
+  /** A short, structured prep note (e.g. "12 hrs fasting") shown as its own
+   *  fact chip alongside Report in / Home sample. For a package driven by a
+   *  single Test Master PACKAGE-type row, this is synced from that row's own
+   *  Fasting field; settable directly otherwise. */
+  fasting: string;
   about: string;
   isActive: boolean;
   addedAt: string;
@@ -1030,6 +1035,7 @@ export interface LabPackageInput {
   forWhom: string;
   sample: string;
   preparation: string;
+  fasting: string;
   reportIn: string;
   about: string;
   testIds: string[];
@@ -1124,6 +1130,10 @@ export interface LabTestInput {
   specification1: string;
   specification2: string;
   specification3: string;
+  /** Only meaningful while testType is 'PACKAGE' — shown as its own field in
+   *  the Test Master form and synced onto the member-facing package's own
+   *  `fasting` fact chip. */
+  fasting: string;
   resultTemplate: string;
   isActive: boolean;
 }

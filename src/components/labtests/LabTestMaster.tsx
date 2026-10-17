@@ -64,8 +64,8 @@ type TabKey =
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'details', label: 'Test Details' },
   { key: 'refs', label: 'Ref1 & Ref2' },
-  { key: 'spec1', label: 'Specification 1' },
-  { key: 'spec2', label: 'Specification 2' },
+  { key: 'spec1', label: 'About' },
+  { key: 'spec2', label: 'Why this test' },
   { key: 'spec3', label: 'Specification 3' },
   { key: 'special', label: 'Special Rate & Ref Lab' },
   { key: 'group', label: 'Set Grouptest' },
@@ -617,7 +617,7 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
                     className="sm:col-span-6"
                   />
                   <LisText
-                    label="Short Name"
+                    label="Alias Name"
                     value={form.shortName}
                     onChange={(v) => patch({ shortName: v })}
                     className="sm:col-span-3"
@@ -851,6 +851,16 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
                       </p>
                     </>
                   )}
+                  {form.testType === 'PACKAGE' && (
+                    <div className="mt-3">
+                      <LisText
+                        label="Fasting"
+                        value={form.fasting}
+                        onChange={(v) => patch({ fasting: v })}
+                        placeholder="e.g. 12 hrs fasting"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -877,7 +887,7 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
 
           {tab === 'spec1' && (
             <LisTextarea
-              label="Specifications"
+              label="About"
               value={form.specification1}
               onChange={(v) => patch({ specification1: v })}
               rows={12}
@@ -885,7 +895,7 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
           )}
           {tab === 'spec2' && (
             <LisTextarea
-              label="Specifications 2"
+              label="Why this test"
               value={form.specification2}
               onChange={(v) => patch({ specification2: v })}
               rows={12}

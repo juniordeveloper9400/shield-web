@@ -21,6 +21,7 @@ interface LabPackageRow {
   forWhom: string | null;
   sample: string | null;
   preparation: string | null;
+  fasting: string | null;
   about: string;
   isActive: boolean;
   createdAt: string;
@@ -43,6 +44,7 @@ function toPackage(r: LabPackageRow): LabPackage {
     forWhom: r.forWhom ?? '',
     sample: r.sample ?? '',
     preparation: r.preparation ?? '',
+    fasting: r.fasting ?? '',
     about: r.about,
     isActive: r.isActive,
     addedAt: iso(r.createdAt) ?? new Date(0).toISOString(),

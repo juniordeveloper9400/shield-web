@@ -27,6 +27,7 @@ function fromPackage(pkg: LabPackage): LabPackageInput {
     forWhom: pkg.forWhom,
     sample: pkg.sample,
     preparation: pkg.preparation,
+    fasting: pkg.fasting,
     reportIn: pkg.reportIn,
     about: pkg.about,
     testIds: [],
@@ -259,6 +260,15 @@ export function LabPackageBuilderModal({
             />
           </label>
         </div>
+        <label className="block">
+          <span className="mb-1.5 block text-sm font-medium text-slate-700">Fasting</span>
+          <input
+            value={form.fasting}
+            onChange={(e) => setForm((f) => ({ ...f, fasting: e.target.value }))}
+            placeholder="12 hrs fasting"
+            className={inputClass}
+          />
+        </label>
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-slate-700">About</span>
           <textarea

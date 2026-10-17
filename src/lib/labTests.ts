@@ -120,6 +120,7 @@ export function blankLabTest(): LabTestInput {
     specification1: '',
     specification2: '',
     specification3: '',
+    fasting: '',
     resultTemplate: '',
     isActive: true,
   };

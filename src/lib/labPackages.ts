@@ -10,6 +10,7 @@ export function blankLabPackage(): LabPackageInput {
     forWhom: '',
     sample: '',
     preparation: '',
+    fasting: '',
     reportIn: '',
     about: '',
     testIds: [],
