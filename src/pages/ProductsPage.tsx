@@ -274,10 +274,11 @@ export default function ProductsPage() {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState<{
     price: string;
+    mrp: string;
     stockQuantity: string;
     image: string;
     extraImages: string[];
-  }>({ price: '', stockQuantity: '', image: '', extraImages: [] });
+  }>({ price: '', mrp: '', stockQuantity: '', image: '', extraImages: [] });
   const [activePreviewIdx, setActivePreviewIdx] = useState(0);
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({
     uses: true,
@@ -696,6 +697,7 @@ export default function ProductsPage() {
     setFormImageError(null);
     setForm({
       price: String(product.price),
+      mrp: String(product.mrp),
       stockQuantity: String(product.stockQuantity),
       image: product.image,
       extraImages: [],
@@ -716,6 +718,7 @@ export default function ProductsPage() {
   async function saveEdit() {
     if (!selected) return;
     const price = Number(form.price);
+    const mrp = Number(form.mrp);
     const stockQuantity = Number(form.stockQuantity);
     setSaving(true);
     try {
@@ -723,6 +726,7 @@ export default function ProductsPage() {
         selected.id,
         {
           price: Number.isFinite(price) && price >= 0 ? price : selected.price,
+          mrp: Number.isFinite(mrp) && mrp >= 0 ? mrp : selected.mrp,
           stockQuantity:
             Number.isFinite(stockQuantity) && stockQuantity >= 0
               ? stockQuantity
@@ -1804,6 +1808,7 @@ export default function ProductsPage() {
                       setEditing(true);
                       setForm({
                         price: String(selected.price),
+                        mrp: String(selected.mrp),
                         stockQuantity: String(selected.stockQuantity),
                         image: selected.image,
                         extraImages: selectedDetail?.extraImages ?? [],
@@ -1864,13 +1869,9 @@ export default function ProductsPage() {
                 <Badge tone={selected.status === 'active' ? 'green' : 'gray'}>
                   {selected.status === 'active' ? 'Active' : 'Inactive'}
                 </Badge>
-                {selected.isPrescriptionOnly ? (
+                {selected.isPrescriptionOnly && (
                   <span className="inline-flex items-center gap-1 rounded-md bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700 border border-rose-200">
                     <span className="font-bold">Rx</span> Prescription Required
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-200">
-                    OTC Medicine
                   </span>
                 )}
                 {selected.categoryTitle && (
@@ -2627,14 +2628,27 @@ export default function ProductsPage() {
                 The first image (marked "Primary") is displayed first across the app and webapp. "Set primary" swaps it into that spot.
               </p>
             </EditField>
-            <EditField label="Offer Price (₹)">
-              <input
-                inputMode="numeric"
-                value={form.price}
-                onChange={(e) => setForm({ ...form, price: e.target.value })}
-                className={inputClass}
-              />
-            </EditField>
+            <div className="grid grid-cols-2 gap-3">
+              <EditField label="Offer Price (₹)">
+                <input
+                  inputMode="numeric"
+                  value={form.price}
+                  onChange={(e) => setForm({ ...form, price: e.target.value })}
+                  className={inputClass}
+                />
+              </EditField>
+              <EditField label="MRP (₹)">
+                <input
+                  inputMode="numeric"
+                  value={form.mrp}
+                  onChange={(e) => setForm({ ...form, mrp: e.target.value })}
+                  className={inputClass}
+                />
+              </EditField>
+            </div>
+            <p className="-mt-2 text-xs text-slate-400">
+              {discountLabelFor(Number(form.price), Number(form.mrp)) ?? 'No discount — set an MRP above the Offer Price'}
+            </p>
             <EditField label="Stock on hand">
               <input
                 inputMode="numeric"
