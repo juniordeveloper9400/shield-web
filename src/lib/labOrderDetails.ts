@@ -13,6 +13,10 @@ export interface OrderPatientDraft {
   abhaId: string;
   addressId?: number;
   addressOverride: string;
+  address?: string;
+  testId?: string;
+  testName?: string;
+  testPrice?: string;
 }
 
 export const blankOrderPatient = (): OrderPatientDraft => ({
@@ -39,6 +43,10 @@ export function labOrderDetailsDraft(booking: LabBooking) {
       name: p.name, age: p.age == null ? '' : String(p.age),
       phone: p.phone ?? '', dob: p.dob ?? '', gender: p.gender ?? '', relation: p.relation ?? '', abhaId: p.abhaId ?? '',
       addressId: p.addressId ? Number(p.addressId) : undefined, addressOverride: p.addressOverride,
+      address: p.address,
+      testId: booking.labPackageId,
+      testName: booking.packageName,
+      testPrice: String(booking.unitPrice),
     })),
   };
 }

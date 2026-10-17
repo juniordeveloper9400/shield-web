@@ -586,7 +586,7 @@ function BookingWindow({
                 Cancel booking
               </Button>
             )}
-            {next && (
+            {next && next !== 'report_ready' && nextLabel !== 'Report ready' && (
               <Button
                 variant="primary"
                 disabled={busy !== null || editingOrder || inlineBusy || blocker !== null || staffRequiredBlocker !== null || dirty}

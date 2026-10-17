@@ -2,6 +2,7 @@ import { Children, isValidElement, useEffect, useState, type ReactElement, type 
 import { Icon } from '@/components/ui/Icon';
 import { telHref, whatsappHref } from '@/lib/contactLinks';
 import { Button } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/context/AuthContext';
 import { useAsync } from '@/lib/useAsync';
 import { api } from '@/lib/api';
@@ -27,6 +28,18 @@ interface TestOption {
   id: number;
   name: string;
   price: string | number;
+}
+
+function parseBillMeta(note: string | null | undefined) {
+  if (!note) return { cleanNote: '', fuelCharge: 0, techFee: 0, isVerified: false };
+  const match = note.match(/\[BILL_VERIFIED:\s*fuel=(\d+(?:\.\d+)?),\s*tech=(\d+(?:\.\d+)?)\]/);
+  if (match) {
+    const fuel = parseFloat(match[1]) || 0;
+    const tech = parseFloat(match[2]) || 0;
+    const cleanNote = note.replace(/\[BILL_VERIFIED:\s*fuel=\d+(?:\.\d+)?,\s*tech=\d+(?:\.\d+)?\]\s*/, '').trim();
+    return { cleanNote, fuelCharge: fuel, techFee: tech, isVerified: true };
+  }
+  return { cleanNote: note, fuelCharge: 0, techFee: 0, isVerified: false };
 }
 
 export function LabOrderDetailsEditor({
@@ -60,6 +73,7 @@ export function LabOrderDetailsEditor({
       patients: current.patients.map((p, i) => (i === index ? { ...p, ...change } : p)),
     }));
 
+  const initialMeta = parseBillMeta(booking.note);
   const rawDist = (labCharges.data ?? []).find((c) => c.isActive && c.kind === 'DISTANCE');
   const activeDistanceRate: DistanceRate | null =
     rawDist && rawDist.kind === 'DISTANCE'
@@ -75,15 +89,85 @@ export function LabOrderDetailsEditor({
   const rawTech = (labCharges.data ?? []).find((c) => c.isActive && c.kind === 'TECHNICIAN');
   const activeTechCharge = rawTech && rawTech.kind === 'TECHNICIAN' ? rawTech : null;
 
+  const [fuelCharge, setFuelCharge] = useState<string>(
+    booking.fuelCharge !== undefined
+      ? String(booking.fuelCharge)
+      : initialMeta.isVerified
+        ? String(initialMeta.fuelCharge)
+        : '0'
+  );
+  const [techFee, setTechFee] = useState<string>(
+    booking.techFee !== undefined
+      ? String(booking.techFee)
+      : initialMeta.isVerified
+        ? String(initialMeta.techFee)
+        : '0'
+  );
+  const [isVerified, setIsVerified] = useState<boolean>(
+    booking.isVerified ?? initialMeta.isVerified
+  );
+  const [activePatientModal, setActivePatientModal] = useState<OrderPatientDraft | null>(null);
+
   const [customerKm, setCustomerKm] = useState<string>('');
   const parsedKm = parseFloat(customerKm);
   const kmMatch = activeDistanceRate && !isNaN(parsedKm) && parsedKm > 0
     ? matchDistanceTier(parsedKm, activeDistanceRate)
     : null;
 
-  const testSubtotal = Number(draft.unitPrice || 0) * draft.patients.length;
-  const fixChargeAmount = Number(draft.fixCharge || 0);
+  const testSubtotal = draft.patients.reduce((sum, p) => {
+    const patientTestId = p.testId || draft.labPackageId;
+    const matched = tests.data?.find((t) => String(t.id) === patientTestId);
+    const price = Number(p.testPrice ?? (matched ? matched.price : draft.unitPrice) ?? 0);
+    return sum + price;
+  }, 0);
+
+  const fuelChargeAmount = parseFloat(fuelCharge) || 0;
+  const techFeeAmount = parseFloat(techFee) || 0;
+  const fixChargeAmount = fuelChargeAmount + techFeeAmount;
   const calculatedTotal = testSubtotal + fixChargeAmount;
+
+  function handleKmChange(val: string) {
+    setCustomerKm(val);
+    const km = parseFloat(val);
+    if (activeDistanceRate && !isNaN(km) && km > 0) {
+      const match = matchDistanceTier(km, activeDistanceRate);
+      if (match) {
+        setFuelCharge(String(match.charge));
+        patch({ fixCharge: String(match.charge + techFeeAmount) });
+        onEditing();
+      }
+    }
+  }
+
+  async function handleVerifyBill() {
+    setBusy(true);
+    onBusy(true);
+    setError('');
+    try {
+      const cleanNote = parseBillMeta(draft.note).cleanNote;
+      const verifyTag = `[BILL_VERIFIED: fuel=${fuelChargeAmount}, tech=${techFeeAmount}]`;
+      const finalNote = cleanNote ? `${verifyTag} ${cleanNote}` : verifyTag;
+
+      const payload = {
+        ...labOrderDetailsInput({
+          ...draft,
+          fixCharge: String(fixChargeAmount),
+          note: finalNote,
+        }),
+        fixCharge: fixChargeAmount,
+      };
+
+      await updateLabBookingDetails(booking.id, payload, accessToken);
+      setIsVerified(true);
+      patch({ fixCharge: String(fixChargeAmount), note: finalNote });
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not verify bill.');
+    } finally {
+      setBusy(false);
+      onBusy(false);
+    }
+  }
 
   async function save() {
     const problem = validateLabOrderDetails(draft);
@@ -95,7 +179,18 @@ export function LabOrderDetailsEditor({
     onBusy(true);
     setError('');
     try {
-      await updateLabBookingDetails(booking.id, labOrderDetailsInput(draft), accessToken);
+      const cleanNote = parseBillMeta(draft.note).cleanNote;
+      const noteToSave = isVerified
+        ? `[BILL_VERIFIED: fuel=${fuelChargeAmount}, tech=${techFeeAmount}]${cleanNote ? ' ' + cleanNote : ''}`
+        : draft.note;
+      await updateLabBookingDetails(booking.id, {
+        ...labOrderDetailsInput({
+          ...draft,
+          fixCharge: String(fixChargeAmount),
+          note: noteToSave,
+        }),
+        fixCharge: fixChargeAmount,
+      }, accessToken);
       onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save order details.');
@@ -158,76 +253,119 @@ export function LabOrderDetailsEditor({
                   <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                     <tr>
                       <th className="px-3 py-2.5">Test / Package</th>
-                      <th className="px-3 py-2.5">Unit Price</th>
-                      <th className="px-3 py-2.5 text-center">Patients</th>
+                      <th className="px-3 py-2.5">Patient Name</th>
+                      <th className="px-3 py-2.5 text-center">Unit Price</th>
                       <th className="px-3 py-2.5 text-right">Subtotal</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    <tr className="hover:bg-slate-50/50">
-                      <td className="min-w-[180px] px-3 py-3 align-top font-medium text-slate-800">
-                        <select
-                          className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
-                          value={draft.labPackageId}
-                          disabled={paid || booking.reportPages > 0}
-                          onChange={(e) => {
-                            onEditing();
-                            const chosen = tests.data?.find((test) => String(test.id) === e.target.value);
-                            patch({
-                              labPackageId: e.target.value,
-                              ...(chosen ? { unitPrice: String(chosen.price) } : {}),
-                            });
-                          }}
-                        >
-                          <option value={booking.labPackageId ?? ''}>{booking.packageName}</option>
-                          {tests.data
-                            ?.filter((t) => String(t.id) !== booking.labPackageId)
-                            .map((t) => (
-                              <option key={t.id} value={t.id}>
-                                {t.name}
-                              </option>
-                            ))}
-                        </select>
-                        {(paid || booking.reportPages > 0) && (
-                          <p className="mt-1 text-[10px] text-slate-400">
-                            {paid
-                              ? 'Charges are locked for collected bills.'
-                              : 'Remove attached report before replacing test.'}
-                          </p>
-                        )}
-                      </td>
-                      <td className="px-3 py-3 align-top">
-                        <div className="flex items-center gap-1">
-                          <span className="text-xs text-slate-400">₹</span>
-                          <input
-                            className="w-20 rounded-md border border-slate-300 px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
-                            value={draft.unitPrice}
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            disabled={paid}
+                    {draft.patients.length > 0 ? (
+                      draft.patients.map((patient, idx) => {
+                        const currentTestId = patient.testId || draft.labPackageId;
+                        const chosenTest = tests.data?.find((t) => String(t.id) === currentTestId);
+                        const displayPrice = patient.testPrice || (chosenTest ? String(chosenTest.price) : draft.unitPrice);
+                        return (
+                          <tr key={patient.bookingPatientId ?? patient.patientId ?? idx} className="hover:bg-slate-50/50">
+                            <td className="min-w-[170px] px-3 py-3 align-middle font-medium text-slate-800">
+                              <select
+                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                value={currentTestId}
+                                disabled={paid || booking.reportPages > 0}
+                                onChange={(e) => {
+                                  onEditing();
+                                  const chosen = tests.data?.find((test) => String(test.id) === e.target.value);
+                                  const newPrice = chosen ? String(chosen.price) : '0';
+                                  patchPatient(idx, {
+                                    testId: e.target.value,
+                                    testName: chosen?.name,
+                                    testPrice: newPrice,
+                                  });
+                                  if (idx === 0) {
+                                    patch({
+                                      labPackageId: e.target.value,
+                                      unitPrice: newPrice,
+                                    });
+                                  }
+                                }}
+                              >
+                                <option value={booking.labPackageId ?? ''}>{booking.packageName}</option>
+                                {tests.data
+                                  ?.filter((t) => String(t.id) !== booking.labPackageId)
+                                  .map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                      {t.name}
+                                    </option>
+                                  ))}
+                              </select>
+                            </td>
+                            <td className="px-3 py-3 align-middle">
+                              <button
+                                type="button"
+                                onClick={() => setActivePatientModal(patient)}
+                                className="group inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:border-brand-300 hover:bg-brand-50 hover:text-brand-700 transition"
+                                title="Click to view full patient details"
+                              >
+                                <Icon name="users" className="h-3.5 w-3.5 text-slate-400 group-hover:text-brand-600" />
+                                <span>{patient.name.trim() || `Patient #${idx + 1}`}</span>
+                                <span className="text-[10px] text-brand-600 font-medium underline">Details</span>
+                              </button>
+                            </td>
+                            <td className="px-3 py-3 text-center align-middle font-medium text-slate-700">
+                              <span className="inline-block rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                                ₹{displayPrice}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 text-right align-middle font-semibold text-slate-900">
+                              {formatCurrency(Number(displayPrice) || 0)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr className="hover:bg-slate-50/50">
+                        <td className="min-w-[180px] px-3 py-3 align-middle font-medium text-slate-800">
+                          <select
+                            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
+                            value={draft.labPackageId}
+                            disabled={paid || booking.reportPages > 0}
                             onChange={(e) => {
                               onEditing();
-                              patch({ unitPrice: e.target.value });
+                              const chosen = tests.data?.find((test) => String(test.id) === e.target.value);
+                              patch({
+                                labPackageId: e.target.value,
+                                ...(chosen ? { unitPrice: String(chosen.price) } : {}),
+                              });
                             }}
-                          />
-                        </div>
-                      </td>
-                      <td className="px-3 py-3 text-center align-top font-medium text-slate-700">
-                        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-slate-100 px-2 text-xs font-semibold text-slate-700">
-                          {draft.patients.length}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 text-right align-top font-semibold text-slate-900">
-                        {formatCurrency(testSubtotal)}
-                      </td>
-                    </tr>
+                          >
+                            <option value={booking.labPackageId ?? ''}>{booking.packageName}</option>
+                            {tests.data
+                              ?.filter((t) => String(t.id) !== booking.labPackageId)
+                              .map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name}
+                                </option>
+                              ))}
+                          </select>
+                        </td>
+                        <td className="px-3 py-3 align-middle text-slate-400 text-xs italic">
+                          No patients added
+                        </td>
+                        <td className="px-3 py-3 text-center align-middle font-medium text-slate-700">
+                          <span className="inline-block rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700">
+                            ₹{draft.unitPrice}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-right align-middle font-semibold text-slate-900">
+                          {formatCurrency(testSubtotal)}
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
             </section>
 
-            {/* 2. Fixed / Collection Charge Section */}
+            {/* 2. Collection Charges: Fuel Distance & Technician Fee */}
             <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2.5">
                 <div className="flex items-center gap-2">
@@ -237,7 +375,7 @@ export function LabOrderDetailsEditor({
                   <div>
                     <h3 className="text-sm font-semibold text-slate-800">Collection / Lab Charge</h3>
                     <p className="text-[11px] text-slate-400">
-                      Dynamic distance-based fuel rate and technician visit fee
+                      Separate fuel distance charge and technician visit fee
                     </p>
                   </div>
                 </div>
@@ -249,7 +387,7 @@ export function LabOrderDetailsEditor({
               </div>
 
               {/* Dynamic KM Range Calculator */}
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {activeDistanceRate ? (
                   <div className="rounded-lg border border-slate-200 bg-slate-50/70 p-3 text-xs">
                     <div className="flex items-center justify-between mb-1.5">
@@ -275,7 +413,7 @@ export function LabOrderDetailsEditor({
                           placeholder="e.g. 4.5"
                           value={customerKm}
                           disabled={paid}
-                          onChange={(e) => setCustomerKm(e.target.value)}
+                          onChange={(e) => handleKmChange(e.target.value)}
                           className="h-8 w-24 rounded border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-800 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-200"
                         />
                         <span className="text-xs text-slate-500 font-medium">km</span>
@@ -291,11 +429,12 @@ export function LabOrderDetailsEditor({
                             disabled={paid}
                             onClick={() => {
                               onEditing();
-                              patch({ fixCharge: String(kmMatch.charge) });
+                              setFuelCharge(String(kmMatch.charge));
+                              patch({ fixCharge: String(kmMatch.charge + techFeeAmount) });
                             }}
                             className="rounded bg-emerald-600 px-2.5 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-emerald-700"
                           >
-                            Apply ₹{kmMatch.charge}
+                            Apply Fuel ₹{kmMatch.charge}
                           </button>
                         </div>
                       )}
@@ -303,117 +442,160 @@ export function LabOrderDetailsEditor({
                   </div>
                 ) : (
                   <p className="rounded-lg bg-amber-50 p-2.5 text-xs text-amber-700">
-                    Fuel distance rate is currently inactive. You can activate it under the Lab Charges menu or enter a custom amount below.
+                    Fuel distance rate is currently inactive. You can activate it under the Lab Charges menu or enter fuel charge below.
                   </p>
                 )}
 
-                {/* Quick Presets & Manual Input */}
-                <div className="grid gap-3 sm:grid-cols-2 pt-1">
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600">
-                      Quick Charge Presets
-                    </label>
-                    <div className="mt-1 flex flex-wrap gap-1.5">
+                {/* Separate Fuel Charge & Technician Fee Controls */}
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-slate-700">
+                        Fuel Distance Charge (₹)
+                      </label>
                       <button
                         type="button"
                         disabled={paid}
                         onClick={() => {
                           onEditing();
-                          patch({ fixCharge: '0' });
+                          setFuelCharge('0');
+                          patch({ fixCharge: String(techFeeAmount) });
                         }}
-                        className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                          fixChargeAmount === 0
-                            ? 'bg-slate-800 text-white'
-                            : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                        }`}
+                        className="text-[11px] text-slate-400 hover:text-slate-600"
                       >
-                        No Charge (₹0)
+                        Reset (₹0)
                       </button>
+                    </div>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={fuelCharge}
+                      disabled={paid}
+                      onChange={(e) => {
+                        onEditing();
+                        setFuelCharge(e.target.value);
+                        const f = parseFloat(e.target.value) || 0;
+                        patch({ fixCharge: String(f + techFeeAmount) });
+                      }}
+                      className={fieldClass}
+                    />
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Calculated from customer distance or set manually
+                    </p>
+                  </div>
 
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-xs font-semibold text-slate-700">
+                        Technician Visit Fee (₹)
+                      </label>
                       {activeTechCharge && (
                         <button
                           type="button"
                           disabled={paid}
                           onClick={() => {
                             onEditing();
-                            patch({ fixCharge: String(activeTechCharge.amount ?? 0) });
+                            const fee = String(activeTechCharge.amount ?? 0);
+                            setTechFee(fee);
+                            patch({ fixCharge: String(fuelChargeAmount + (activeTechCharge.amount ?? 0)) });
                           }}
-                          className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                            fixChargeAmount === (activeTechCharge.amount ?? 0)
-                              ? 'bg-brand-600 text-white'
-                              : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                          }`}
+                          className="text-[11px] font-medium text-brand-600 hover:text-brand-700"
                         >
-                          Tech Fee ({formatCurrency(activeTechCharge.amount ?? 0)})
-                        </button>
-                      )}
-
-                      {kmMatch && activeTechCharge && (
-                        <button
-                          type="button"
-                          disabled={paid}
-                          onClick={() => {
-                            onEditing();
-                            const combined = kmMatch.charge + (activeTechCharge.amount ?? 0);
-                            patch({ fixCharge: String(combined) });
-                          }}
-                          className="rounded border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100"
-                        >
-                          Fuel + Tech ({formatCurrency(kmMatch.charge + (activeTechCharge.amount ?? 0))})
+                          Apply Preset ({formatCurrency(activeTechCharge.amount ?? 0)})
                         </button>
                       )}
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-600">
-                      Applied charge amount (INR)
-                      <div className="relative mt-1">
-                        <input
-                          className={fieldClass}
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={draft.fixCharge}
-                          disabled={paid}
-                          onChange={(e) => {
-                            onEditing();
-                            patch({ fixCharge: e.target.value });
-                          }}
-                        />
-                      </div>
-                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={techFee}
+                      disabled={paid}
+                      onChange={(e) => {
+                        onEditing();
+                        setTechFee(e.target.value);
+                        const t = parseFloat(e.target.value) || 0;
+                        patch({ fixCharge: String(fuelChargeAmount + t) });
+                      }}
+                      className={fieldClass}
+                    />
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Standard home collection technician fee
+                    </p>
                   </div>
                 </div>
               </div>
             </section>
 
-            {/* 3. Order Total & Price Summary */}
+            {/* 3. Bill Summary & Verify Bill */}
             <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 shadow-sm">
-              <h4 className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Calculation Summary
-              </h4>
-              <div className="space-y-1.5 text-xs text-slate-600">
-                <div className="flex justify-between">
-                  <span>
-                    Tests Subtotal ({draft.patients.length} patient
-                    {draft.patients.length > 1 ? 's' : ''} × {formatCurrency(Number(draft.unitPrice || 0))})
-                  </span>
-                  <span className="font-medium text-slate-800">{formatCurrency(testSubtotal)}</span>
-                </div>
-                {fixChargeAmount > 0 && (
-                  <div className="flex justify-between text-blue-700">
-                    <span>Fixed / Lab Charge</span>
-                    <span className="font-medium">+{formatCurrency(fixChargeAmount)}</span>
+              <div className="mb-3 flex items-center justify-between border-b border-slate-200 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <div className="rounded-md bg-emerald-50 p-1.5 text-emerald-600">
+                    <Icon name="receipt" className="h-4 w-4" />
                   </div>
+                  <div>
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                      Bill Summary
+                    </h4>
+                    <p className="text-[11px] text-slate-400">Itemized billing and app verification</p>
+                  </div>
+                </div>
+                {isVerified ? (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800">
+                    <Icon name="check" className="h-3.5 w-3.5" />
+                    Bill Verified
+                  </span>
+                ) : (
+                  <span className="rounded bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
+                    Unverified
+                  </span>
                 )}
-                <div className="flex items-center justify-between border-t border-slate-200 pt-2 text-sm">
-                  <span className="font-semibold text-slate-800">Order Total</span>
-                  <span className="text-base font-bold text-brand-600">
+              </div>
+
+              <div className="space-y-2 text-xs text-slate-600">
+                <div className="flex justify-between">
+                  <span>Tests Subtotal ({draft.patients.length} patient{draft.patients.length > 1 ? 's' : ''})</span>
+                  <span className="font-semibold text-slate-800">{formatCurrency(testSubtotal)}</span>
+                </div>
+                <div className="flex justify-between text-blue-700">
+                  <span>Fuel Distance Charge</span>
+                  <span className="font-semibold">+{formatCurrency(fuelChargeAmount)}</span>
+                </div>
+                <div className="flex justify-between text-purple-700">
+                  <span>Technician Visit Fee</span>
+                  <span className="font-semibold">+{formatCurrency(techFeeAmount)}</span>
+                </div>
+                <div className="flex items-center justify-between border-t border-slate-200 pt-2.5 text-sm">
+                  <span className="font-bold text-slate-900">Total Bill Amount</span>
+                  <span className="text-lg font-extrabold text-brand-600">
                     {formatCurrency(calculatedTotal)}
                   </span>
                 </div>
+              </div>
+
+              <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-200 pt-3">
+                <p className="text-[11px] text-slate-500">
+                  {isVerified
+                    ? 'Total bill amount is verified and published to the member in their order details.'
+                    : 'Click "Verify Bill" to publish the itemized bill and total amount to the member app.'}
+                </p>
+                <button
+                  type="button"
+                  disabled={busy || paid}
+                  onClick={() => void handleVerifyBill()}
+                  className={`shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold shadow-sm transition ${
+                    isVerified
+                      ? 'border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      : 'bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-400'
+                  }`}
+                >
+                  <Icon name="check" className="h-3.5 w-3.5" />
+                  {isVerified ? 'Re-verify Bill' : 'Verify Bill'}
+                </button>
               </div>
             </div>
 
@@ -691,6 +873,61 @@ export function LabOrderDetailsEditor({
         <p role="alert" className="mt-3 text-sm text-rose-600">
           {stores.error || tests.error || staff.error || labCharges.error}
         </p>
+      )}
+
+      {activePatientModal && (
+        <Modal
+          open={Boolean(activePatientModal)}
+          title={`Patient Details — ${activePatientModal.name || 'Patient'}`}
+          onClose={() => setActivePatientModal(null)}
+        >
+          <div className="space-y-4 text-sm text-slate-700">
+            <div className="grid grid-cols-2 gap-3 rounded-lg border border-slate-100 bg-slate-50 p-3.5 text-xs">
+              <div>
+                <span className="text-slate-400 font-medium block">Full Name</span>
+                <span className="font-semibold text-slate-800 text-sm">{activePatientModal.name || '—'}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Assigned Test</span>
+                <span className="font-semibold text-brand-700 text-sm">
+                  {activePatientModal.testName || booking.packageName || '—'}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Phone</span>
+                <span className="font-semibold text-slate-800">{activePatientModal.phone || '—'}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Gender</span>
+                <span className="font-semibold text-slate-800">{activePatientModal.gender || '—'}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Age / DOB</span>
+                <span className="font-semibold text-slate-800">
+                  {activePatientModal.age ? `${activePatientModal.age} yrs` : '—'}
+                  {activePatientModal.dob ? ` (${activePatientModal.dob})` : ''}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 font-medium block">Relationship</span>
+                <span className="font-semibold text-slate-800">{activePatientModal.relation || '—'}</span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-slate-400 font-medium block">ABHA ID</span>
+                <span className="font-mono font-semibold text-slate-800">{activePatientModal.abhaId || '—'}</span>
+              </div>
+              <div className="col-span-2">
+                <span className="text-slate-400 font-medium block">Collection Address</span>
+                <span className="text-slate-700">{activePatientModal.addressOverride || activePatientModal.address || draft.address || '—'}</span>
+              </div>
+            </div>
+            <div className="flex justify-end pt-2">
+              <Button variant="secondary" onClick={() => setActivePatientModal(null)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </form>
   );

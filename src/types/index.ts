@@ -919,6 +919,9 @@ export interface LabBooking {
   addressPhone: string;
   unitPrice: number;
   fixCharge?: number;
+  fuelCharge?: number;
+  techFee?: number;
+  isVerified?: boolean;
   totalPrice: number;
   status: LabBookingStatus;
   scheduledFor: string;
