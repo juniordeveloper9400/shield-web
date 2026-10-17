@@ -108,6 +108,17 @@ export function LabOrderDetailsEditor({
   );
   const [activePatientModal, setActivePatientModal] = useState<OrderPatientDraft | null>(null);
 
+  useEffect(() => {
+    if (activeTechCharge && !initialMeta.isVerified && (!booking.techFee || booking.techFee === 0)) {
+      if (draft.fulfillmentType !== 'STORE_VISIT') {
+        const activeFee = String(activeTechCharge.amount ?? 0);
+        setTechFee(activeFee);
+        const fuel = parseFloat(fuelCharge) || 0;
+        patch({ fixCharge: String(fuel + (activeTechCharge.amount ?? 0)) });
+      }
+    }
+  }, [activeTechCharge, draft.fulfillmentType]);
+
   const [customerKm, setCustomerKm] = useState<string>('');
   const parsedKm = parseFloat(customerKm);
   const kmMatch = activeDistanceRate && !isNaN(parsedKm) && parsedKm > 0
@@ -488,42 +499,55 @@ export function LabOrderDetailsEditor({
 
                   <div className="rounded-lg border border-slate-200 bg-white p-3">
                     <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-xs font-semibold text-slate-700">
-                        Technician Visit Fee (₹)
-                      </label>
-                      {activeTechCharge && (
-                        <button
-                          type="button"
-                          disabled={paid}
-                          onClick={() => {
-                            onEditing();
-                            const fee = String(activeTechCharge.amount ?? 0);
-                            setTechFee(fee);
-                            patch({ fixCharge: String(fuelChargeAmount + (activeTechCharge.amount ?? 0)) });
-                          }}
-                          className="text-[11px] font-medium text-brand-600 hover:text-brand-700"
-                        >
-                          Apply Preset ({formatCurrency(activeTechCharge.amount ?? 0)})
-                        </button>
+                      <span className="text-xs font-semibold text-slate-700">
+                        Technician Visit Fee
+                      </span>
+                      {activeTechCharge ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                          Active: {formatCurrency(activeTechCharge.amount ?? 0)}
+                        </span>
+                      ) : (
+                        <span className="rounded bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 font-medium">
+                          No active fee
+                        </span>
                       )}
                     </div>
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={techFee}
-                      disabled={paid}
-                      onChange={(e) => {
-                        onEditing();
-                        setTechFee(e.target.value);
-                        const t = parseFloat(e.target.value) || 0;
-                        patch({ fixCharge: String(fuelChargeAmount + t) });
-                      }}
-                      className={fieldClass}
-                    />
-                    <p className="mt-1 text-[10px] text-slate-400">
-                      Standard home collection technician fee
+
+                    <div className="mt-2 flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                      <div>
+                        <p className="text-[11px] font-medium text-slate-500">Technician Charge</p>
+                        <p className="text-lg font-bold text-slate-900">
+                          {formatCurrency(techFeeAmount)}
+                        </p>
+                      </div>
+
+                      {activeTechCharge && !paid && (
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onEditing();
+                              const nextFee = techFeeAmount > 0 ? '0' : String(activeTechCharge.amount ?? 0);
+                              setTechFee(nextFee);
+                              patch({ fixCharge: String(fuelChargeAmount + parseFloat(nextFee)) });
+                            }}
+                            className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                              techFeeAmount > 0
+                                ? 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100'
+                                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                            }`}
+                          >
+                            {techFeeAmount > 0 ? 'Waive (₹0)' : `Apply ${formatCurrency(activeTechCharge.amount ?? 0)}`}
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    <p className="mt-2 text-[10px] text-slate-400">
+                      {activeTechCharge
+                        ? `Shows the active technician charge configured in Lab Charges (${formatCurrency(activeTechCharge.amount ?? 0)} per visit). No manual input needed.`
+                        : 'Technician visit fee is inactive under Lab Charges.'}
                     </p>
                   </div>
                 </div>
