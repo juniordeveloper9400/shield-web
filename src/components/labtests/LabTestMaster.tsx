@@ -10,28 +10,25 @@ import { formatCurrency, formatDateTime } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import {
   blankLabTest,
-  CUT_OFF_TIMES,
-  DEPARTMENTS,
   DIVISIONS,
   netAmount,
-  PERFORM_AT,
-  REPORTING_TIMES,
-  SCHEDULED_DAYS,
   pickInput,
   searchLabTests,
-  SAMPLES,
-  TECHNOLOGIES,
-  TEST_MODES,
   TEST_TYPE_LABELS,
   type LabTestSearchBy,
   validateLabTest,
-  VOLUMES,
 } from '@/lib/labTests';
 import {
+  createLabTestFieldOption,
   deleteLabTest,
+  deleteLabTestFieldOption,
   getLabTest,
+  listLabTestFieldOptions,
   listLabTests,
   saveLabTest,
+  updateLabTestFieldOption,
+  type LabTestFieldKey,
+  type LabTestFieldOption,
 } from '@/api/labTests';
 import { listLabCategories } from '@/api/labCategories';
 import type {
@@ -45,6 +42,7 @@ import type {
 } from '@/types';
 import {
   LisCheck,
+  LisCombobox,
   LisNumber,
   LisSelect,
   LisText,
@@ -118,12 +116,6 @@ interface Confirm {
   onConfirm: () => Promise<void> | void;
 }
 
-/** Sorted, de-duplicated suggestion list: the built-ins plus whatever staff
- *  have already typed on saved tests. */
-function suggestions(base: string[], extra: string[]): string[] {
-  return Array.from(new Set([...base, ...extra.filter(Boolean)])).sort();
-}
-
 /**
  * The laboratory's test master, laid out like its LIS "Test" screen: search a
  * test by name, edit it across the Test Details / Ref / Specification / Special
@@ -143,6 +135,43 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
     ],
     [categoryRows],
   );
+
+  // Department / Method / Sample / Volume / Scheduled Days / Cut of time /
+  // Reporting Time / Technology / Test Mode / Perform At's own pick lists —
+  // managed independently of any one test (see LisCombobox's own doc).
+  const { data: fieldOptionsData, reload: reloadFieldOptions } = useAsync(
+    () => listLabTestFieldOptions(accessToken),
+    [accessToken],
+  );
+  const EMPTY_OPTIONS: LabTestFieldOption[] = [];
+  const optionsFor = (key: LabTestFieldKey) => fieldOptionsData?.[key] ?? EMPTY_OPTIONS;
+
+  async function addFieldOption(key: LabTestFieldKey, value: string) {
+    try {
+      await createLabTestFieldOption(key, value, accessToken);
+      reloadFieldOptions();
+    } catch (err) {
+      setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Could not add that.' });
+    }
+  }
+
+  async function renameFieldOption(id: string, value: string) {
+    try {
+      await updateLabTestFieldOption(id, value, accessToken);
+      reloadFieldOptions();
+    } catch (err) {
+      setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Could not rename that.' });
+    }
+  }
+
+  async function removeFieldOption(id: string) {
+    try {
+      await deleteLabTestFieldOption(id, accessToken);
+      reloadFieldOptions();
+    } catch (err) {
+      setNotice({ tone: 'error', text: err instanceof Error ? err.message : 'Could not delete that.' });
+    }
+  }
 
   const [loadedId, setLoadedId] = useState<string | null>(null);
   const [meta, setMeta] = useState<{
@@ -344,19 +373,6 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
   const pickable = useMemo(
     () => list.filter((t) => t.testType === 'TEST' && t.id !== loadedId),
     [list, loadedId],
-  );
-
-  const departments = useMemo(
-    () => suggestions(DEPARTMENTS, list.map((t) => t.department)),
-    [list],
-  );
-  const samples = useMemo(() => suggestions(SAMPLES, list.map((t) => t.sample)), [list]);
-  // Methods and reporting times come from the tests already on record (the
-  // rate list has dozens of methods), so a new test offers what its neighbours use.
-  const methods = useMemo(() => suggestions([], list.map((t) => t.method)), [list]);
-  const reportingTimes = useMemo(
-    () => suggestions(REPORTING_TIMES, list.map((t) => t.reportingTime)),
-    [list],
   );
 
   const filteredList = useMemo(() => {
@@ -615,17 +631,23 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
                     onChange={(v) => patch({ division: v })}
                     suggestions={DIVISIONS}
                   />
-                  <LisText
+                  <LisCombobox
                     label="Department"
                     value={form.department}
                     onChange={(v) => patch({ department: v })}
-                    suggestions={departments}
+                    options={optionsFor('department')}
+                    onAddOption={(v) => void addFieldOption('department', v)}
+                    onRenameOption={(id, v) => void renameFieldOption(id, v)}
+                    onDeleteOption={(id) => void removeFieldOption(id)}
                   />
-                  <LisText
+                  <LisCombobox
                     label="Method"
                     value={form.method}
                     onChange={(v) => patch({ method: v })}
-                    suggestions={methods}
+                    options={optionsFor('method')}
+                    onAddOption={(v) => void addFieldOption('method', v)}
+                    onRenameOption={(id, v) => void renameFieldOption(id, v)}
+                    onDeleteOption={(id) => void removeFieldOption(id)}
                   />
                   <LisSelect
                     label="Category"
@@ -651,55 +673,76 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <LisText
+                  <LisCombobox
                     label="Sample"
                     value={form.sample}
                     onChange={(v) => patch({ sample: v })}
-                    suggestions={samples}
+                    options={optionsFor('sample')}
+                    onAddOption={(v) => void addFieldOption('sample', v)}
+                    onRenameOption={(id, v) => void renameFieldOption(id, v)}
+                    onDeleteOption={(id) => void removeFieldOption(id)}
                   />
-                  <LisText
+                  <LisCombobox
                     label="Volume"
                     value={form.volume}
                     onChange={(v) => patch({ volume: v })}
-                    suggestions={VOLUMES}
+                    options={optionsFor('volume')}
+                    onAddOption={(v) => void addFieldOption('volume', v)}
+                    onRenameOption={(id, v) => void renameFieldOption(id, v)}
+                    onDeleteOption={(id) => void removeFieldOption(id)}
                   />
                   <LisText
                     label="Unit"
                     value={form.unit}
                     onChange={(v) => patch({ unit: v })}
                   />
-                  <LisText
+                  <LisCombobox
                     label="Technology"
                     value={form.technology}
                     onChange={(v) => patch({ technology: v })}
-                    suggestions={TECHNOLOGIES}
+                    options={optionsFor('technology')}
+                    onAddOption={(v) => void addFieldOption('technology', v)}
+                    onRenameOption={(id, v) => void renameFieldOption(id, v)}
+                    onDeleteOption={(id) => void removeFieldOption(id)}
                   />
                 </div>
 
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                  <LisText
+                  <LisCombobox
                     label="Scheduled Days"
                     value={form.scheduledDays}
                     onChange={(v) => patch({ scheduledDays: v })}
-                    suggestions={SCHEDULED_DAYS}
+                    options={optionsFor('scheduledDays')}
+                    onAddOption={(v) => void addFieldOption('scheduledDays', v)}
+                    onRenameOption={(id, v) => void renameFieldOption(id, v)}
+                    onDeleteOption={(id) => void removeFieldOption(id)}
                   />
-                  <LisText
+                  <LisCombobox
                     label="Cut of time"
                     value={form.cutOfTime}
                     onChange={(v) => patch({ cutOfTime: v })}
-                    suggestions={CUT_OFF_TIMES}
+                    options={optionsFor('cutOfTime')}
+                    onAddOption={(v) => void addFieldOption('cutOfTime', v)}
+                    onRenameOption={(id, v) => void renameFieldOption(id, v)}
+                    onDeleteOption={(id) => void removeFieldOption(id)}
                   />
-                  <LisText
+                  <LisCombobox
                     label="Reporting Time"
                     value={form.reportingTime}
                     onChange={(v) => patch({ reportingTime: v })}
-                    suggestions={reportingTimes}
+                    options={optionsFor('reportingTime')}
+                    onAddOption={(v) => void addFieldOption('reportingTime', v)}
+                    onRenameOption={(id, v) => void renameFieldOption(id, v)}
+                    onDeleteOption={(id) => void removeFieldOption(id)}
                   />
-                  <LisText
+                  <LisCombobox
                     label="Test Mode"
                     value={form.testMode}
                     onChange={(v) => patch({ testMode: v })}
-                    suggestions={TEST_MODES}
+                    options={optionsFor('testMode')}
+                    onAddOption={(v) => void addFieldOption('testMode', v)}
+                    onRenameOption={(id, v) => void renameFieldOption(id, v)}
+                    onDeleteOption={(id) => void removeFieldOption(id)}
                   />
                 </div>
 
@@ -720,11 +763,14 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
                       { value: 'Days', label: 'Days' },
                     ]}
                   />
-                  <LisText
+                  <LisCombobox
                     label="Perform At"
                     value={form.performAt}
                     onChange={(v) => patch({ performAt: v })}
-                    suggestions={PERFORM_AT}
+                    options={optionsFor('performAt')}
+                    onAddOption={(v) => void addFieldOption('performAt', v)}
+                    onRenameOption={(id, v) => void renameFieldOption(id, v)}
+                    onDeleteOption={(id) => void removeFieldOption(id)}
                   />
                 </div>
 

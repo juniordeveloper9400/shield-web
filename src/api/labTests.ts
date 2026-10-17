@@ -141,3 +141,57 @@ export async function saveLabTest(
 export async function deleteLabTest(id: string, accessToken: string | null): Promise<void> {
   await api.delete(`/v1/staff/lab-tests/${id}`, accessToken);
 }
+
+// ---- Field options: the Department/Method/Sample/… pick lists -------------
+
+/** Matches backend/api's `LAB_TEST_FIELD_KEYS` one for one. */
+export type LabTestFieldKey =
+  | 'department'
+  | 'method'
+  | 'sample'
+  | 'volume'
+  | 'scheduledDays'
+  | 'cutOfTime'
+  | 'reportingTime'
+  | 'technology'
+  | 'testMode'
+  | 'performAt';
+
+export interface LabTestFieldOption {
+  id: string;
+  value: string;
+}
+
+/** Every field's pick list, keyed by field — what each LisCombobox below
+ *  offers as suggestions, on top of whatever is being typed. */
+export async function listLabTestFieldOptions(
+  accessToken: string | null,
+): Promise<Record<LabTestFieldKey, LabTestFieldOption[]>> {
+  return api.get<Record<LabTestFieldKey, LabTestFieldOption[]>>('/v1/staff/lab-tests/field-options', accessToken);
+}
+
+/** Adds one entry to a field's pick list directly — the same value a test
+ *  could already save with that field, just addable up front. */
+export async function createLabTestFieldOption(
+  fieldKey: LabTestFieldKey,
+  value: string,
+  accessToken: string | null,
+): Promise<LabTestFieldOption> {
+  return api.post<LabTestFieldOption>('/v1/staff/lab-tests/field-options', { fieldKey, value }, accessToken);
+}
+
+/** Renames a pick-list entry. A test that already carries the old text
+ *  keeps it — only the list's own wording changes for the next test. */
+export async function updateLabTestFieldOption(
+  id: string,
+  value: string,
+  accessToken: string | null,
+): Promise<void> {
+  await api.patch(`/v1/staff/lab-tests/field-options/${id}`, { value }, accessToken);
+}
+
+/** Removes one pick-list entry. Never touches a test that already used the
+ *  value — it just stops being offered as a suggestion. */
+export async function deleteLabTestFieldOption(id: string, accessToken: string | null): Promise<void> {
+  await api.delete(`/v1/staff/lab-tests/field-options/${id}`, accessToken);
+}
