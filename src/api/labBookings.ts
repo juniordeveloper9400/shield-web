@@ -1,4 +1,5 @@
 import { api } from '@/lib/api';
+import type { LabOrderDetailsInput } from '@/lib/labOrderDetails';
 import { fromEnum } from '@/lib/mappers';
 import type {
   LabBooking,
@@ -15,6 +16,10 @@ interface LabBookingApiRow {
   id: number;
   code: string;
   memberId: number;
+  contactName?: string;
+  contactPhone?: string;
+  labPackageId: number;
+  storeId: number | null;
   memberName: string | null;
   memberPhone: string | null;
   packageName: string | null;
@@ -26,6 +31,11 @@ interface LabBookingApiRow {
     patientId: number | null;
     name: string;
     age: number | null;
+    phone?: string;
+    dob?: string;
+    gender?: string;
+    relation?: string;
+    abhaId?: string;
     address: string;
     addressId: number | null;
     addressOverride: string | null;
@@ -56,6 +66,10 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
     id: String(r.id),
     code: r.code,
     memberId: String(r.memberId),
+    contactName: r.contactName ?? r.memberName ?? '',
+    contactPhone: r.contactPhone ?? r.memberPhone ?? '',
+    labPackageId: String(r.labPackageId),
+    storeId: r.storeId == null ? '' : String(r.storeId),
     memberName: r.memberName ?? '—',
     memberPhone: r.memberPhone ?? '',
     packageName: r.packageName ?? '—',
@@ -67,6 +81,11 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
       patientId: p.patientId == null ? null : String(p.patientId),
       name: p.name,
       age: p.age,
+      phone: p.phone ?? '',
+      dob: p.dob ?? '',
+      gender: p.gender ?? '',
+      relation: p.relation ?? '',
+      abhaId: p.abhaId ?? '',
       address: p.address,
       addressId: p.addressId == null ? null : String(p.addressId),
       addressOverride: p.addressOverride ?? '',
@@ -188,15 +207,21 @@ export async function setLabBookingStatus(
  */
 export async function updateLabBookingDetails(
   id: string,
-  input: {
+  input: Omit<Partial<LabOrderDetailsInput>, 'patients'> & {
     scheduledFor: string | null;
     note: string;
     storeId?: number;
     address?: string;
     patients?: {
+      bookingPatientId?: number;
       patientId?: number;
       name?: string;
       age?: number;
+      phone?: string;
+      dob?: string;
+      gender?: string;
+      relation?: string;
+      abhaId?: string;
       addressId?: number | null;
       addressOverride?: string | null;
     }[];

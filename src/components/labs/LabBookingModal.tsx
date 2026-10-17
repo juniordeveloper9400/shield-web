@@ -1,3 +1,4 @@
+import { LabOrderDetailsEditor } from './LabOrderDetailsEditor';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '@/components/ui/Badge';
@@ -124,7 +125,9 @@ function BookingWindow({
   onChanged: () => void;
   autoCollect: boolean;
 }) {
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
+  const [editingOrder, setEditingOrder] = useState(false);
+  const fullOrderEditor = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'lab';
   const navigate = useNavigate();
   const [schedule, setSchedule] = useState(toLocalInput(booking.scheduledFor));
   const [note, setNote] = useState(booking.note);
@@ -134,6 +137,8 @@ function BookingWindow({
   const [address, setAddress] = useState(booking.address);
   const [patients, setPatients] = useState(
     booking.patients.map((p) => ({
+      bookingPatientId: p.id ? Number(p.id) : undefined,
+      patientId: p.patientId == null ? undefined : Number(p.patientId),
       name: p.name,
       age: p.age == null ? '' : String(p.age),
       // The raw override text, edited directly — blank means "use the
@@ -415,6 +420,8 @@ function BookingWindow({
   const storeCodeChanged = storeCode !== booking.storeCode;
   const addressChanged = homeCollection && address.trim() !== booking.address.trim();
   const originalPatients = booking.patients.map((p) => ({
+    bookingPatientId: p.id ? Number(p.id) : undefined,
+    patientId: p.patientId == null ? undefined : Number(p.patientId),
     name: p.name,
     age: p.age == null ? '' : String(p.age),
     addressOverride: p.addressOverride,
@@ -441,7 +448,7 @@ function BookingWindow({
   function addPatientRow() {
     setPatients((rows) => [
       ...rows,
-      { name: '', age: '', addressOverride: '', addressId: null, resolvedAddress: '' },
+      { bookingPatientId: undefined, patientId: undefined, name: '', age: '', addressOverride: '', addressId: null, resolvedAddress: '' },
     ]);
   }
   function removePatientRow(i: number) {
@@ -474,8 +481,11 @@ function BookingWindow({
     setPatientsError(null);
     const cleanedPatients = patients
       .map((p) => ({
+        bookingPatientId: p.bookingPatientId,
+        patientId: p.patientId,
         name: p.name.trim(),
         age: p.age.trim() ? Number(p.age) : undefined,
+        ...(p.age !== (booking.patients.find((old) => Number(old.id) === p.bookingPatientId)?.age?.toString() ?? '') ? { dob: '' } : {}),
         addressId: p.addressId ? Number(p.addressId) : undefined,
         addressOverride: p.addressOverride.trim() || null,
       }))
@@ -525,13 +535,15 @@ function BookingWindow({
   }
 
   const phoneRows = [
-    { label: 'Phone', phone: booking.memberPhone },
+    { label: 'Phone', phone: booking.contactPhone ?? booking.memberPhone },
     ...(booking.addressPhone &&
     booking.addressPhone.replace(/\D/g, '').slice(-10) !==
       booking.memberPhone.replace(/\D/g, '').slice(-10)
       ? [{ label: 'Address contact', phone: booking.addressPhone }]
       : []),
   ];
+
+  if (editingOrder) return <LabOrderDetailsEditor booking={booking} onClose={() => setEditingOrder(false)} onSaved={() => { onChanged(); onClose(); }} />;
 
   return (
     <>
@@ -542,6 +554,7 @@ function BookingWindow({
         title={booking.code}
         footer={
           <>
+            {fullOrderEditor && <Button variant="secondary" disabled={busy !== null} onClick={() => setEditingOrder(true)}>Edit order details</Button>}
             {status !== 'cancelled' && status !== 'report_ready' && (
               <Button
                 variant="danger"
@@ -594,7 +607,7 @@ function BookingWindow({
 
         <DetailList
           rows={[
-            { label: 'Member', value: booking.memberName },
+            { label: 'Member', value: booking.contactName ?? booking.memberName },
             ...phoneRows.map((p) => ({
               label: p.label,
               value: (
@@ -705,7 +718,7 @@ function BookingWindow({
         )}
 
         {/* ---- Booking details: schedule, note, branch, patients, address ---- */}
-        <section className="mt-5 rounded-lg border border-slate-200 p-4">
+        {!fullOrderEditor && <section className="mt-5 rounded-lg border border-slate-200 p-4">
           <button
             type="button"
             onClick={() => setScheduleOpen((v) => !v)}
@@ -864,7 +877,7 @@ function BookingWindow({
               </div>
             </>
           )}
-        </section>
+        </section>}
 
         {/* ---- Report ---- */}
         <section className="mt-4 rounded-lg border border-slate-200 p-4">

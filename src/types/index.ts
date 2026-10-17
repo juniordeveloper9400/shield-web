@@ -857,6 +857,11 @@ export interface LabBookingPatient {
   name: string;
   /** Years; null when neither the booking nor the saved patient records one. */
   age: number | null;
+  phone?: string;
+  dob?: string;
+  gender?: string;
+  relation?: string;
+  abhaId?: string;
   /** This patient's own collection address on one line — falls back to the
    *  booking's own [LabBooking.address] when this patient has none of its
    *  own (see backend/api BookingService.listLabBookingsForStaff). */
@@ -885,6 +890,10 @@ export interface LabBooking {
   /** `app.users.id` of the member — the User detail page's Orders tab
    *  filters the staff list down to one member's own bookings with it. */
   memberId: string;
+  contactName?: string;
+  contactPhone?: string;
+  labPackageId?: string;
+  storeId?: string;
   memberName: string;
   memberPhone: string;
   packageName: string;
