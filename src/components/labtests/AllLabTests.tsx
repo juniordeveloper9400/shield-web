@@ -4,7 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useAsync } from '@/lib/useAsync';
 import { filterAllLabTests, TEST_TYPE_LABELS } from '@/lib/labTests';
 import { formatCurrency } from '@/lib/format';
-import type { LabTestSummary } from '@/types';
+import type { LabTestSummary, LabTestType } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -12,10 +12,19 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FilterSelect, SearchInput } from '@/components/ui/Filters';
 import { LabTestMaster } from './LabTestMaster';
 
+/** Packages first, then Individual, then Group — the order the user asked
+ *  for, not alphabetical and not {@link TEST_TYPE_LABELS}'s own order. */
+const TYPE_TABS: { key: LabTestType; label: string }[] = [
+  { key: 'PACKAGE', label: 'Packages' },
+  { key: 'TEST', label: 'Individual Test' },
+  { key: 'GROUP', label: 'Group Test' },
+];
+
 export function AllLabTests() {
   const { accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(() => listLabTests(accessToken), [accessToken]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [typeTab, setTypeTab] = useState<LabTestType>('PACKAGE');
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState('all');
   const [status, setStatus] = useState('all');
@@ -27,7 +36,8 @@ export function AllLabTests() {
   const categories = [...new Map(tests.filter((t) => t.categoryId)
     .map((t) => [t.categoryId, t.categoryName])).entries()]
     .sort((a, b) => a[1].localeCompare(b[1]));
-  const filtered = filterAllLabTests(tests, { query, categoryId, status });
+  const byType = tests.filter((t) => t.testType === typeTab);
+  const filtered = filterAllLabTests(byType, { query, categoryId, status });
   const columns: Column<LabTestSummary>[] = [
     { key: 'name', header: 'Test', render: (t) => <><div className="font-medium">{t.name}</div><div className="text-xs text-slate-500">LIS {t.lisCode} · {TEST_TYPE_LABELS[t.testType]}</div><p className="max-w-md line-clamp-2 text-xs text-slate-500">{t.description}</p></> },
     { key: 'category', header: 'Category', render: (t) => t.categoryName || 'Uncategorized' },
@@ -54,6 +64,26 @@ export function AllLabTests() {
       <div className="space-y-3 border-b border-slate-200 p-4">
         <h2 className="font-semibold">All Tests</h2>
         <p className="text-sm text-slate-500">Every saved test, group and package, including imported and inactive tests. Edit a test to change its category, description and other details.</p>
+        <div className="-mx-1 flex flex-wrap gap-2 rounded-lg bg-slate-50 p-2" role="tablist">
+          {TYPE_TABS.map((t) => {
+            const active = t.key === typeTab;
+            const count = tests.filter((x) => x.testType === t.key).length;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => { setTypeTab(t.key); setShown(50); }}
+                className={`rounded-md px-3.5 py-2 text-sm font-semibold transition ${
+                  active ? 'bg-brand-600 text-white shadow-sm' : 'text-brand-700 hover:bg-brand-50'
+                }`}
+              >
+                {t.label} · {count}
+              </button>
+            );
+          })}
+        </div>
         <div className="flex flex-wrap gap-3">
           <label><span className="sr-only">Search tests</span><SearchInput value={query} onChange={(v) => { setQuery(v); setShown(50); }} placeholder="Search tests, category or LIS code" /></label>
           <label><span className="sr-only">Category</span><FilterSelect value={categoryId} onChange={(v) => { setCategoryId(v); setShown(50); }} options={[{ value: 'all', label: 'All categories' }, { value: 'uncategorized', label: 'Uncategorized' }, ...categories.map(([value, label]) => ({ value, label }))]} /></label>

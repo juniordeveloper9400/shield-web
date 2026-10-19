@@ -3,10 +3,8 @@ import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
-import { DataTable, type Column } from '@/components/ui/DataTable';
-import { FilterSelect, SearchInput } from '@/components/ui/Filters';
 import { useAuth } from '@/context/AuthContext';
-import { formatCurrency, formatDateTime } from '@/lib/format';
+import { formatDateTime } from '@/lib/format';
 import { useAsync } from '@/lib/useAsync';
 import {
   blankLabTest,
@@ -37,7 +35,6 @@ import type {
   LabReportUnit,
   LabSpecialRate,
   LabTestInput,
-  LabTestSummary,
   LabTestType,
 } from '@/types';
 import {
@@ -84,24 +81,6 @@ const TYPE_OPTIONS = (Object.keys(TEST_TYPE_LABELS) as LabTestType[]).map((value
   value,
   label: TEST_TYPE_LABELS[value],
 }));
-
-/** Which tests the Saved tests list shows. It opens on the tests made here; the
- *  imported rate list is a separate view, and always available to a group. */
-type ListSource = LabTestSource | 'all';
-
-const SOURCE_FILTER: { value: ListSource; label: string }[] = [
-  { value: 'ADMIN', label: 'Created here' },
-  { value: 'RATE_LIST', label: 'Rate list' },
-  { value: 'all', label: 'Both' },
-];
-
-const LIST_TYPE_FILTER = [
-  { value: 'all', label: 'All types' },
-  ...TYPE_OPTIONS,
-];
-
-/** How many saved tests the list shows before "Show more". */
-const LIST_PAGE = 50;
 
 interface Notice {
   tone: 'ok' | 'error';
@@ -203,11 +182,6 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
   const [searchBy, setSearchBy] = useState<SearchBy>('name');
   const [searchText, setSearchText] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
-
-  const [listSearch, setListSearch] = useState('');
-  const [listType, setListType] = useState('all');
-  const [listSource, setListSource] = useState<ListSource>('ADMIN');
-  const [shown, setShown] = useState(LIST_PAGE);
 
   const userName = user?.name ?? '';
 
@@ -365,10 +339,6 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
 
   // ---- derived ----------------------------------------------------------
 
-  // The tests made here, and the imported rate list kept for building groups.
-  const ownTests = useMemo(() => list.filter((t) => t.source === 'ADMIN'), [list]);
-  const rateListCount = list.length - ownTests.length;
-
   // What the search box offers: every test on record — the ones made here and
   // the imported rate list alike — by name, so nothing has to be typed first to
   // see what there is. Typing narrows it. `list` is already ordered by name.
@@ -387,95 +357,9 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
     [list, loadedId],
   );
 
-  const filteredList = useMemo(() => {
-    const q = listSearch.trim().toLowerCase();
-    return list.filter((t) => {
-      const matchesType = listType === 'all' || t.testType === listType;
-      const matchesSource = listSource === 'all' || t.source === listSource;
-      const matchesQuery =
-        !q ||
-        t.name.toLowerCase().includes(q) ||
-        t.shortName.toLowerCase().includes(q) ||
-        String(t.lisCode).includes(q) ||
-        t.department.toLowerCase().includes(q) ||
-        t.method.toLowerCase().includes(q) ||
-        t.sample.toLowerCase().includes(q);
-      return matchesType && matchesSource && matchesQuery;
-    });
-  }, [list, listSearch, listType, listSource]);
-
-  // The saved list can hold hundreds of tests (the rate list alone is 500+),
-  // so it shows a page at a time.
-  const visibleList = useMemo(() => filteredList.slice(0, shown), [filteredList, shown]);
-
   const title = form.name.trim()
     ? `${form.name.trim()}${form.shortName.trim() ? ` ( ${form.shortName.trim()} )` : ''}`
     : 'New test';
-
-  const listColumns: Column<LabTestSummary>[] = [
-    { key: 'lis', header: 'Lis Code', render: (row) => row.lisCode },
-    {
-      key: 'name',
-      header: 'Test',
-      render: (row) => (
-        <div>
-          <p className="font-medium text-slate-800">{row.name}</p>
-          {row.shortName && <p className="text-xs text-slate-400">{row.shortName}</p>}
-          {row.source === 'RATE_LIST' && listSource === 'all' && (
-            <p className="text-xs text-slate-400">Rate list</p>
-          )}
-        </div>
-      ),
-    },
-    {
-      key: 'type',
-      header: 'Type',
-      render: (row) => (
-        <Badge tone={row.testType === 'TEST' ? 'blue' : 'violet'}>
-          {TEST_TYPE_LABELS[row.testType]}
-          {row.testType !== 'TEST' ? ` · ${row.itemCount}` : ''}
-        </Badge>
-      ),
-    },
-    { key: 'dept', header: 'Department', render: (row) => row.department || '—' },
-    { key: 'method', header: 'Method', render: (row) => row.method || '—' },
-    { key: 'sample', header: 'Sample', render: (row) => row.sample || '—' },
-    { key: 'reporting', header: 'Reporting', render: (row) => row.reportingTime || '—' },
-    {
-      key: 'amount',
-      header: 'Patient rate',
-      render: (row) => formatCurrency(row.amount),
-      className: 'text-right',
-    },
-    {
-      key: 'labRate',
-      header: 'Lab rate',
-      render: (row) => (row.labRate > 0 ? formatCurrency(row.labRate) : '—'),
-      className: 'text-right',
-    },
-    {
-      key: 'status',
-      header: 'Status',
-      render: (row) => (
-        <Badge tone={row.isActive ? 'green' : 'gray'}>{row.isActive ? 'Active' : 'Inactive'}</Badge>
-      ),
-    },
-    {
-      key: 'actions',
-      header: '',
-      render: (row) => (
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={busy}
-          onClick={() => guarded(() => void openTest(row.id))}
-        >
-          Open
-        </Button>
-      ),
-      className: 'text-right',
-    },
-  ];
 
   // ---- render -----------------------------------------------------------
 
@@ -987,70 +871,6 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
           </div>
         </fieldset>
       </Card>
-
-      {/* Saved tests */}
-      {!onDone && <Card className="mt-6">
-        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-800">Saved tests</h3>
-            <p className="text-xs text-slate-400">
-              {ownTests.length} created here
-              {rateListCount > 0 ? ` · ${rateListCount} in the rate list` : ''} — Open one to edit it
-              in the form above.
-            </p>
-          </div>
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <SearchInput
-              value={listSearch}
-              onChange={(value) => {
-                setListSearch(value);
-                setShown(LIST_PAGE);
-              }}
-              placeholder="Search name, code, method, sample…"
-            />
-            <FilterSelect
-              value={listSource}
-              onChange={(value) => {
-                setListSource(value as ListSource);
-                setShown(LIST_PAGE);
-              }}
-              options={SOURCE_FILTER}
-            />
-            <FilterSelect
-              value={listType}
-              onChange={(value) => {
-                setListType(value);
-                setShown(LIST_PAGE);
-              }}
-              options={LIST_TYPE_FILTER}
-            />
-          </div>
-        </div>
-        <DataTable
-          columns={listColumns}
-          rows={visibleList}
-          loading={loading}
-          error={error}
-          empty={
-            listSource === 'ADMIN' && ownTests.length === 0 && !listSearch.trim()
-              ? rateListCount > 0
-                ? `Nothing created here yet — fill in the form above and press Save. The ${rateListCount} rate-list tests are still there to pick from when you build a Group Test or Package (Set Grouptest tab); switch the filter to Rate list to browse them.`
-                : 'Nothing created here yet — fill in the form above and press Save.'
-              : 'No tests match.'
-          }
-        />
-        {filteredList.length > visibleList.length && (
-          <div className="border-t border-slate-200 p-3 text-center">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShown((count) => count + LIST_PAGE)}
-            >
-              Show more ({filteredList.length - visibleList.length} more)
-            </Button>
-          </div>
-        )}
-      </Card>}
 
       <Modal
         open={confirm !== null}
