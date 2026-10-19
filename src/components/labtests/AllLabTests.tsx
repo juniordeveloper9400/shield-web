@@ -1,16 +1,18 @@
 import { useState } from 'react';
 import { listLabTests, deleteLabTest, getLabTest, saveLabTest } from '@/api/labTests';
+import { listLabPackages, setLabPackageActive } from '@/api/labPackages';
 import { useAuth } from '@/context/AuthContext';
 import { useAsync } from '@/lib/useAsync';
 import { filterAllLabTests, pickInput, TEST_TYPE_LABELS } from '@/lib/labTests';
 import { formatCurrency } from '@/lib/format';
-import type { LabTestSummary, LabTestType } from '@/types';
+import type { LabPackage, LabTestSummary, LabTestType } from '@/types';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FilterSelect, SearchInput } from '@/components/ui/Filters';
 import { LabTestMaster } from './LabTestMaster';
+import { LabPackageBuilderModal } from './LabPackageBuilderModal';
 
 /** A tab key is either a real `testType`, or the synthetic 'TOP_PROFILES' —
  *  not a type at all, but every test currently flagged "Show in the app"
@@ -32,6 +34,17 @@ const TYPE_TABS: { key: TestTab; label: string }[] = [
 export function AllLabTests() {
   const { accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(() => listLabTests(accessToken), [accessToken]);
+  // Builder-made packages (app.lab_package, source_test_id null) — a
+  // different thing from a Test Master row whose Test Type is Package.
+  // listLabTests never carries these at all, so without this the Packages
+  // tab only ever showed the Test-Master kind and a package built from the
+  // "+ New package" flow (like "muzaa") had nowhere in the console to appear
+  // or be edited.
+  const { data: builderData, loading: builderLoading, reload: reloadBuilderPackages } =
+    useAsync(() => listLabPackages(accessToken), [accessToken]);
+  const builderPackages = builderData ?? [];
+  const [editingPackage, setEditingPackage] = useState<LabPackage | 'new' | null>(null);
+  const [togglingPackageId, setTogglingPackageId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [typeTab, setTypeTab] = useState<TestTab>('PACKAGE');
   const [query, setQuery] = useState('');
@@ -105,6 +118,20 @@ export function AllLabTests() {
     }
   }
 
+  async function togglePackageActive(p: LabPackage) {
+    if (togglingPackageId) return;
+    setTogglingPackageId(p.id);
+    setNotice('');
+    try {
+      await setLabPackageActive(p.id, !p.isActive, accessToken);
+      reloadBuilderPackages();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not update that package.');
+    } finally {
+      setTogglingPackageId(null);
+    }
+  }
+
   async function remove() {
     if (!deleting || busy) return;
     setBusy(true);
@@ -156,9 +183,59 @@ export function AllLabTests() {
       <DataTable columns={columns} rows={filtered.slice(0, shown)} loading={loading} error={error} empty="No tests match these filters." />
       {filtered.length > shown && <div className="p-4"><Button variant="secondary" onClick={() => setShown(shown + 50)}>Show more</Button></div>}
     </Card>
+    {typeTab === 'PACKAGE' && (
+      <Card>
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 p-4">
+          <div>
+            <h2 className="font-semibold">Packages built in the Package Builder</h2>
+            <p className="text-sm text-slate-500">
+              Member-bookable packages assembled from real tests under “+ New package” — a
+              different thing from a Test Master row whose Test Type is Package, and edited here
+              rather than on the Test Master form.
+            </p>
+          </div>
+          <Button size="sm" onClick={() => setEditingPackage('new')}>+ New package</Button>
+        </div>
+        <DataTable
+          columns={[
+            { key: 'name', header: 'Package', render: (p: LabPackage) => <><div className="font-medium">{p.name}</div><p className="max-w-md line-clamp-2 text-xs text-slate-500">{p.about}</p></> },
+            { key: 'category', header: 'Category', render: (p: LabPackage) => categories.find(([id]) => id === p.categoryId)?.[1] || 'Uncategorized' },
+            { key: 'tests', header: 'Tests', render: (p: LabPackage) => `${p.testCount} tests` },
+            { key: 'price', header: 'Price', render: (p: LabPackage) => formatCurrency(p.price) },
+            { key: 'status', header: 'Status', render: (p: LabPackage) => p.isActive ? 'Active' : 'Inactive' },
+            {
+              key: 'actions',
+              header: 'Actions',
+              render: (p: LabPackage) => (
+                <div className="flex gap-2">
+                  <Button size="sm" variant="secondary" onClick={() => setEditingPackage(p)}>Edit</Button>
+                  <Button
+                    size="sm"
+                    variant={p.isActive ? 'danger' : 'secondary'}
+                    disabled={togglingPackageId === p.id}
+                    onClick={() => void togglePackageActive(p)}
+                  >
+                    {togglingPackageId === p.id ? '…' : p.isActive ? 'Deactivate' : 'Activate'}
+                  </Button>
+                </div>
+              ),
+            },
+          ]}
+          rows={builderPackages}
+          loading={builderLoading}
+          empty="No packages built here yet — press “+ New package” to make one."
+        />
+      </Card>
+    )}
     <Modal open={!!deleting} title="Delete this test?" onClose={() => { if (!busy) setDeleting(null); }} footer={<><Button variant="secondary" disabled={busy} onClick={() => setDeleting(null)}>Cancel</Button><Button variant="danger" disabled={busy} onClick={() => void remove()}>{busy ? 'Deleting…' : 'Delete test'}</Button></>}>
       <p>Delete “{deleting?.name}”? This cannot be undone. Tests used in packages, groups or bookings must be removed from those records or deactivated instead.</p>
       {notice && <p role="alert" className="mt-3 text-rose-600">{notice}</p>}
     </Modal>
+    <LabPackageBuilderModal
+      open={editingPackage !== null}
+      editing={editingPackage === 'new' || editingPackage === null ? null : editingPackage}
+      onClose={() => setEditingPackage(null)}
+      onSaved={() => { setEditingPackage(null); reloadBuilderPackages(); }}
+    />
   </>;
 }
