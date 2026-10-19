@@ -124,7 +124,14 @@ export function GroupTestTab({
               );
               const options = pickable
                 .filter((t) => !taken.has(t.id))
-                .map((t) => ({ value: t.id, label: t.isActive ? t.name : `${t.name} (Inactive)` }));
+                .map((t) => {
+                  const typeTag = t.testType === 'GROUP' ? ' (Group)' : '';
+                  const inactiveTag = !t.isActive ? ' (Inactive)' : '';
+                  return {
+                    value: t.id,
+                    label: `${t.name}${typeTag}${inactiveTag}`,
+                  };
+                });
               return (
                 <tr key={`${item.testId || 'new'}-${index}`}>
                   <td className={`${cell} text-slate-500`}>{index + 1}</td>
