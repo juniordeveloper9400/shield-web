@@ -89,7 +89,11 @@ interface Confirm {
  * can be a single Test, a Group Test or a Package (the last two are built on
  * the Set Grouptest tab from other saved tests).
  */
-export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: string; onDone?: () => void } = {}) {
+export function LabTestMaster({
+  initialTestId,
+  initialType,
+  onDone,
+}: { initialTestId?: string; initialType?: LabTestType; onDone?: () => void } = {}) {
   const { user, accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(() => listLabTests(accessToken), [accessToken]);
   const list = useMemo(() => data ?? [], [data]);
@@ -157,7 +161,9 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
     updatedAt: string;
     source: LabTestSource;
   } | null>(null);
-  const [form, setForm] = useState<LabTestInput>(blankLabTest);
+  const [form, setForm] = useState<LabTestInput>(() =>
+    initialType ? { ...blankLabTest(), testType: initialType } : blankLabTest(),
+  );
   const [items, setItems] = useState<LabGroupItem[]>([]);
   const [rates, setRates] = useState<LabSpecialRate[]>([]);
   const [tab, setTab] = useState<TabKey>('details');

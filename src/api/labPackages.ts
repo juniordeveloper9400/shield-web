@@ -67,6 +67,10 @@ export async function setLabPackageActive(
   await api.patch(`/v1/staff/lab-packages/${id}/active`, { isActive }, accessToken);
 }
 
+export async function deleteLabPackage(id: string, accessToken: string | null): Promise<void> {
+  await api.delete(`/v1/staff/lab-packages/${id}`, accessToken);
+}
+
 export async function updateLabPackage(
   id: string,
   patch: { price: number; mrp: number },
