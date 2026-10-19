@@ -70,7 +70,7 @@ export function AllLabTests() {
       header: 'Listing',
       render: (t) => (
         <div className="flex flex-wrap items-center gap-1.5">
-          {t.showInApp && <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Top Profiles</span>}
+          {t.showInApp && <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">{t.testType === 'PACKAGE' ? 'Top Packages' : 'Top Profiles'}</span>}
           {t.isMostCommon && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">Most Common</span>}
           <Button
             size="sm"
@@ -78,7 +78,7 @@ export function AllLabTests() {
             disabled={togglingId === t.id}
             onClick={() => void toggleShowInApp(t)}
           >
-            {togglingId === t.id ? '…' : t.showInApp ? 'Remove' : '+ Top Profiles'}
+            {togglingId === t.id ? '…' : t.showInApp ? 'Remove' : t.testType === 'PACKAGE' ? '+ Top Packages' : '+ Top Profiles'}
           </Button>
         </div>
       ),
