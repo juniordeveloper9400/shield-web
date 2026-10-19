@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { Children, isValidElement, useEffect, useState, type ReactElement, type ReactNode } from 'react';
 import { Icon } from '@/components/ui/Icon';
 import { telHref, whatsappHref } from '@/lib/contactLinks';
@@ -106,6 +107,16 @@ export function LabOrderDetailsEditor({
   const [isVerified, setIsVerified] = useState<boolean>(
     booking.isVerified ?? initialMeta.isVerified
   );
+  // The charges the published bill carries, so the button can tell "still
+  // verified" from "charges changed since — publish again".
+  const [verifiedCharges, setVerifiedCharges] = useState<{ fuel: number; tech: number } | null>(
+    booking.isVerified ?? initialMeta.isVerified
+      ? {
+          fuel: booking.fuelCharge ?? initialMeta.fuelCharge,
+          tech: booking.techFee ?? initialMeta.techFee,
+        }
+      : null,
+  );
   const [activePatientModal, setActivePatientModal] = useState<OrderPatientDraft | null>(null);
 
   useEffect(() => {
@@ -150,6 +161,11 @@ export function LabOrderDetailsEditor({
     }
   }
 
+  const verifiedChargesChanged =
+    isVerified &&
+    verifiedCharges !== null &&
+    (verifiedCharges.fuel !== fuelChargeAmount || verifiedCharges.tech !== techFeeAmount);
+
   async function handleVerifyBill() {
     setBusy(true);
     onBusy(true);
@@ -170,6 +186,7 @@ export function LabOrderDetailsEditor({
 
       await updateLabBookingDetails(booking.id, payload, accessToken);
       setIsVerified(true);
+      setVerifiedCharges({ fuel: fuelChargeAmount, tech: techFeeAmount });
       patch({ fixCharge: String(fixChargeAmount), note: finalNote });
       onSaved();
     } catch (err) {
@@ -604,22 +621,36 @@ export function LabOrderDetailsEditor({
               <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-slate-200 pt-3">
                 <p className="text-[11px] text-slate-500">
                   {isVerified
-                    ? 'Total bill amount is verified and published to the member in their order details.'
+                    ? 'Total bill amount is verified and published to the member in their order details. It now also appears in Lab Bills, where you can price, collect and manage it.'
                     : 'Click "Verify Bill" to publish the itemized bill and total amount to the member app.'}
                 </p>
-                <button
-                  type="button"
-                  disabled={busy || paid}
-                  onClick={() => void handleVerifyBill()}
-                  className={`shrink-0 inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold shadow-sm transition ${
-                    isVerified
-                      ? 'border border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                      : 'bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-400'
-                  }`}
-                >
-                  <Icon name="check" className="h-3.5 w-3.5" />
-                  {isVerified ? 'Re-verify Bill' : 'Verify Bill'}
-                </button>
+                <div className="flex shrink-0 flex-col items-stretch gap-1.5 sm:items-end">
+                  <button
+                    type="button"
+                    disabled={busy || paid || (isVerified && !verifiedChargesChanged)}
+                    onClick={() => void handleVerifyBill()}
+                    className={`inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-xs font-semibold shadow-sm transition ${
+                      isVerified && !verifiedChargesChanged
+                        ? 'cursor-default border border-emerald-300 bg-emerald-50 text-emerald-700'
+                        : 'bg-emerald-600 text-white hover:bg-emerald-700 focus:ring-2 focus:ring-emerald-400'
+                    }`}
+                  >
+                    <Icon name="check" className="h-3.5 w-3.5" />
+                    {!isVerified
+                      ? 'Verify Bill'
+                      : verifiedChargesChanged
+                        ? 'Update verified bill'
+                        : 'Verified'}
+                  </button>
+                  {isVerified && (
+                    <Link
+                      to="/lab-bills"
+                      className="text-[11px] font-medium text-brand-600 hover:underline"
+                    >
+                      Manage in Lab Bills →
+                    </Link>
+                  )}
+                </div>
               </div>
             </div>
 
