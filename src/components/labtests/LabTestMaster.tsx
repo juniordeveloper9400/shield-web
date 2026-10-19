@@ -457,8 +457,11 @@ export function LabTestMaster({
           <div className="-mx-1 flex flex-wrap gap-2 rounded-lg bg-slate-50 p-2" role="tablist">
             {TABS.map((t) => {
               const active = t.key === tab;
+              const isGroupTab = t.key === 'group';
+              const isGroupOrPackage = form.testType === 'PACKAGE' || form.testType === 'GROUP';
+              const disabled = isGroupTab && !isGroupOrPackage;
               const label =
-                t.key === 'group'
+                isGroupTab
                   ? form.testType === 'PACKAGE'
                     ? 'Set Packagetest'
                     : 'Set Grouptest'
@@ -468,12 +471,22 @@ export function LabTestMaster({
                   key={t.key}
                   type="button"
                   role="tab"
+                  disabled={disabled}
                   aria-selected={active}
-                  onClick={() => setTab(t.key)}
+                  onClick={() => {
+                    if (!disabled) setTab(t.key);
+                  }}
+                  title={
+                    disabled
+                      ? 'Select Test Type as Group or Package to enable'
+                      : undefined
+                  }
                   className={`rounded-md px-3.5 py-2 text-sm font-semibold transition ${
-                    active
-                      ? 'bg-brand-600 text-white shadow-sm'
-                      : 'text-brand-700 hover:bg-brand-50'
+                    disabled
+                      ? 'cursor-not-allowed bg-transparent text-slate-400 opacity-50'
+                      : active
+                        ? 'bg-brand-600 text-white shadow-sm'
+                        : 'text-brand-700 hover:bg-brand-50'
                   }`}
                 >
                   {label}
