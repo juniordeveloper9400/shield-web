@@ -148,15 +148,22 @@ export async function listLabBookingsForMember(memberId: string, token: string |
   return all.filter((b) => b.memberId === memberId);
 }
 
+/** The four Health Pass figures `WalletBreakdown` shows for a lab booking's member — same shape `getWalletPreview` returns for a regular order. */
+export interface LabWalletPreview {
+  balance: number;
+  availableAllowance: number;
+  monthlyRedeemable: number;
+  redeemedThisMonth: number;
+}
+
 /**
- * The member's wallet balance for the booking's own member, read-only — same
- * shape as {@link getWalletBalanceForOrder} in `billPayments.ts`. Lets the
- * bill panel show what collecting would actually draw before committing to
- * anything.
+ * The member's wallet preview for this booking, read-only — same shape
+ * `getWalletPreview` (orders) returns via `billPayments.ts`'s helpers. Lets
+ * the bill panel show what collecting would actually draw before committing
+ * to anything.
  */
-export async function getWalletBalanceForLabBooking(bookingId: string, token: string | null): Promise<number> {
-  const result = await api.get<{ balance: number }>(`/v1/staff/lab-bookings/${bookingId}/wallet-balance`, token);
-  return result.balance;
+export async function getWalletPreviewForLabBooking(bookingId: string, token: string | null): Promise<LabWalletPreview> {
+  return api.get<LabWalletPreview>(`/v1/staff/lab-bookings/${bookingId}/wallet-balance`, token);
 }
 
 /**
