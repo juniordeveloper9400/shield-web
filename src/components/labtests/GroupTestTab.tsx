@@ -237,7 +237,9 @@ export function GroupTestTab({
             <dd className="w-24 font-semibold text-slate-800">{formatCurrency(totalAmount)}</dd>
           </div>
           <div className="flex justify-end gap-2">
-            <dt className="font-medium text-slate-500">Group Amount:</dt>
+            <dt className="font-medium text-slate-500">
+              {testType === 'PACKAGE' ? 'Package Amount:' : 'Group Amount:'}
+            </dt>
             <dd className="w-24 font-semibold text-slate-800">{formatCurrency(groupAmount)}</dd>
           </div>
           {items.length > 0 && (
@@ -253,7 +255,7 @@ export function GroupTestTab({
       {pickable.length === 0 && (
         <p className="mt-2 text-xs text-amber-600">
           There are no saved single tests to add yet. Save some tests first, then
-          come back to build the group.
+          come back to build the {testType === 'PACKAGE' ? 'package' : 'group'}.
         </p>
       )}
     </div>

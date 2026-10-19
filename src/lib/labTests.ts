@@ -166,16 +166,17 @@ export function validateLabTest(
   }
 
   if (isGroupType(input.testType)) {
+    const tabName = input.testType === 'PACKAGE' ? 'Set Packagetest' : 'Set Grouptest';
     if (items.length === 0) {
-      return `A ${TEST_TYPE_LABELS[input.testType].toLowerCase()} needs at least one test — add rows on the Set Grouptest tab.`;
+      return `A ${TEST_TYPE_LABELS[input.testType].toLowerCase()} needs at least one test — add rows on the ${tabName} tab.`;
     }
     const seen = new Set<string>();
     for (const item of items) {
       if (!item.testId) {
-        return 'A Set Grouptest row has no test chosen — pick one or delete the row.';
+        return `A ${tabName} row has no test chosen — pick one or delete the row.`;
       }
       if (seen.has(item.testId)) {
-        return `"${item.name}" appears twice on the Set Grouptest tab.`;
+        return `"${item.name}" appears twice on the ${tabName} tab.`;
       }
       seen.add(item.testId);
       if (!(item.amount >= 0)) {

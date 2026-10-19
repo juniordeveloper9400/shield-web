@@ -457,6 +457,12 @@ export function LabTestMaster({
           <div className="-mx-1 flex flex-wrap gap-2 rounded-lg bg-slate-50 p-2" role="tablist">
             {TABS.map((t) => {
               const active = t.key === tab;
+              const label =
+                t.key === 'group'
+                  ? form.testType === 'PACKAGE'
+                    ? 'Set Packagetest'
+                    : 'Set Grouptest'
+                  : t.label;
               return (
                 <button
                   key={t.key}
@@ -470,7 +476,7 @@ export function LabTestMaster({
                       : 'text-brand-700 hover:bg-brand-50'
                   }`}
                 >
-                  {t.label}
+                  {label}
                 </button>
               );
             })}
