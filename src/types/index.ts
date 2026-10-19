@@ -1175,6 +1175,12 @@ export interface LabTestSummary {
   isActive: boolean;
   /** How many tests a group / package holds; 0 for a single test. */
   itemCount: number;
+  /** The Test Master form's "Show in the app" switch — on (and active)
+   *  lists this test under "Top Profiles and Tests" in the Lab section. */
+  showInApp: boolean;
+  /** The form's "Most Common Test" switch — also leads the "Most Common
+   *  Tests" banner; meaningless unless [showInApp] is also on. */
+  isMostCommon: boolean;
 }
 
 /** One row the package builder's test picker offers — a single test or a

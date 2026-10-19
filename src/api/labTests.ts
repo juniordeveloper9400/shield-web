@@ -31,6 +31,8 @@ interface LabTestSummaryRow {
   source: LabTestSource;
   isActive: boolean;
   itemCount: number;
+  showInApp: boolean;
+  isMostCommon: boolean;
 }
 
 function toSummary(r: LabTestSummaryRow): LabTestSummary {
@@ -52,6 +54,8 @@ function toSummary(r: LabTestSummaryRow): LabTestSummary {
     source: r.source,
     isActive: r.isActive,
     itemCount: r.itemCount,
+    showInApp: r.showInApp,
+    isMostCommon: r.isMostCommon,
   };
 }
 

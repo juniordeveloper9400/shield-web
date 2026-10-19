@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { listLabTests, deleteLabTest } from '@/api/labTests';
+import { listLabTests, deleteLabTest, getLabTest, saveLabTest } from '@/api/labTests';
 import { useAuth } from '@/context/AuthContext';
 import { useAsync } from '@/lib/useAsync';
-import { filterAllLabTests, TEST_TYPE_LABELS } from '@/lib/labTests';
+import { filterAllLabTests, pickInput, TEST_TYPE_LABELS } from '@/lib/labTests';
 import { formatCurrency } from '@/lib/format';
 import type { LabTestSummary, LabTestType } from '@/types';
 import { Card } from '@/components/ui/Card';
@@ -12,19 +12,28 @@ import { DataTable, type Column } from '@/components/ui/DataTable';
 import { FilterSelect, SearchInput } from '@/components/ui/Filters';
 import { LabTestMaster } from './LabTestMaster';
 
-/** Packages first, then Individual, then Group — the order the user asked
- *  for, not alphabetical and not {@link TEST_TYPE_LABELS}'s own order. */
-const TYPE_TABS: { key: LabTestType; label: string }[] = [
+/** A tab key is either a real `testType`, or the synthetic 'TOP_PROFILES' —
+ *  not a type at all, but every test currently flagged "Show in the app"
+ *  (any type), the same set that fills "Top Profiles and Tests" in the Lab
+ *  section. Staff could only see that by opening each test's own form before;
+ *  this tab lists the whole thing in one place. */
+type TestTab = LabTestType | 'TOP_PROFILES';
+
+/** Packages first, then Individual, then Group, then the cross-type "what's
+ *  actually listed" view — the order the user asked for, not alphabetical
+ *  and not {@link TEST_TYPE_LABELS}'s own order. */
+const TYPE_TABS: { key: TestTab; label: string }[] = [
   { key: 'PACKAGE', label: 'Packages' },
   { key: 'TEST', label: 'Individual Test' },
   { key: 'GROUP', label: 'Group Test' },
+  { key: 'TOP_PROFILES', label: 'Top Profiles' },
 ];
 
 export function AllLabTests() {
   const { accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(() => listLabTests(accessToken), [accessToken]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [typeTab, setTypeTab] = useState<LabTestType>('PACKAGE');
+  const [typeTab, setTypeTab] = useState<TestTab>('PACKAGE');
   const [query, setQuery] = useState('');
   const [categoryId, setCategoryId] = useState('all');
   const [status, setStatus] = useState('all');
@@ -32,19 +41,69 @@ export function AllLabTests() {
   const [deleting, setDeleting] = useState<LabTestSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const tests = data ?? [];
   const categories = [...new Map(tests.filter((t) => t.categoryId)
     .map((t) => [t.categoryId, t.categoryName])).entries()]
     .sort((a, b) => a[1].localeCompare(b[1]));
-  const byType = tests.filter((t) => t.testType === typeTab);
+  const byType = typeTab === 'TOP_PROFILES'
+    ? tests.filter((t) => t.showInApp)
+    : tests.filter((t) => t.testType === typeTab);
   const filtered = filterAllLabTests(byType, { query, categoryId, status });
   const columns: Column<LabTestSummary>[] = [
     { key: 'name', header: 'Test', render: (t) => <><div className="font-medium">{t.name}</div><div className="text-xs text-slate-500">LIS {t.lisCode} · {TEST_TYPE_LABELS[t.testType]}</div><p className="max-w-md line-clamp-2 text-xs text-slate-500">{t.description}</p></> },
     { key: 'category', header: 'Category', render: (t) => t.categoryName || 'Uncategorized' },
     { key: 'amount', header: 'Amount', render: (t) => formatCurrency(t.amount) },
     { key: 'status', header: 'Status', render: (t) => t.isActive ? 'Active' : 'Inactive' },
+    {
+      key: 'listing',
+      header: 'Listing',
+      render: (t) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {t.showInApp && <span className="rounded-full bg-brand-50 px-2 py-0.5 text-xs font-medium text-brand-700">Top Profiles</span>}
+          {t.isMostCommon && <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700">Most Common</span>}
+          <Button
+            size="sm"
+            variant={t.showInApp ? 'secondary' : 'primary'}
+            disabled={togglingId === t.id}
+            onClick={() => void toggleShowInApp(t)}
+          >
+            {togglingId === t.id ? '…' : t.showInApp ? 'Remove' : '+ Top Profiles'}
+          </Button>
+        </div>
+      ),
+    },
     { key: 'actions', header: 'Actions', render: (t) => <div className="flex gap-2"><Button size="sm" variant="secondary" onClick={() => setSelectedId(t.id)}>Edit</Button><Button size="sm" variant="danger" onClick={() => { setNotice(''); setDeleting(t); }}>Delete</Button></div> },
   ];
+
+  /** Flips "Show in the app" straight from the list — the same field the
+   *  Test Master form's own switch writes, just reached without opening the
+   *  full form first. Reads the test's current full record so every other
+   *  field (group members, special rates, every other tab) round-trips
+   *  untouched — saveLabTest always writes a complete record, never a
+   *  partial one, so this has to post everything back, not just the one
+   *  flag that changed. Works the same for a Test, a Group Test or a
+   *  Package: nothing here is type-gated, so a package can be added to Top
+   *  Profiles too if staff choose to. */
+  async function toggleShowInApp(t: LabTestSummary) {
+    if (togglingId) return;
+    setTogglingId(t.id);
+    setNotice('');
+    try {
+      const full = await getLabTest(t.id, accessToken);
+      if (!full) {
+        setNotice(`"${t.name}" could not be found — try reloading the list.`);
+        return;
+      }
+      const input = { ...pickInput(full), showInApp: !t.showInApp };
+      await saveLabTest(t.id, input, full.groupItems, full.specialRates, accessToken);
+      reload();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Could not update that test.');
+    } finally {
+      setTogglingId(null);
+    }
+  }
 
   async function remove() {
     if (!deleting || busy) return;
@@ -67,7 +126,9 @@ export function AllLabTests() {
         <div className="-mx-1 flex flex-wrap gap-2 rounded-lg bg-slate-50 p-2" role="tablist">
           {TYPE_TABS.map((t) => {
             const active = t.key === typeTab;
-            const count = tests.filter((x) => x.testType === t.key).length;
+            const count = t.key === 'TOP_PROFILES'
+              ? tests.filter((x) => x.showInApp).length
+              : tests.filter((x) => x.testType === t.key).length;
             return (
               <button
                 key={t.key}
@@ -90,6 +151,7 @@ export function AllLabTests() {
           <label><span className="sr-only">Status</span><FilterSelect value={status} onChange={(v) => { setStatus(v); setShown(50); }} options={[{ value: 'all', label: 'All statuses' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} /></label>
         </div>
         <p className="text-xs text-slate-500">{filtered.length} tests</p>
+        {notice && !deleting && <p role="alert" className="text-sm text-rose-600">{notice}</p>}
       </div>
       <DataTable columns={columns} rows={filtered.slice(0, shown)} loading={loading} error={error} empty="No tests match these filters." />
       {filtered.length > shown && <div className="p-4"><Button variant="secondary" onClick={() => setShown(shown + 50)}>Show more</Button></div>}
