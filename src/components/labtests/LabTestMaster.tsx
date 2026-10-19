@@ -46,27 +46,14 @@ import {
   LisTextarea,
 } from './fields';
 import { GroupTestTab } from './GroupTestTab';
-import { SpecialRateTab } from './SpecialRateTab';
 
-type TabKey =
-  | 'details'
-  | 'refs'
-  | 'spec1'
-  | 'spec2'
-  | 'spec3'
-  | 'special'
-  | 'group'
-  | 'result';
+type TabKey = 'details' | 'spec1' | 'spec2' | 'group';
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'details', label: 'Test Details' },
-  { key: 'refs', label: 'Ref1 & Ref2' },
   { key: 'spec1', label: 'About' },
   { key: 'spec2', label: 'Why this test' },
-  { key: 'spec3', label: 'Specification 3' },
-  { key: 'special', label: 'Special Rate & Ref Lab' },
   { key: 'group', label: 'Set Grouptest' },
-  { key: 'result', label: 'Result Template' },
 ];
 
 type SearchBy = LabTestSearchBy;
@@ -201,12 +188,6 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
 
   function changeItems(next: LabGroupItem[]) {
     setItems(next);
-    setDirty(true);
-    setNotice(null);
-  }
-
-  function changeRates(next: LabSpecialRate[]) {
-    setRates(next);
     setDirty(true);
     setNotice(null);
   }
@@ -751,25 +732,6 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
             </div>
           )}
 
-          {tab === 'refs' && (
-            <div className="grid gap-5 md:grid-cols-2">
-              <LisTextarea
-                label="Ref 1"
-                value={form.ref1}
-                onChange={(v) => patch({ ref1: v })}
-                rows={10}
-                placeholder="Reference range, e.g. Adult male: 0.7 – 1.3 mg/dL"
-              />
-              <LisTextarea
-                label="Ref 2"
-                value={form.ref2}
-                onChange={(v) => patch({ ref2: v })}
-                rows={10}
-                placeholder="A second reference range, e.g. Adult female: 0.6 – 1.1 mg/dL"
-              />
-            </div>
-          )}
-
           {tab === 'spec1' && (
             <LisTextarea
               label="About"
@@ -792,19 +754,6 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
               />
             </div>
           )}
-          {tab === 'spec3' && (
-            <LisTextarea
-              label="Specifications 3"
-              value={form.specification3}
-              onChange={(v) => patch({ specification3: v })}
-              rows={12}
-            />
-          )}
-
-          {tab === 'special' && (
-            <SpecialRateTab rates={rates} onChange={changeRates} standardAmount={form.amount} />
-          )}
-
           {tab === 'group' && (
             <GroupTestTab
               testType={form.testType}
@@ -813,16 +762,6 @@ export function LabTestMaster({ initialTestId, onDone }: { initialTestId?: strin
               pickable={pickable}
               totalAmount={form.amount}
               categories={categoryRows ?? []}
-            />
-          )}
-
-          {tab === 'result' && (
-            <LisTextarea
-              label="Result Template"
-              value={form.resultTemplate}
-              onChange={(v) => patch({ resultTemplate: v })}
-              rows={14}
-              placeholder="The text a result is pre-filled with when it is entered for this test."
             />
           )}
 
