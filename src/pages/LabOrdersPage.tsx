@@ -172,7 +172,22 @@ export default function LabOrdersPage() {
               </div>
             ),
           },
-          { key: 'package', header: 'Test', render: (row) => row.packageName },
+          {
+            key: 'package',
+            header: 'Test',
+            render: (row) => (
+              <div>
+                <p>{row.packageName}</p>
+                {row.healthPassApplied && (
+                  <p className="mt-1">
+                    <Badge tone="blue">
+                      Health Pass applied{row.healthPassTier ? ` · ${row.healthPassTier}` : ''}
+                    </Badge>
+                  </p>
+                )}
+              </div>
+            ),
+          },
           {
             key: 'fulfillment',
             header: 'Service',

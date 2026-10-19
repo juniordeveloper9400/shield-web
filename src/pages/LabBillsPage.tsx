@@ -84,7 +84,14 @@ export default function LabBillsPage() {
   // A booking only counts as "billed" the same way LabBookingModal's own
   // `billed` flag does — see its doc on why total, not status, is the check
   // (a bill can be sent and awaiting payment before it's ever marked paid).
-  const billedRows = useMemo(() => rows.filter((r) => r.billAmount > 0), [rows]);
+  // A booking also lands here the moment its bill is verified on the Lab
+  // Orders screen (the total is then published to the member), even before
+  // the invoice has been priced — "Manage" is where it gets priced and
+  // collected.
+  const billedRows = useMemo(
+    () => rows.filter((r) => r.billAmount > 0 || r.isVerified === true),
+    [rows],
+  );
   const scoped = useMemo(() => scopeToStore(billedRows, user), [billedRows, user]);
   const branchBound = user?.role === 'lab_technician' && Boolean(user.storeCode);
 
@@ -136,7 +143,22 @@ export default function LabBillsPage() {
         </div>
       ),
     },
-    { key: 'package', header: 'Package', render: (row) => row.packageName },
+    {
+      key: 'package',
+      header: 'Package',
+      render: (row) => (
+        <div>
+          <p>{row.packageName}</p>
+          {row.healthPassApplied && (
+            <p className="mt-1">
+              <Badge tone="blue">
+                Health Pass applied{row.healthPassTier ? ` · ${row.healthPassTier}` : ''}
+              </Badge>
+            </p>
+          )}
+        </div>
+      ),
+    },
     ...(branchBound
       ? []
       : ([

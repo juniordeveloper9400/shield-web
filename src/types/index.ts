@@ -943,6 +943,14 @@ export interface LabBooking {
   billStatus: PaymentStatus;
   billWalletCollected: number;
   billCashCollected: number;
+  /** The member tapped "Apply" on their Health Pass coupon at checkout
+   *  (migration 0109) — a visual confirmation on their own screens, not
+   *  something [totalPrice] is computed from; shown here so the lab can
+   *  settle the bill at [healthPassTier]'s own home-care rate. */
+  healthPassApplied: boolean;
+  /** Which plan was applied ("Silver Shield", "Gold Shield", …); '' when
+   *  [healthPassApplied] is false. */
+  healthPassTier: string;
 }
 
 /** `app.appointment_kind`. */

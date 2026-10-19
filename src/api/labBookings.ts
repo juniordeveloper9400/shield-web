@@ -47,6 +47,9 @@ interface LabBookingApiRow {
   assignedStaffName: string | null;
   unitPrice: string | number;
   fixCharge?: string | number;
+  fuelCharge?: string | number;
+  techFee?: string | number;
+  isVerified?: boolean;
   totalPrice: string | number;
   status: string;
   scheduledFor: string | null;
@@ -60,6 +63,8 @@ interface LabBookingApiRow {
   billStatus: string;
   billWalletCollected: string | number;
   billCashCollected: string | number;
+  healthPassApplied?: boolean;
+  healthPassTier?: string | null;
 }
 
 function toLabBooking(r: LabBookingApiRow): LabBooking {
@@ -98,6 +103,12 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
     assignedStaffName: r.assignedStaffName ?? '',
     unitPrice: Number(r.unitPrice || 0),
     fixCharge: Number(r.fixCharge || 0),
+    // The backend strips the [BILL_VERIFIED] tag out of `note` and returns it
+    // as these three fields — without them a verified bill read as
+    // "Unverified" again after every reload.
+    fuelCharge: Number(r.fuelCharge || 0),
+    techFee: Number(r.techFee || 0),
+    isVerified: r.isVerified === true,
     totalPrice: Number(r.totalPrice || 0),
     status: fromEnum<LabBookingStatus>(r.status || 'requested'),
     scheduledFor: r.scheduledFor ?? '',
@@ -111,6 +122,8 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
     billStatus: fromEnum<PaymentStatus>(r.billStatus || 'pending'),
     billWalletCollected: Number(r.billWalletCollected || 0),
     billCashCollected: Number(r.billCashCollected || 0),
+    healthPassApplied: r.healthPassApplied === true,
+    healthPassTier: r.healthPassTier ?? '',
   };
 }
 
