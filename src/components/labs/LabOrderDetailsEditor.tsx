@@ -46,11 +46,15 @@ function parseBillMeta(note: string | null | undefined) {
 export function LabOrderDetailsEditor({
   booking,
   onSaved,
+  onVerified,
   onEditing,
   onBusy,
 }: {
   booking: LabBooking;
   onSaved: () => void;
+  /** Called after "Verify Bill" publishes — the window stays open so Confirm
+   *  can be pressed next; without it the verify behaves like Save and closes. */
+  onVerified?: () => void;
   onEditing: () => void;
   onBusy: (busy: boolean) => void;
 }) {
@@ -188,7 +192,8 @@ export function LabOrderDetailsEditor({
       setIsVerified(true);
       setVerifiedCharges({ fuel: fuelChargeAmount, tech: techFeeAmount });
       patch({ fixCharge: String(fixChargeAmount), note: finalNote });
-      onSaved();
+      if (onVerified) onVerified();
+      else onSaved();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not verify bill.');
     } finally {

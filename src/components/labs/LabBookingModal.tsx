@@ -450,6 +450,32 @@ function BookingWindow({
       ? 'Assign a staff member before confirming this home-collection booking.'
       : null;
 
+  // The Lab Orders flow the admin follows: Verify Bill → Confirm → Convert to
+  // bill (which hands the order to Lab Bills). Roles without the full order
+  // editor can't verify, so they keep the plain confirm step.
+  const billFlow = fullOrderEditor;
+  const verified = booking.isVerified === true;
+  const confirmBlocker =
+    billFlow && status === 'requested' && !verified
+      ? 'Verify the bill first — use "Verify Bill" in the bill summary.'
+      : null;
+  const showConvert = billFlow && status === 'confirmed' && !billed;
+
+  async function convertToBill() {
+    const ok = await run('status', () =>
+      sendLabBookingBill(
+        booking.id,
+        { image: booking.billImage || '', discountAmount: booking.billDiscount || 0 },
+        accessToken,
+      ),
+    );
+    // Only now does the order window close and Lab Bills open.
+    if (ok) {
+      onClose();
+      navigate('/lab-bills');
+    }
+  }
+
   function addPatientRow() {
     setPatients((rows) => [
       ...rows,
@@ -587,12 +613,23 @@ function BookingWindow({
                 Cancel booking
               </Button>
             )}
-            {next && next !== 'report_ready' && nextLabel !== 'Report ready' && (
+            {showConvert && (
               <Button
                 variant="primary"
-                disabled={busy !== null || editingOrder || inlineBusy || blocker !== null || staffRequiredBlocker !== null || dirty}
+                disabled={busy !== null || editingOrder || inlineBusy}
+                onClick={() => void convertToBill()}
+              >
+                <Icon name="receipt" className="h-4 w-4" />
+                {busy === 'status' ? 'Converting…' : 'Convert to bill'}
+              </Button>
+            )}
+            {!(billFlow && status === 'confirmed') && next && next !== 'report_ready' && nextLabel !== 'Report ready' && (
+              <Button
+                variant="primary"
+                disabled={busy !== null || editingOrder || inlineBusy || blocker !== null || staffRequiredBlocker !== null || confirmBlocker !== null || dirty}
                 title={
                   blocker ??
+                  confirmBlocker ??
                   staffRequiredBlocker ??
                   (dirty ? 'Save your changes to the booking details first.' : undefined)
                 }
@@ -609,6 +646,11 @@ function BookingWindow({
           <Badge tone={toneForStatus(isStoreVisit && status === 'sample_collected' ? 'confirmed' : status)}>
             {isStoreVisit && status === 'sample_collected' ? STATUS_LABEL['confirmed'] : STATUS_LABEL[status]}
           </Badge>
+          {status !== 'cancelled' && (booking.billAmount > 0 || verified) && (
+            <Badge tone={booking.billStatus === 'paid' ? 'green' : 'blue'}>
+              {booking.billStatus === 'paid' ? 'Completed' : booking.billAmount > 0 ? 'Billed' : 'Verified'}
+            </Badge>
+          )}
           {booking.scheduledFor && (
             <span className="text-xs text-slate-500">
               Scheduled {formatDateTime(booking.scheduledFor)}
@@ -622,6 +664,7 @@ function BookingWindow({
 
         {fullOrderEditor ? <LabOrderDetailsEditor key={`${booking.id}-${inlineVersion}`} booking={booking}
           onEditing={() => setEditingOrder(true)} onBusy={setInlineBusy}
+          onVerified={() => onChanged()}
           onSaved={() => { setEditingOrder(false); onChanged(); onClose(); }} /> : (
         <DetailList
           rows={[
