@@ -14,9 +14,9 @@ function parseAmount(raw: string): number {
 }
 
 /**
- * The manual GPay / cash step for a lab bill — the lab twin of the order
+ * The manual UPI / cash step for a lab bill — the lab twin of the order
  * bills' Receive panel. After the wallet has been debited, whatever is still
- * owed is received here as GPay, cash, or both; the server refuses more than
+ * owed is received here as UPI, cash, or both; the server refuses more than
  * is owed and marks the bill paid once everything is covered. Nothing is
  * written until the call succeeds.
  */
@@ -107,7 +107,7 @@ export function LabReceivePaymentModal({
           <div className="grid grid-cols-2 gap-3">
             {(
               [
-                { key: 'gpay', label: 'GPay' },
+                { key: 'gpay', label: 'UPI' },
                 { key: 'cash', label: 'Cash' },
               ] as { key: Method; label: string }[]
             ).map(({ key, label }) => {

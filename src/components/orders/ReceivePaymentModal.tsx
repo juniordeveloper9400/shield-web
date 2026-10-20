@@ -24,7 +24,7 @@ function parseAmount(raw: string): number {
 
 /**
  * The Receive panel for one priced bill — the Manual cash "closing" step.
- * The counter picks GPay, cash, or both and types what arrived; "Record
+ * The counter picks UPI, cash, or both and types what arrived; "Record
  * payment" writes it to the bill (`PATCH /v1/staff/orders/:id/receive`). The
  * server refuses anything above what is still owed, and marks the bill PAID
  * once it is covered. Nothing is written until that call succeeds.
@@ -123,7 +123,7 @@ export function ReceivePaymentModal({
           <div className="grid grid-cols-2 gap-3">
             {(
               [
-                { key: 'gpay', label: 'GPay' },
+                { key: 'gpay', label: 'UPI' },
                 { key: 'cash', label: 'Cash' },
               ] as { key: Method; label: string }[]
             ).map(({ key, label }) => {

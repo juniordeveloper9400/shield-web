@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { scopeToStore } from '@/config/permissions';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Card } from '@/components/ui/Card';
 import { StatCard } from '@/components/ui/StatCard';
 import { Badge } from '@/components/ui/Badge';
+import { Button } from '@/components/ui/Button';
 import { DataTable, type Column } from '@/components/ui/DataTable';
 import { SearchInput, FilterSelect } from '@/components/ui/Filters';
 import { formatCurrency, formatDateTime } from '@/lib/format';
@@ -30,6 +31,7 @@ const BILL_OPTIONS = [
  * already showing its Billing section since the booking is already billed.
  */
 export default function LabBillsPage() {
+  const navigate = useNavigate();
   const { user, accessToken } = useAuth();
   const { data, loading, error, reload } = useAsync(() => listLabBookings(accessToken), [accessToken]);
   const rows = useMemo(() => data ?? [], [data]);
@@ -218,6 +220,11 @@ export default function LabBillsPage() {
           branchBound
             ? 'Lab bookings converted to bills for your branch — price, send and collect payment from the booking itself.'
             : 'Lab bookings converted to bills, across every branch.'
+        }
+        actions={
+          <Button variant="secondary" onClick={() => navigate('/lab-bills/manual-cash')}>
+            Manual cash
+          </Button>
         }
       />
 

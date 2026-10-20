@@ -300,7 +300,7 @@ function BookingWindow({
   const [otpBusy, setOtpBusy] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
   // `cashAmount` is what is still owed after the wallet; the bill is only paid
-  // (`settled`) once that is zero. The rest is received as GPay / cash.
+  // (`settled`) once that is zero. The rest is received as UPI / cash.
   const [collected, setCollected] = useState<{
     walletAmount: number;
     cashAmount: number;
@@ -342,7 +342,7 @@ function BookingWindow({
    *  <= 0` — no balance, no Health Pass allowance left, or both) there is
    *  nothing to verify a code against, so this skips the OTP and lands on the
    *  same "collected" screen a wallet debit would, with the whole bill still
-   *  owed and ready to be received as GPay / cash — the same as an order's
+   *  owed and ready to be received as UPI / cash — the same as an order's
    *  bill. A bill whose wallet step already ran just shows what is left. */
   async function startCollection() {
     setShowOtpPopover(true);
@@ -395,7 +395,7 @@ function BookingWindow({
   // What the wallet is good for right now — its balance, further capped by
   // what is left of this month's Health Pass allowance when the member has
   // one (the server draws exactly this much). Whatever the wallet cannot
-  // cover shows as cash needed and is received as GPay / cash afterwards.
+  // cover shows as cash needed and is received as UPI / cash afterwards.
   const billTotalNow = billed ? booking.billAmount : netTotal;
   const paidSoFar = billed
     ? (booking.billWalletCollected || 0) + (booking.billCashCollected || 0) + (booking.billGpayCollected || 0)
@@ -650,7 +650,7 @@ function BookingWindow({
                     : "The member's wallet had nothing to debit."}
                 </p>
                 <p className="text-sm font-medium text-amber-700">
-                  {formatCurrency(collected.cashAmount)} is still owed — receive it as GPay or cash now, or skip
+                  {formatCurrency(collected.cashAmount)} is still owed — receive it as UPI or cash now, or skip
                   and take it later from Lab Bills.
                 </p>
               </>
@@ -662,7 +662,7 @@ function BookingWindow({
               A one-time code was sent to {booking.memberPhone}. Enter what the member reads out to you — once
               it checks out, {formatCurrency(walletCoverage)} is debited from their wallet automatically.{' '}
               {cashOwed > 0
-                ? `The remaining ${formatCurrency(cashOwed)} is then received as GPay or cash — or skipped and taken later.`
+                ? `The remaining ${formatCurrency(cashOwed)} is then received as UPI or cash — or skipped and taken later.`
                 : 'The bill is then paid in full.'}
             </p>
             {otpBusy && !otpConfirmation ? (

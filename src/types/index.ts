@@ -474,7 +474,7 @@ export interface Order {
   /** How much the counter took in cash at collection — 0 until collected.
    *  `app.bill.cash_collected`. */
   billCashCollected: number;
-  /** How much the counter took by GPay — kept apart from cash. `app.bill.gpay_collected` (migration 0071). */
+  /** How much the counter took by UPI — kept apart from cash. `app.bill.gpay_collected` (migration 0071). */
   billGpayCollected: number;
   billStatus: PaymentStatus;
   billLines: BillLine[];
@@ -945,7 +945,7 @@ export interface LabBooking {
   billStatus: PaymentStatus;
   billWalletCollected: number;
   billCashCollected: number;
-  /** Received at the counter as GPay (migration 0110). */
+  /** Received at the counter as UPI (migration 0110). */
   billGpayCollected?: number;
   /** The member tapped "Apply" on their Health Pass coupon at checkout
    *  (migration 0109) — a visual confirmation on their own screens, not

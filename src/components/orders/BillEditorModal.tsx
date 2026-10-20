@@ -1118,7 +1118,7 @@ export function BillEditorModal({
                   : 'The member’s wallet had nothing to debit.'}
               </p>
               <p className="text-sm font-medium text-amber-700">
-                {formatCurrency(collected.cashAmount)} is still owed — receive it as GPay or cash now, or skip
+                {formatCurrency(collected.cashAmount)} is still owed — receive it as UPI or cash now, or skip
                 and take it later from Bills → Manual cash.
               </p>
               {receiveError && <p className="text-xs text-rose-600">{receiveError}</p>}
@@ -1133,7 +1133,7 @@ export function BillEditorModal({
             {formatCurrency(walletCoverage)} is debited from their wallet
             automatically.{' '}
             {cashOwed > 0
-              ? `The remaining ${formatCurrency(cashOwed)} is then received as GPay or cash — or skipped and taken later from Manual cash.`
+              ? `The remaining ${formatCurrency(cashOwed)} is then received as UPI or cash — or skipped and taken later from Manual cash.`
               : 'The bill is then paid in full.'}
           </p>
           {otpBusy && !otpConfirmation ? (

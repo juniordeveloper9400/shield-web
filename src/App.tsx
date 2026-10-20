@@ -24,6 +24,7 @@ import AgentPortalPage from '@/pages/AgentPortalPage';
 import LabChargesPage from '@/pages/LabChargesPage';
 import LabOrdersPage from '@/pages/LabOrdersPage';
 import LabBillsPage from '@/pages/LabBillsPage';
+import LabManualCashPage from '@/pages/LabManualCashPage';
 import AppointmentsPage from '@/pages/AppointmentsPage';
 import LabsPage from '@/pages/LabsPage';
 import AccountsPage from '@/pages/AccountsPage';
@@ -210,6 +211,14 @@ export default function App() {
           element={
             <ProtectedRoute module="lab_bills">
               <LabBillsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/lab-bills/manual-cash"
+          element={
+            <ProtectedRoute module="lab_bills">
+              <LabManualCashPage />
             </ProtectedRoute>
           }
         />
