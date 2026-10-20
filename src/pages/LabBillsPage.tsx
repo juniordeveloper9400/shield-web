@@ -273,6 +273,7 @@ export default function LabBillsPage() {
       </Card>
 
       <LabBookingModal
+        billsMode
         booking={selected}
         autoCollect={selected !== null && selected.id === autoCollectId}
         onClose={() => {

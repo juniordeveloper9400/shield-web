@@ -92,10 +92,15 @@ export function LabBookingModal({
   onClose,
   onChanged,
   autoCollect = false,
+  billsMode = false,
 }: {
   booking: LabBooking | null;
   onClose: () => void;
   onChanged: () => void;
+  /** Lab Bills' own view of the order: order details + the verified bill
+   *  amount, then "Proceed →" to the bill & member-wallet step — instead of
+   *  the Lab Orders editor. */
+  billsMode?: boolean;
   /** Skip straight to the OTP collection step on open — Lab Bills' own
    *  hand-off from a booking just converted there via "Convert to bill →",
    *  not a plain "Manage" click on an already-billed row. See that page's
@@ -110,6 +115,7 @@ export function LabBookingModal({
       onClose={onClose}
       onChanged={onChanged}
       autoCollect={autoCollect}
+      billsMode={billsMode}
     />
   );
 }
@@ -119,14 +125,18 @@ function BookingWindow({
   onClose,
   onChanged,
   autoCollect,
+  billsMode,
 }: {
   booking: LabBooking;
   onClose: () => void;
   onChanged: () => void;
   autoCollect: boolean;
+  billsMode: boolean;
 }) {
   const { accessToken, user } = useAuth();
   const [editingOrder, setEditingOrder] = useState(false);
+  // Lab Bills' two steps: the order + verified amount, then the bill & wallet.
+  const [billStep, setBillStep] = useState<'details' | 'bill'>(autoCollect ? 'bill' : 'details');
   const [inlineBusy, setInlineBusy] = useState(false);
   const [inlineVersion, setInlineVersion] = useState(0);
   const fullOrderEditor = user?.role === 'admin' || user?.role === 'superadmin' || user?.role === 'lab';
@@ -579,6 +589,353 @@ function BookingWindow({
     if (!editingOrder) { onClose(); return; }
     ask({ title: 'Discard order changes?', message: 'Your inline edits have not been saved.', confirmLabel: 'Discard changes', danger: true,
       onConfirm: async () => { setEditingOrder(false); onClose(); } });
+  }
+
+  const otpModal = (
+      <Modal
+        open={showOtpPopover}
+        onClose={() => (collected ? onClose() : setShowOtpPopover(false))}
+        title={walletCoverage > 0 ? 'Verify OTP to collect payment' : 'Collect payment'}
+        footer={
+          collected ? (
+            <Button size="sm" onClick={onClose}>
+              Done
+            </Button>
+          ) : walletCoverage <= 0 ? (
+            <>
+              <Button variant="secondary" size="sm" onClick={() => setShowOtpPopover(false)}>
+                Close
+              </Button>
+              <Button size="sm" disabled={otpBusy} onClick={() => void collectCashOnly()}>
+                {otpBusy ? 'Collecting…' : `Collect ${formatCurrency(cashOwed)} as cash`}
+              </Button>
+            </>
+          ) : (
+            <Button variant="secondary" size="sm" onClick={() => setShowOtpPopover(false)}>
+              Close
+            </Button>
+          )
+        }
+      >
+        {collected ? (
+          <div className="flex flex-col items-center gap-3 py-4 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
+              <Icon name="check" className="h-8 w-8 text-emerald-600" />
+            </span>
+            <p className="text-sm font-medium text-emerald-700">
+              {collected.walletAmount > 0
+                ? `${formatCurrency(collected.walletAmount)} was debited from the member's wallet.`
+                : "The member's wallet had nothing to debit."}
+            </p>
+            <p className="text-sm font-medium text-emerald-700">
+              {collected.cashAmount > 0
+                ? `${formatCurrency(collected.cashAmount)} was collected as cash. This bill is paid.`
+                : 'This bill is fully paid.'}
+            </p>
+          </div>
+        ) : (
+          <>
+            <p className="mb-3 text-xs text-slate-500">
+              {walletCoverage > 0 ? (
+                <>
+                  A one-time code was sent to {booking.memberPhone}. Enter what the member reads
+                  out to you — once it checks out, {formatCurrency(walletCoverage)} is debited
+                  from their wallet automatically.{' '}
+                  {cashOwed > 0
+                    ? `The remaining ${formatCurrency(cashOwed)} is then collected as cash.`
+                    : 'The bill is then paid in full.'}
+                </>
+              ) : (
+                <>The member's wallet has nothing to draw. Collect {formatCurrency(cashOwed)} as cash.</>
+              )}
+            </p>
+            {walletCoverage > 0 && (
+              otpBusy && !otpConfirmation ? (
+                <p className="text-sm text-slate-500">Sending code…</p>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    placeholder="6-digit code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    autoComplete="one-time-code"
+                    autoFocus
+                    disabled={!otpConfirmation || otpBusy}
+                    className={inputClass}
+                  />
+                  <Button
+                    size="sm"
+                    disabled={otpBusy || !otpConfirmation || !/^\d{6}$/.test(otpCode.trim())}
+                    onClick={() => void verifyAndCollect()}
+                  >
+                    {otpBusy ? 'Verifying…' : 'Verify & collect'}
+                  </Button>
+                  <Button variant="secondary" size="sm" disabled={otpBusy} onClick={() => void sendOtp()}>
+                    Resend
+                  </Button>
+                </div>
+              )
+            )}
+            {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
+          </>
+        )}
+      </Modal>
+  );
+
+  // Lab Bills' own window: step 1 shows the order and the verified bill
+  // amount, "Proceed →" opens step 2 — bill lines, the member's wallet and the
+  // payment request — mirroring the standard Bills flow.
+  async function requestRedemption() {
+    setBillBusy(true);
+    setBillError(null);
+    try {
+      await sendLabBookingBill(booking.id, { image: billImage, discountAmount: billDiscount }, accessToken);
+      onChanged();
+      await startCollection();
+    } catch (err) {
+      setBillError(errorMessage(err));
+    } finally {
+      setBillBusy(false);
+    }
+  }
+
+  if (billsMode) {
+    const fuel = Number(booking.fuelCharge || 0);
+    const tech = Number(booking.techFee || 0);
+    const testsAmount = Math.max(booking.totalPrice - fuel - tech, 0);
+    const inputBox =
+      'w-28 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-right text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50 disabled:text-slate-400';
+    return (
+      <>
+        <Modal
+          open
+          size="full"
+          onClose={onClose}
+          title={booking.code}
+          footer={
+            billStep === 'details' ? (
+              <>
+                <Button variant="secondary" onClick={onClose}>Cancel</Button>
+                <Button onClick={() => setBillStep('bill')}>Proceed →</Button>
+              </>
+            ) : (
+              <>
+                <Button variant="secondary" onClick={() => setBillStep('details')}>← Details</Button>
+                <Button variant="secondary" onClick={onClose}>Close</Button>
+                {!effectivePaid && (
+                  <Button disabled={billBusy || billImageBusy} onClick={() => void requestRedemption()}>
+                    {billBusy
+                      ? 'Saving…'
+                      : walletCoverage > 0
+                        ? 'Send redemption request'
+                        : `Collect ${formatCurrency(cashOwed)} as cash`}
+                  </Button>
+                )}
+              </>
+            )
+          }
+        >
+          <p className="mb-3 text-sm text-slate-400">
+            {booking.contactName || booking.memberName} · {booking.contactPhone || booking.memberPhone}
+          </p>
+
+          {billStep === 'details' ? (
+            <div className="grid gap-5 lg:grid-cols-[1fr_340px]">
+              <div>
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <Badge tone={toneForStatus(status)}>{STATUS_LABEL[status]}</Badge>
+                  {verified && <Badge tone="blue">Verified</Badge>}
+                  {billed && <Badge tone={effectivePaid ? 'green' : 'amber'}>{effectivePaid ? 'Paid' : 'Billed'}</Badge>}
+                </div>
+                <p className="mb-2 text-sm font-semibold text-slate-800">Order details</p>
+                <DetailList
+                  rows={[
+                    { label: 'Test', value: booking.packageName },
+                    {
+                      label: `Patients (${booking.patientsCount})`,
+                      value:
+                        booking.patients.length === 0 ? (
+                          '—'
+                        ) : (
+                          <ul className="space-y-0.5">
+                            {booking.patients.map((pt, i) => (
+                              <li key={i}>
+                                {pt.name}
+                                {pt.age !== null && <span className="font-normal text-slate-500"> · {pt.age} yrs</span>}
+                              </li>
+                            ))}
+                          </ul>
+                        ),
+                    },
+                    { label: 'Service', value: homeCollection ? 'Home Collection' : 'Store Visit' },
+                    { label: 'Branch', value: booking.storeName || '—' },
+                    ...(homeCollection
+                      ? [
+                          { label: 'Collection address', value: booking.address || '—' },
+                          { label: 'Assigned staff', value: booking.assignedStaffName || '—' },
+                        ]
+                      : []),
+                    { label: 'Scheduled', value: booking.scheduledFor ? formatDateTime(booking.scheduledFor) : 'Not scheduled' },
+                    ...(booking.note ? [{ label: 'Note', value: booking.note }] : []),
+                    { label: 'Booked', value: formatDateTime(booking.createdAt) },
+                  ]}
+                />
+              </div>
+              <div className="h-fit rounded-xl border border-slate-200 bg-slate-50/80 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-sm font-semibold text-slate-800">Verified bill amount</p>
+                  {verified ? <Badge tone="green">Verified</Badge> : <Badge tone="amber">Not verified</Badge>}
+                </div>
+                <div className="space-y-1.5 text-sm text-slate-600">
+                  <div className="flex justify-between">
+                    <span>Tests ({booking.patientsCount} patient{booking.patientsCount === 1 ? '' : 's'})</span>
+                    <span className="text-slate-800">{formatCurrency(testsAmount)}</span>
+                  </div>
+                  {fuel > 0 && (
+                    <div className="flex justify-between">
+                      <span>Fuel distance charge</span>
+                      <span className="text-slate-800">+{formatCurrency(fuel)}</span>
+                    </div>
+                  )}
+                  {tech > 0 && (
+                    <div className="flex justify-between">
+                      <span>Technician visit fee</span>
+                      <span className="text-slate-800">+{formatCurrency(tech)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between border-t border-slate-200 pt-2 text-base font-bold text-slate-900">
+                    <span>Total bill amount</span>
+                    <span>{formatCurrency(booking.totalPrice)}</span>
+                  </div>
+                </div>
+                <p className="mt-3 text-xs text-slate-500">
+                  Press Proceed to see the member's wallet and send the payment request.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Bill lines</p>
+                <div className="overflow-hidden rounded-lg border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      <tr>
+                        <th className="px-3 py-2">Test / charge</th>
+                        <th className="px-3 py-2">Qty</th>
+                        <th className="px-3 py-2 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-800">
+                      <tr>
+                        <td className="px-3 py-2.5">{booking.packageName}</td>
+                        <td className="px-3 py-2.5">{booking.patientsCount}</td>
+                        <td className="px-3 py-2.5 text-right">{formatCurrency(testsAmount)}</td>
+                      </tr>
+                      {fuel > 0 && (
+                        <tr>
+                          <td className="px-3 py-2.5">Fuel distance charge</td>
+                          <td className="px-3 py-2.5">1</td>
+                          <td className="px-3 py-2.5 text-right">{formatCurrency(fuel)}</td>
+                        </tr>
+                      )}
+                      {tech > 0 && (
+                        <tr>
+                          <td className="px-3 py-2.5">Technician visit fee</td>
+                          <td className="px-3 py-2.5">1</td>
+                          <td className="px-3 py-2.5 text-right">{formatCurrency(tech)}</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-5 flex items-start gap-3 border-t border-slate-200 pt-4">
+                  {billImage && (
+                    <button
+                      type="button"
+                      onClick={() => window.open(billImage, '_blank', 'noopener,noreferrer')}
+                      title="Open full size"
+                      className="shrink-0 overflow-hidden rounded-md border border-slate-200"
+                    >
+                      <img src={billImage} alt="Uploaded bill" className="h-16 w-16 object-cover" />
+                    </button>
+                  )}
+                  {!effectivePaid && (
+                    <div className="flex items-center gap-3">
+                      <label
+                        className={`inline-flex items-center gap-1.5 rounded-lg border border-dashed px-3 py-2 text-xs font-medium ${
+                          billBusy || billImageBusy
+                            ? 'cursor-not-allowed border-brand-400 bg-brand-50/50 text-brand-700 opacity-50'
+                            : 'cursor-pointer border-brand-400 bg-brand-50/50 text-brand-700 hover:bg-brand-50'
+                        }`}
+                      >
+                        <span aria-hidden className="text-base leading-none">+</span>
+                        {billImageBusy ? 'Reading picture…' : billImage ? 'Change picture' : 'Upload bill from gallery'}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          disabled={billBusy || billImageBusy}
+                          className="hidden"
+                          onChange={(e) => void onPickBillImage(e.target.files?.[0] ?? null)}
+                          ref={billFileInput}
+                        />
+                      </label>
+                      {billImage && (
+                        <button type="button" className="text-xs font-medium text-rose-600" onClick={() => setBillImage('')}>
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-5 max-w-md space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Subtotal</span>
+                    <span className="text-slate-800">{formatCurrency(booking.totalPrice)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Disc amount</span>
+                    <input
+                      value={billDiscount || ''}
+                      onChange={(e) => setBillDiscount(Math.max(0, Number(e.target.value) || 0))}
+                      placeholder="0"
+                      inputMode="decimal"
+                      disabled={effectivePaid || billBusy}
+                      className={inputBox}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between border-t border-slate-200 pt-2 font-semibold text-slate-900">
+                    <span>Bill total</span>
+                    <span>{formatCurrency(billed ? booking.billAmount : netTotal)}</span>
+                  </div>
+                </div>
+                {effectivePaid && <p className="mt-3"><Badge tone="green">Paid</Badge></p>}
+                {billError && <p className="mt-3 text-sm text-rose-600">{billError}</p>}
+              </div>
+
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Member wallet</p>
+                <WalletBreakdown
+                  walletBalance={walletBalance ?? 0}
+                  monthlyRedeemable={walletPreview?.monthlyRedeemable ?? null}
+                  redeemedThisMonth={walletPreview?.redeemedThisMonth ?? null}
+                  availableAllowance={walletPreview?.availableAllowance ?? null}
+                  walletShare={walletCoverage}
+                  walletShareLabel={effectivePaid ? 'From wallet' : 'Will draw from wallet'}
+                  cashOwed={cashOwed}
+                  format={formatCurrency}
+                />
+              </div>
+            </div>
+          )}
+        </Modal>
+        {otpModal}
+      </>
+    );
   }
 
   return (
@@ -1094,96 +1451,7 @@ function BookingWindow({
         </fieldset>
       </Modal>
 
-      <Modal
-        open={showOtpPopover}
-        onClose={() => (collected ? onClose() : setShowOtpPopover(false))}
-        title={walletCoverage > 0 ? 'Verify OTP to collect payment' : 'Collect payment'}
-        footer={
-          collected ? (
-            <Button size="sm" onClick={onClose}>
-              Done
-            </Button>
-          ) : walletCoverage <= 0 ? (
-            <>
-              <Button variant="secondary" size="sm" onClick={() => setShowOtpPopover(false)}>
-                Close
-              </Button>
-              <Button size="sm" disabled={otpBusy} onClick={() => void collectCashOnly()}>
-                {otpBusy ? 'Collecting…' : `Collect ${formatCurrency(cashOwed)} as cash`}
-              </Button>
-            </>
-          ) : (
-            <Button variant="secondary" size="sm" onClick={() => setShowOtpPopover(false)}>
-              Close
-            </Button>
-          )
-        }
-      >
-        {collected ? (
-          <div className="flex flex-col items-center gap-3 py-4 text-center">
-            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
-              <Icon name="check" className="h-8 w-8 text-emerald-600" />
-            </span>
-            <p className="text-sm font-medium text-emerald-700">
-              {collected.walletAmount > 0
-                ? `${formatCurrency(collected.walletAmount)} was debited from the member's wallet.`
-                : "The member's wallet had nothing to debit."}
-            </p>
-            <p className="text-sm font-medium text-emerald-700">
-              {collected.cashAmount > 0
-                ? `${formatCurrency(collected.cashAmount)} was collected as cash. This bill is paid.`
-                : 'This bill is fully paid.'}
-            </p>
-          </div>
-        ) : (
-          <>
-            <p className="mb-3 text-xs text-slate-500">
-              {walletCoverage > 0 ? (
-                <>
-                  A one-time code was sent to {booking.memberPhone}. Enter what the member reads
-                  out to you — once it checks out, {formatCurrency(walletCoverage)} is debited
-                  from their wallet automatically.{' '}
-                  {cashOwed > 0
-                    ? `The remaining ${formatCurrency(cashOwed)} is then collected as cash.`
-                    : 'The bill is then paid in full.'}
-                </>
-              ) : (
-                <>The member's wallet has nothing to draw. Collect {formatCurrency(cashOwed)} as cash.</>
-              )}
-            </p>
-            {walletCoverage > 0 && (
-              otpBusy && !otpConfirmation ? (
-                <p className="text-sm text-slate-500">Sending code…</p>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <input
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value)}
-                    placeholder="6-digit code"
-                    inputMode="numeric"
-                    maxLength={6}
-                    autoComplete="one-time-code"
-                    autoFocus
-                    disabled={!otpConfirmation || otpBusy}
-                    className={inputClass}
-                  />
-                  <Button
-                    size="sm"
-                    disabled={otpBusy || !otpConfirmation || !/^\d{6}$/.test(otpCode.trim())}
-                    onClick={() => void verifyAndCollect()}
-                  >
-                    {otpBusy ? 'Verifying…' : 'Verify & collect'}
-                  </Button>
-                  <Button variant="secondary" size="sm" disabled={otpBusy} onClick={() => void sendOtp()}>
-                    Resend
-                  </Button>
-                </div>
-              )
-            )}
-            {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
-          </>
-        )}
-      </Modal>
+      {otpModal}
 
       {preview && (
         <div
