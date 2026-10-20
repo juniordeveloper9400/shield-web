@@ -1094,7 +1094,7 @@ function BookingWindow({
 
         {fullOrderEditor ? <LabOrderDetailsEditor key={`${booking.id}-${inlineVersion}`} booking={booking}
           onEditing={() => setEditingOrder(true)} onBusy={setInlineBusy}
-          onVerified={() => onChanged()}
+          onVerified={() => { setEditingOrder(false); onChanged(); }}
           onSaved={() => { setEditingOrder(false); onChanged(); onClose(); }} /> : (
         <DetailList
           rows={[
