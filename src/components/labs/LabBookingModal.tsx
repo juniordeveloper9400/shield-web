@@ -471,16 +471,13 @@ function BookingWindow({
       ? 'Assign a staff member before confirming this home-collection booking.'
       : null;
 
-  // The Lab Orders flow the admin follows: Verify Bill → Confirm → Convert to
-  // bill (which hands the order to Lab Bills). Roles without the full order
-  // editor can't verify, so they keep the plain confirm step.
+  // The Lab Orders flow the admin follows: Verify Bill → Convert to bill
+  // (which hands the order to Lab Bills, where it is priced and collected).
+  // Roles without the full order editor can't verify, so they keep the plain
+  // status step.
   const billFlow = fullOrderEditor;
   const verified = booking.isVerified === true;
-  const confirmBlocker =
-    billFlow && status === 'requested' && !verified
-      ? 'Verify the bill first — use "Verify Bill" in the bill summary.'
-      : null;
-  const showConvert = billFlow && status === 'confirmed' && !billed;
+  const showConvert = billFlow && status !== 'cancelled' && !billed;
 
   async function convertToBill() {
     const ok = await run('status', () =>
@@ -1035,23 +1032,34 @@ function BookingWindow({
                 Cancel booking
               </Button>
             )}
+            {billFlow && billed && status !== 'cancelled' && (
+              <Button variant="secondary" onClick={() => { onClose(); navigate('/lab-bills'); }}>
+                Open in Lab Bills
+              </Button>
+            )}
             {showConvert && (
               <Button
                 variant="primary"
-                disabled={busy !== null || editingOrder || inlineBusy}
+                disabled={busy !== null || editingOrder || inlineBusy || !verified || dirty}
+                title={
+                  !verified
+                    ? 'Verify the bill first — use "Verify Bill" in the bill summary.'
+                    : dirty
+                      ? 'Save your changes to the booking details first.'
+                      : undefined
+                }
                 onClick={() => void convertToBill()}
               >
                 <Icon name="receipt" className="h-4 w-4" />
                 {busy === 'status' ? 'Converting…' : 'Convert to bill'}
               </Button>
             )}
-            {!(billFlow && status === 'confirmed') && next && next !== 'report_ready' && nextLabel !== 'Report ready' && (
+            {!billFlow && next && next !== 'report_ready' && nextLabel !== 'Report ready' && (
               <Button
                 variant="primary"
-                disabled={busy !== null || editingOrder || inlineBusy || blocker !== null || staffRequiredBlocker !== null || confirmBlocker !== null || dirty}
+                disabled={busy !== null || editingOrder || inlineBusy || blocker !== null || staffRequiredBlocker !== null || dirty}
                 title={
                   blocker ??
-                  confirmBlocker ??
                   staffRequiredBlocker ??
                   (dirty ? 'Save your changes to the booking details first.' : undefined)
                 }
@@ -1182,145 +1190,8 @@ function BookingWindow({
         )}
 
         <fieldset disabled={editingOrder || inlineBusy} className="min-w-0">
-        {/* ---- Billing: price it, upload the paper invoice photo, then
-            collect from the member's wallet under an OTP, with any
-            remainder taken as cash — the same flow BillEditorModal gives a
-            standard order's bill, sized down to what a lab booking needs
-            (no line-item picker — price is fixed at booking/verify time).
-            Shown once the report is ready to bill, and stays shown (as a
-            read-only recap once paid) for a booking already billed. */}
-        {(canBillBooking(status) || billed) && (
-          <section className="mt-4 rounded-lg border border-slate-200 p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-800">Billing</h3>
-              {effectivePaid && <Badge tone="green">Paid</Badge>}
-            </div>
-            <div className="mt-3 grid gap-4 sm:grid-cols-2">
-              <div>
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Unit price</span>
-                    <span className="text-slate-800">{formatCurrency(booking.unitPrice)}</span>
-                  </div>
-                  {Number(booking.fuelCharge || 0) > 0 && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Fuel charge</span>
-                      <span className="text-slate-800">{formatCurrency(booking.fuelCharge!)}</span>
-                    </div>
-                  )}
-                  {Number(booking.techFee || 0) > 0 && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Technician charge</span>
-                      <span className="text-slate-800">{formatCurrency(booking.techFee!)}</span>
-                    </div>
-                  )}
-                  {Number(booking.fixCharge || 0) > 0 && !booking.fuelCharge && !booking.techFee && (
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Fixed charge</span>
-                      <span className="text-slate-800">{formatCurrency(booking.fixCharge!)}</span>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Subtotal</span>
-                    <span className="text-slate-800">{formatCurrency(booking.totalPrice)}</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Disc amount</span>
-                    <input
-                      value={billDiscount || ''}
-                      onChange={(e) => setBillDiscount(Math.max(0, Number(e.target.value) || 0))}
-                      placeholder="0"
-                      inputMode="decimal"
-                      disabled={billed || billBusy}
-                      className="w-28 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-right text-sm text-slate-800 outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50 disabled:text-slate-400"
-                    />
-                  </div>
-                  <div className="flex items-center justify-between border-t border-slate-200 pt-1.5 font-semibold text-slate-800">
-                    <span>Bill total</span>
-                    <span>{formatCurrency(billed ? booking.billAmount : netTotal)}</span>
-                  </div>
-                </div>
-
-                <div className="mt-3 flex items-start gap-3">
-                  {billImage && (
-                    <button
-                      type="button"
-                      onClick={() => window.open(billImage, '_blank', 'noopener,noreferrer')}
-                      title="Open full size"
-                      className="shrink-0 overflow-hidden rounded-md border border-slate-200"
-                    >
-                      <img src={billImage} alt="Uploaded bill" className="h-16 w-16 object-cover" />
-                    </button>
-                  )}
-                  {!billed && (
-                    <div className="flex items-center gap-3">
-                      <label
-                        className={`inline-flex items-center gap-1.5 rounded-lg border border-dashed px-3 py-2 text-xs font-medium ${
-                          billBusy || billImageBusy
-                            ? 'cursor-not-allowed border-brand-400 bg-brand-50/50 text-brand-700 opacity-50'
-                            : 'cursor-pointer border-brand-400 bg-brand-50/50 text-brand-700 hover:bg-brand-50'
-                        }`}
-                      >
-                        <span aria-hidden className="text-base leading-none">+</span>
-                        {billImageBusy ? 'Reading picture…' : billImage ? 'Change picture' : 'Upload bill from gallery'}
-                        <input
-                          type="file"
-                          accept="image/*"
-                          disabled={billBusy || billImageBusy}
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            void onPickBillImage(file ?? null);
-                          }}
-                          ref={billFileInput}
-                        />
-                      </label>
-                      {billImage && (
-                        <button
-                          type="button"
-                          className="text-xs font-medium text-rose-600 hover:text-rose-700"
-                          onClick={() => setBillImage('')}
-                        >
-                          Remove
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {billError && <p className="mt-2 text-xs text-rose-600">{billError}</p>}
-
-                <div className="mt-3">
-                  {!effectivePaid && (
-                    <Button
-                      size="sm"
-                      disabled={billBusy || billImageBusy}
-                      onClick={() => void sendBill()}
-                    >
-                      {billBusy ? 'Saving…' : billed ? 'Update bill & collect →' : 'Convert to bill →'}
-                    </Button>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Member wallet
-                </p>
-                <WalletBreakdown
-                  walletBalance={walletBalance ?? 0}
-                  monthlyRedeemable={walletPreview?.monthlyRedeemable ?? null}
-                  redeemedThisMonth={walletPreview?.redeemedThisMonth ?? null}
-                  availableAllowance={walletPreview?.availableAllowance ?? null}
-                  walletShare={walletCoverage}
-                  walletShareLabel={effectivePaid ? 'From wallet' : 'Will draw from wallet'}
-                  cashOwed={cashOwed}
-                  format={formatCurrency}
-                />
-              </div>
-            </div>
-          </section>
-        )}
+        {/* Billing and the member's wallet now live in Lab Bills (Manage →
+            Proceed); this window is the order and member details only. */}
 
         {/* ---- Assigned staff (home collection only) — its own immediate
             save, separate from the batched "Booking details" edits below;
