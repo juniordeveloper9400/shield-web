@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { Children, isValidElement, useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { Badge } from '@/components/ui/Badge';
 import { Icon } from '@/components/ui/Icon';
 import { telHref, whatsappHref } from '@/lib/contactLinks';
 import { Button } from '@/components/ui/Button';
@@ -406,7 +407,14 @@ export function LabOrderDetailsEditor({
                     <Icon name="deliveries" className="h-4 w-4" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-800">Collection / Lab Charge</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-sm font-semibold text-slate-800">Collection / Lab Charge</h3>
+                      {booking.healthPassApplied && (
+                        <Badge tone="blue">
+                          Health Pass applied{booking.healthPassTier ? ` · ${booking.healthPassTier}` : ''}
+                        </Badge>
+                      )}
+                    </div>
                     <p className="text-[11px] text-slate-400">
                       Separate fuel distance charge and technician visit fee
                     </p>
@@ -418,6 +426,19 @@ export function LabOrderDetailsEditor({
                   </span>
                 )}
               </div>
+
+              {/* The member tapped "Apply" on their Health Pass coupon at
+                  checkout, telling the lab their plan is meant to cover the
+                  home-collection charge — surfaced here, right beside the
+                  fuel/technician inputs it covers, so the admin settles this
+                  amount against the plan instead of collecting it as cash. */}
+              {booking.healthPassApplied && fixChargeAmount > 0 && (
+                <p className="mb-4 rounded-lg bg-brand-50 p-2.5 text-xs text-brand-700">
+                  Covered by Health Pass{booking.healthPassTier ? ` (${booking.healthPassTier})` : ''}: settle{' '}
+                  <span className="font-semibold">{formatCurrency(fixChargeAmount)}</span> against the member's plan
+                  rather than collecting it as cash.
+                </p>
+              )}
 
               {/* Dynamic KM Range Calculator */}
               <div className="space-y-4">
