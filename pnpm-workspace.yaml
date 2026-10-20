@@ -11,3 +11,9 @@ minimumReleaseAgeExclude:
   - '@sentry/react@10.75.1'
   - '@sentry/replay-canvas@10.75.1'
   - '@sentry/replay@10.75.1'
+
+# Same as package.json's pnpm.overrides (older pnpm reads that, pnpm 10+ reads
+# this) - keep them identical so every pnpm resolves the same patched versions.
+overrides:
+  dompurify: '>=3.4.16'
+  '@grpc/grpc-js': '>=1.13.6'
