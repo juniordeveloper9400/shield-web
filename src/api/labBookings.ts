@@ -58,11 +58,13 @@ interface LabBookingApiRow {
   reportUploadedAt: string | null;
   createdAt: string;
   billImage: string | null;
+  billNumber?: string | null;
   billAmount: string | number;
   billDiscount: string | number;
   billStatus: string;
   billWalletCollected: string | number;
   billCashCollected: string | number;
+  billGpayCollected?: string | number;
   healthPassApplied?: boolean;
   healthPassTier?: string | null;
 }
@@ -117,11 +119,13 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
     reportUploadedAt: r.reportUploadedAt ?? '',
     createdAt: r.createdAt ?? '',
     billImage: r.billImage ?? '',
+    billNumber: r.billNumber ?? '',
     billAmount: Number(r.billAmount || 0),
     billDiscount: Number(r.billDiscount || 0),
     billStatus: fromEnum<PaymentStatus>(r.billStatus || 'pending'),
     billWalletCollected: Number(r.billWalletCollected || 0),
     billCashCollected: Number(r.billCashCollected || 0),
+    billGpayCollected: Number(r.billGpayCollected || 0),
     healthPassApplied: r.healthPassApplied === true,
     healthPassTier: r.healthPassTier ?? '',
   };
@@ -176,7 +180,7 @@ export async function getWalletPreviewForLabBooking(bookingId: string, token: st
  */
 export async function sendLabBookingBill(
   id: string,
-  opts: { image: string; discountAmount: number },
+  opts: { image: string; discountAmount: number; billNumber?: string },
   token: string | null,
 ): Promise<void> {
   await api.put(`/v1/staff/lab-bookings/${id}/bill`, opts, token);
@@ -194,9 +198,23 @@ export async function collectLabBillWithWallet(
   id: string,
   token: string | null,
 ): Promise<
-  { ok: true; walletAmount: number; cashAmount: number } | { ok: false; reason: string }
+  { ok: true; walletAmount: number; cashAmount: number; settled: boolean } | { ok: false; reason: string }
 > {
   return api.patch(`/v1/staff/lab-bookings/${id}/collect-wallet`, undefined, token);
+}
+
+/**
+ * Records GPay and/or cash the counter takes against a lab bill after the
+ * wallet step — the lab twin of `receiveBillPayment` (orders). The server
+ * refuses more than is still owed and marks the bill PAID once covered.
+ * `PATCH /v1/staff/lab-bookings/:id/receive`.
+ */
+export async function receiveLabBillPayment(
+  id: string,
+  amounts: { cash: number; gpay: number },
+  token: string | null,
+): Promise<{ ok: true; settled: boolean; remaining: string } | { ok: false; reason: string }> {
+  return api.patch(`/v1/staff/lab-bookings/${id}/receive`, amounts, token);
 }
 
 /**

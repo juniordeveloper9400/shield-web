@@ -936,6 +936,8 @@ export interface LabBooking {
    *  of `app.bill` (see backend/db/migrations/0066_lab_bill.sql). `''`/`0`
    *  until staff price it ("Convert to bill" on this booking's own modal). */
   billImage: string;
+  /** The counter's own receipt-book / POS number for the paper bill; '' until typed. */
+  billNumber?: string;
   /** What's actually owed, net of [billDiscount] — 0 until priced. */
   billAmount: number;
   /** How much of [totalPrice] was knocked off to reach [billAmount]. */
@@ -943,6 +945,8 @@ export interface LabBooking {
   billStatus: PaymentStatus;
   billWalletCollected: number;
   billCashCollected: number;
+  /** Received at the counter as GPay (migration 0110). */
+  billGpayCollected?: number;
   /** The member tapped "Apply" on their Health Pass coupon at checkout
    *  (migration 0109) — a visual confirmation on their own screens, not
    *  something [totalPrice] is computed from; shown here so the lab can

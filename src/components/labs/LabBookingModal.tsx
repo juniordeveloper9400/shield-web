@@ -1,3 +1,4 @@
+import { LabReceivePaymentModal } from './LabReceivePaymentModal';
 import { LabOrderDetailsEditor } from './LabOrderDetailsEditor';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -235,6 +236,7 @@ function BookingWindow({
   const billed = booking.billAmount > 0;
   const [billDiscount, setBillDiscount] = useState(booking.billDiscount || 0);
   const [billImage, setBillImage] = useState(booking.billImage);
+  const [billNumber, setBillNumber] = useState(booking.billNumber || '');
   const [billBusy, setBillBusy] = useState(false);
   const [billError, setBillError] = useState<string | null>(null);
   const [billImageBusy, setBillImageBusy] = useState(false);
@@ -297,9 +299,14 @@ function BookingWindow({
   const [otpCode, setOtpCode] = useState('');
   const [otpBusy, setOtpBusy] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
-  const [collected, setCollected] = useState<{ walletAmount: number; cashAmount: number } | null>(
-    null,
-  );
+  // `cashAmount` is what is still owed after the wallet; the bill is only paid
+  // (`settled`) once that is zero. The rest is received as GPay / cash.
+  const [collected, setCollected] = useState<{
+    walletAmount: number;
+    cashAmount: number;
+    settled: boolean;
+  } | null>(null);
+  const [showReceive, setShowReceive] = useState(false);
   const [showOtpPopover, setShowOtpPopover] = useState(false);
   const otpInFlight = useRef(false);
   const otpSession = useRef(0);
@@ -331,42 +338,27 @@ function BookingWindow({
     }
   }
 
-  /** Opens the collection panel. Skips the OTP step entirely when the
-   *  wallet has nothing to actually cover (`walletCoverage <= 0` — no
-   *  balance, no Health Pass allowance left, or both): there is nothing
-   *  digital being drawn from the member to verify a code against, so this
-   *  just shows a plain "Collect as cash" button — see `collectCashOnly`
-   *  below — instead of sending a code nobody needs to read out. */
+  /** Opens the collection panel. With nothing in the wallet to draw (`walletCoverage
+   *  <= 0` — no balance, no Health Pass allowance left, or both) there is
+   *  nothing to verify a code against, so this skips the OTP and lands on the
+   *  same "collected" screen a wallet debit would, with the whole bill still
+   *  owed and ready to be received as GPay / cash — the same as an order's
+   *  bill. A bill whose wallet step already ran just shows what is left. */
   async function startCollection() {
     setShowOtpPopover(true);
-    if (walletCoverage <= 0) return;
-    await sendOtp();
-  }
-
-  /** The no-wallet-involved path `startCollection` opens into: calls the
-   *  same `collectLabBillWithWallet` endpoint directly (it draws `0` from
-   *  the wallet and marks the bill paid against cash collected at the
-   *  counter — identical to what a real OTP collection would do here when
-   *  the wallet has nothing to give), just without ever sending a code. */
-  async function collectCashOnly() {
-    if (otpInFlight.current) return;
-    otpInFlight.current = true;
-    setOtpBusy(true);
-    setOtpError(null);
-    try {
-      const result = await collectLabBillWithWallet(booking.id, accessToken);
-      if (!result.ok) {
-        setOtpError(result.reason);
-        return;
-      }
-      setCollected({ walletAmount: result.walletAmount, cashAmount: result.cashAmount });
-      onChanged();
-    } catch (err) {
-      setOtpError(describeOtpError(err));
-    } finally {
-      otpInFlight.current = false;
-      setOtpBusy(false);
+    if (booking.billWalletCollected > 0) {
+      setCollected({
+        walletAmount: booking.billWalletCollected,
+        cashAmount: cashOwed,
+        settled: cashOwed <= 0,
+      });
+      return;
     }
+    if (walletCoverage <= 0) {
+      setCollected({ walletAmount: 0, cashAmount: cashOwed, settled: cashOwed <= 0 });
+      return;
+    }
+    await sendOtp();
   }
 
   async function verifyAndCollect() {
@@ -385,7 +377,11 @@ function BookingWindow({
         setOtpError(result.reason);
         return;
       }
-      setCollected({ walletAmount: result.walletAmount, cashAmount: result.cashAmount });
+      setCollected({
+        walletAmount: result.walletAmount,
+        cashAmount: result.cashAmount,
+        settled: result.settled,
+      });
       onChanged();
     } catch (err) {
       setOtpError(describeOtpError(err));
@@ -395,9 +391,24 @@ function BookingWindow({
     }
   }
 
-  const effectivePaid = collected !== null || booking.billStatus === 'paid';
-  const walletCoverage = Math.min(walletBalance ?? 0, billed ? booking.billAmount : netTotal);
-  const cashOwed = Math.max((billed ? booking.billAmount : netTotal) - walletCoverage, 0);
+  const effectivePaid = collected?.settled === true || booking.billStatus === 'paid';
+  // What the wallet is good for right now — its balance, further capped by
+  // what is left of this month's Health Pass allowance when the member has
+  // one (the server draws exactly this much). Whatever the wallet cannot
+  // cover shows as cash needed and is received as GPay / cash afterwards.
+  const billTotalNow = billed ? booking.billAmount : netTotal;
+  const paidSoFar = billed
+    ? (booking.billWalletCollected || 0) + (booking.billCashCollected || 0) + (booking.billGpayCollected || 0)
+    : 0;
+  const owedNow = Math.max(billTotalNow - paidSoFar, 0);
+  const hasMonthlyAllowance =
+    walletPreview != null &&
+    (walletPreview.monthlyRedeemable > 0 || walletPreview.redeemedThisMonth > 0 || walletPreview.availableAllowance > 0);
+  const walletCap = hasMonthlyAllowance
+    ? Math.min(walletBalance ?? 0, walletPreview?.availableAllowance ?? 0)
+    : walletBalance ?? 0;
+  const walletCoverage = booking.billWalletCollected > 0 ? 0 : Math.min(walletCap, owedNow);
+  const cashOwed = Math.max(owedNow - walletCoverage, 0);
 
   // Lab Bills' own hand-off from "Convert to bill →" (see [autoCollect]'s
   // doc) — the pricing was already filled in and saved to land here, so
@@ -592,24 +603,29 @@ function BookingWindow({
   }
 
   const otpModal = (
+    <>
       <Modal
-        open={showOtpPopover}
+        open={showOtpPopover && !showReceive}
+        // Once collected, any way of dismissing this closes the whole window,
+        // so a finished collection never drops back onto the page behind it.
         onClose={() => (collected ? onClose() : setShowOtpPopover(false))}
         title={walletCoverage > 0 ? 'Verify OTP to collect payment' : 'Collect payment'}
         footer={
           collected ? (
-            <Button size="sm" onClick={onClose}>
-              Done
-            </Button>
-          ) : walletCoverage <= 0 ? (
-            <>
-              <Button variant="secondary" size="sm" onClick={() => setShowOtpPopover(false)}>
-                Close
+            collected.settled ? (
+              <Button size="sm" onClick={onClose}>
+                Done
               </Button>
-              <Button size="sm" disabled={otpBusy} onClick={() => void collectCashOnly()}>
-                {otpBusy ? 'Collecting…' : `Collect ${formatCurrency(cashOwed)} as cash`}
-              </Button>
-            </>
+            ) : (
+              <>
+                <Button variant="secondary" size="sm" onClick={onClose}>
+                  Skip for now
+                </Button>
+                <Button size="sm" onClick={() => setShowReceive(true)}>
+                  {`Receive ${formatCurrency(collected.cashAmount)}`}
+                </Button>
+              </>
+            )
           ) : (
             <Button variant="secondary" size="sm" onClick={() => setShowOtpPopover(false)}>
               Close
@@ -622,76 +638,106 @@ function BookingWindow({
             <span className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-100">
               <Icon name="check" className="h-8 w-8 text-emerald-600" />
             </span>
-            <p className="text-sm font-medium text-emerald-700">
-              {collected.walletAmount > 0
-                ? `${formatCurrency(collected.walletAmount)} was debited from the member's wallet.`
-                : "The member's wallet had nothing to debit."}
-            </p>
-            <p className="text-sm font-medium text-emerald-700">
-              {collected.cashAmount > 0
-                ? `${formatCurrency(collected.cashAmount)} was collected as cash. This bill is paid.`
-                : 'This bill is fully paid.'}
-            </p>
+            {collected.settled ? (
+              <p className="text-sm font-medium text-emerald-700">
+                Collected — {formatCurrency(collected.walletAmount)} from wallet. This bill is paid.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm font-medium text-emerald-700">
+                  {collected.walletAmount > 0
+                    ? `${formatCurrency(collected.walletAmount)} was debited from the member's wallet.`
+                    : "The member's wallet had nothing to debit."}
+                </p>
+                <p className="text-sm font-medium text-amber-700">
+                  {formatCurrency(collected.cashAmount)} is still owed — receive it as GPay or cash now, or skip
+                  and take it later from Lab Bills.
+                </p>
+              </>
+            )}
           </div>
         ) : (
           <>
             <p className="mb-3 text-xs text-slate-500">
-              {walletCoverage > 0 ? (
-                <>
-                  A one-time code was sent to {booking.memberPhone}. Enter what the member reads
-                  out to you — once it checks out, {formatCurrency(walletCoverage)} is debited
-                  from their wallet automatically.{' '}
-                  {cashOwed > 0
-                    ? `The remaining ${formatCurrency(cashOwed)} is then collected as cash.`
-                    : 'The bill is then paid in full.'}
-                </>
-              ) : (
-                <>The member's wallet has nothing to draw. Collect {formatCurrency(cashOwed)} as cash.</>
-              )}
+              A one-time code was sent to {booking.memberPhone}. Enter what the member reads out to you — once
+              it checks out, {formatCurrency(walletCoverage)} is debited from their wallet automatically.{' '}
+              {cashOwed > 0
+                ? `The remaining ${formatCurrency(cashOwed)} is then received as GPay or cash — or skipped and taken later.`
+                : 'The bill is then paid in full.'}
             </p>
-            {walletCoverage > 0 && (
-              otpBusy && !otpConfirmation ? (
-                <p className="text-sm text-slate-500">Sending code…</p>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <input
-                    value={otpCode}
-                    onChange={(e) => setOtpCode(e.target.value)}
-                    placeholder="6-digit code"
-                    inputMode="numeric"
-                    maxLength={6}
-                    autoComplete="one-time-code"
-                    autoFocus
-                    disabled={!otpConfirmation || otpBusy}
-                    className={inputClass}
-                  />
-                  <Button
-                    size="sm"
-                    disabled={otpBusy || !otpConfirmation || !/^\d{6}$/.test(otpCode.trim())}
-                    onClick={() => void verifyAndCollect()}
-                  >
-                    {otpBusy ? 'Verifying…' : 'Verify & collect'}
-                  </Button>
-                  <Button variant="secondary" size="sm" disabled={otpBusy} onClick={() => void sendOtp()}>
-                    Resend
-                  </Button>
-                </div>
-              )
+            {otpBusy && !otpConfirmation ? (
+              <p className="text-sm text-slate-500">Sending code…</p>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  value={otpCode}
+                  onChange={(e) => setOtpCode(e.target.value)}
+                  placeholder="6-digit code"
+                  inputMode="numeric"
+                  maxLength={6}
+                  autoComplete="one-time-code"
+                  autoFocus
+                  disabled={!otpConfirmation || otpBusy}
+                  className={inputClass}
+                />
+                <Button
+                  size="sm"
+                  disabled={otpBusy || !otpConfirmation || !/^\d{6}$/.test(otpCode.trim())}
+                  onClick={() => void verifyAndCollect()}
+                >
+                  {otpBusy ? 'Verifying…' : 'Verify & collect'}
+                </Button>
+                <Button variant="secondary" size="sm" disabled={otpBusy} onClick={() => void sendOtp()}>
+                  Resend
+                </Button>
+              </div>
             )}
             {otpError && <p className="mt-2 text-xs text-rose-600">{otpError}</p>}
           </>
         )}
       </Modal>
+      {showReceive && collected && (
+        <LabReceivePaymentModal
+          bookingId={booking.id}
+          code={booking.code}
+          billAmount={billed ? booking.billAmount : netTotal}
+          owed={collected.cashAmount}
+          open
+          onClose={() => setShowReceive(false)}
+          onSaved={({ settled, remaining }) => {
+            setCollected((c) => (c ? { ...c, cashAmount: settled ? 0 : remaining, settled } : c));
+            onChanged();
+          }}
+        />
+      )}
+    </>
   );
 
   // Lab Bills' own window: step 1 shows the order and the verified bill
   // amount, "Proceed →" opens step 2 — bill lines, the member's wallet and the
   // payment request — mirroring the standard Bills flow.
+  const missingBillImage = !billImage;
+  const missingBillNumber = !billNumber.trim();
+
   async function requestRedemption() {
+    if (missingBillImage || missingBillNumber) {
+      setBillError(
+        missingBillImage && missingBillNumber
+          ? 'Upload the bill picture and enter the bill number first.'
+          : missingBillImage
+            ? 'Upload a picture of the bill first.'
+            : 'Enter the bill number first.',
+      );
+      return;
+    }
     setBillBusy(true);
     setBillError(null);
     try {
-      await sendLabBookingBill(booking.id, { image: billImage, discountAmount: billDiscount }, accessToken);
+      await sendLabBookingBill(
+        booking.id,
+        { image: billImage, discountAmount: billDiscount, billNumber: billNumber.trim() },
+        accessToken,
+      );
       onChanged();
       await startCollection();
     } catch (err) {
@@ -725,12 +771,16 @@ function BookingWindow({
                 <Button variant="secondary" onClick={() => setBillStep('details')}>← Details</Button>
                 <Button variant="secondary" onClick={onClose}>Close</Button>
                 {!effectivePaid && (
-                  <Button disabled={billBusy || billImageBusy} onClick={() => void requestRedemption()}>
+                  <Button
+                    disabled={billBusy || billImageBusy || missingBillImage || missingBillNumber}
+                    title={missingBillImage || missingBillNumber ? 'The bill picture and bill number are required.' : undefined}
+                    onClick={() => void requestRedemption()}
+                  >
                     {billBusy
                       ? 'Saving…'
                       : walletCoverage > 0
                         ? 'Send redemption request'
-                        : `Collect ${formatCurrency(cashOwed)} as cash`}
+                        : `Receive ${formatCurrency(cashOwed)}`}
                   </Button>
                 )}
               </>
@@ -873,7 +923,7 @@ function BookingWindow({
                         }`}
                       >
                         <span aria-hidden className="text-base leading-none">+</span>
-                        {billImageBusy ? 'Reading picture…' : billImage ? 'Change picture' : 'Upload bill from gallery'}
+                        {billImageBusy ? 'Reading picture…' : billImage ? 'Change picture' : 'Upload bill from gallery *'}
                         <input
                           type="file"
                           accept="image/*"
@@ -893,6 +943,21 @@ function BookingWindow({
                 </div>
 
                 <div className="mt-5 max-w-md space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">
+                      Bill number <span className="text-rose-600">*</span>
+                    </span>
+                    <input
+                      value={billNumber}
+                      onChange={(e) => setBillNumber(e.target.value)}
+                      placeholder="e.g. receipt book no."
+                      maxLength={100}
+                      disabled={effectivePaid || billBusy}
+                      className={`w-52 rounded-md border bg-white px-2.5 py-1 text-right text-sm text-slate-800 outline-none focus:ring-2 focus:ring-brand-100 disabled:bg-slate-50 disabled:text-slate-400 ${
+                        missingBillNumber && !effectivePaid ? 'border-rose-300 focus:border-rose-400' : 'border-slate-300 focus:border-brand-500'
+                      }`}
+                    />
+                  </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-600">Subtotal</span>
                     <span className="text-slate-800">{formatCurrency(booking.totalPrice)}</span>
@@ -924,8 +989,8 @@ function BookingWindow({
                   monthlyRedeemable={walletPreview?.monthlyRedeemable ?? null}
                   redeemedThisMonth={walletPreview?.redeemedThisMonth ?? null}
                   availableAllowance={walletPreview?.availableAllowance ?? null}
-                  walletShare={walletCoverage}
-                  walletShareLabel={effectivePaid ? 'From wallet' : 'Will draw from wallet'}
+                  walletShare={booking.billWalletCollected > 0 ? booking.billWalletCollected : walletCoverage}
+                  walletShareLabel={effectivePaid || booking.billWalletCollected > 0 ? 'From wallet' : 'Will draw from wallet'}
                   cashOwed={cashOwed}
                   format={formatCurrency}
                 />
