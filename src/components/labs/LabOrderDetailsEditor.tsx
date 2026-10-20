@@ -10,7 +10,7 @@ import { useAsync } from '@/lib/useAsync';
 import { api } from '@/lib/api';
 import { formatCurrency, formatDateTime } from '@/lib/format';
 import { listStores } from '@/api/stores';
-import { listLabStaff, updateLabBookingDetails } from '@/api/labBookings';
+import { listLabStaff, updateLabBookingDetails, getHealthPassChargeForLabBooking } from '@/api/labBookings';
 import { listLabCharges, type LabCharge } from '@/api/labCharges';
 import { calculateKmCharge, matchDistanceTier, type DistanceRate } from '@/lib/labCharges';
 import {
@@ -95,6 +95,19 @@ export function LabOrderDetailsEditor({
   const rawTech = (labCharges.data ?? []).find((c) => c.isActive && c.kind === 'TECHNICIAN');
   const activeTechCharge = rawTech && rawTech.kind === 'TECHNICIAN' ? rawTech : null;
 
+  // The member's Health Pass coupon, if applied at checkout, fixes the
+  // home-collection charge itself (Silver ₹50, Gold ₹20, Platinum free up
+  // to its 6-visit lifetime quota) — see getHealthPassChargeForLabBooking's
+  // own doc. `locked` means the fuel-distance/technician-fee calculator
+  // below is replaced outright: the plan already set the price, so there is
+  // nothing left for the admin to add there.
+  const healthPassCharge = useAsync(
+    () => getHealthPassChargeForLabBooking(booking.id, accessToken),
+    [booking.id, accessToken],
+  );
+  const hpLocked = healthPassCharge.data?.locked === true;
+  const hpFixedCharge = healthPassCharge.data?.fixedCharge ?? 0;
+
   const [fuelCharge, setFuelCharge] = useState<string>(
     booking.fuelCharge !== undefined
       ? String(booking.fuelCharge)
@@ -134,6 +147,18 @@ export function LabOrderDetailsEditor({
       }
     }
   }, [activeTechCharge, draft.fulfillmentType]);
+
+  // Preloads the Health Pass tier's own fixed rate the moment it's known —
+  // only while the bill is still unpriced (never paid) and not yet
+  // verified, so a plan whose rate changes later never silently rewrites an
+  // already-verified or paid booking's historical charge.
+  useEffect(() => {
+    if (hpLocked && !isVerified && !paid) {
+      setFuelCharge('0');
+      setTechFee(String(hpFixedCharge));
+      patch({ fixCharge: String(hpFixedCharge) });
+    }
+  }, [hpLocked, hpFixedCharge]);
 
   const [customerKm, setCustomerKm] = useState<string>('');
   const parsedKm = parseFloat(customerKm);
@@ -440,6 +465,30 @@ export function LabOrderDetailsEditor({
                 </p>
               )}
 
+              {hpLocked ? (
+                /* Health Pass fixed the home-collection rate itself — no fuel-
+                   distance/technician calculator to run, nothing for the
+                   admin to add on top. */
+                <div className="rounded-lg border border-brand-200 bg-brand-50/60 p-4 text-center">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-brand-600">
+                    Health Pass home-collection rate
+                  </p>
+                  <p className="mt-1 text-2xl font-bold text-brand-700">{formatCurrency(hpFixedCharge)}</p>
+                  {healthPassCharge.data?.tier === 'platinum' && healthPassCharge.data.platinumTotal != null && (
+                    <p className="mt-2 text-xs text-brand-600">
+                      {healthPassCharge.data.platinumUsed} of {healthPassCharge.data.platinumTotal} complimentary
+                      visits used · {healthPassCharge.data.platinumRemaining} remaining
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {healthPassCharge.data?.tier === 'platinum' && healthPassCharge.data.platinumTotal != null && (
+                    <p className="mb-3 rounded-lg bg-amber-50 p-2.5 text-xs text-amber-700">
+                      This member has used all {healthPassCharge.data.platinumTotal} complimentary Platinum home-care
+                      visits — set the fuel distance charge and technician fee for this visit below.
+                    </p>
+                  )}
               {/* Dynamic KM Range Calculator */}
               <div className="space-y-4">
                 {activeDistanceRate ? (
@@ -595,6 +644,8 @@ export function LabOrderDetailsEditor({
                   </div>
                 </div>
               </div>
+                </>
+              )}
             </section>
 
             {/* 3. Bill Summary & Verify Bill */}

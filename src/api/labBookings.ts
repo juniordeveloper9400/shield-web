@@ -171,6 +171,31 @@ export async function getWalletPreviewForLabBooking(bookingId: string, token: st
 }
 
 /**
+ * The fixed Health Pass home-collection rate for this booking (Silver ₹50,
+ * Gold ₹20, Platinum free for its first 6 lifetime visits), if the member
+ * applied their coupon at checkout. `locked: false` means there is nothing
+ * to preload — no coupon applied, an unrecognised tier, or a Platinum
+ * member who has used all 6 free visits — and the order editor falls back
+ * to its normal fuel/technician-charge inputs.
+ */
+export interface LabHealthPassCharge {
+  applied: boolean;
+  tier: 'silver' | 'gold' | 'platinum' | string | null;
+  locked: boolean;
+  fixedCharge: number;
+  platinumUsed: number | null;
+  platinumRemaining: number | null;
+  platinumTotal: number | null;
+}
+
+export async function getHealthPassChargeForLabBooking(
+  bookingId: string,
+  token: string | null,
+): Promise<LabHealthPassCharge> {
+  return api.get<LabHealthPassCharge>(`/v1/staff/lab-bookings/${bookingId}/health-pass-charge`, token);
+}
+
+/**
  * Prices a booking's bill — the "Convert to bill" step's own save, through
  * `backend/api` (`PUT /v1/staff/lab-bookings/:id/bill`,
  * `BookingService.sendLabBill`) rather than raw SQL: unlike a prescription's
