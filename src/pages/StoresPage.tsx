@@ -19,6 +19,7 @@ import {
   setStoreActive,
   updateStore,
   createStore,
+  deleteStore,
 } from '@/api/stores';
 import type { NewStore, Store, StoreType } from '@/types';
 
@@ -292,6 +293,21 @@ export default function StoresPage() {
     }
   }
 
+  async function removeStore(id: string, name: string) {
+    if (!window.confirm(`Delete "${name}" permanently? This cannot be undone.`)) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      await deleteStore(id, accessToken);
+      setSelectedId(null);
+      reload();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Could not delete the branch.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function saveEdit() {
     if (!selected) return;
     if (form.pincode.trim() && !/^\d{6}$/.test(form.pincode.trim())) {
@@ -509,6 +525,13 @@ export default function StoresPage() {
                       <Icon name="check" className="h-4 w-4" /> Activate
                     </Button>
                   )}
+                  <Button
+                    variant="danger"
+                    disabled={saving}
+                    onClick={() => void removeStore(selected.id, selected.name)}
+                  >
+                    Delete
+                  </Button>
                 </>
               )}
             </>
@@ -581,6 +604,11 @@ export default function StoresPage() {
                 { label: 'Opened', value: formatDate(selected.openedAt) },
               ]}
             />
+            {editError && (
+              <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {editError}
+              </p>
+            )}
           </>
         )}
 

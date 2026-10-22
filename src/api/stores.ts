@@ -79,6 +79,12 @@ export async function setStoreActive(id: string, isActive: boolean, token: strin
   await api.patch(`/v1/staff/catalogue/stores/${id}/active`, { isActive }, token);
 }
 
+/** Permanently removes a branch. The server refuses (409) while members or
+ *  orders are still linked to it. */
+export async function deleteStore(id: string, token: string | null): Promise<void> {
+  await api.delete(`/v1/staff/catalogue/stores/${id}`, token);
+}
+
 /** Whether this branch takes lab bookings at all (migration 0057) — drops it
  *  from the app's branch picker at lab checkout the moment it's off. */
 export async function setStoreOffersLab(id: string, offersLab: boolean, token: string | null): Promise<void> {
