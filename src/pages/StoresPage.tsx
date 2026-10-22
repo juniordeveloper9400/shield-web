@@ -145,6 +145,7 @@ export default function StoresPage() {
   const [status, setStatus] = useState('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [form, setForm] = useState<EditForm>({
@@ -293,15 +294,16 @@ export default function StoresPage() {
     }
   }
 
-  async function removeStore(id: string, name: string) {
-    if (!window.confirm(`Delete "${name}" permanently? This cannot be undone.`)) return;
+  async function removeStore(id: string) {
     setSaving(true);
     setEditError(null);
     try {
       await deleteStore(id, accessToken);
+      setConfirmingDelete(false);
       setSelectedId(null);
       reload();
     } catch (err) {
+      setConfirmingDelete(false);
       setEditError(err instanceof Error ? err.message : 'Could not delete the branch.');
     } finally {
       setSaving(false);
@@ -528,7 +530,7 @@ export default function StoresPage() {
                   <Button
                     variant="danger"
                     disabled={saving}
-                    onClick={() => void removeStore(selected.id, selected.name)}
+                    onClick={() => setConfirmingDelete(true)}
                   >
                     Delete
                   </Button>
@@ -720,6 +722,39 @@ export default function StoresPage() {
         )}
       </Modal>
 
+      <Modal
+        open={confirmingDelete && Boolean(selected)}
+        onClose={() => !saving && setConfirmingDelete(false)}
+        title="Delete branch?"
+        footer={
+          selected && (
+            <>
+              <Button
+                variant="secondary"
+                disabled={saving}
+                onClick={() => setConfirmingDelete(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                disabled={saving}
+                onClick={() => void removeStore(selected.id)}
+              >
+                {saving ? 'Deleting…' : 'Delete branch'}
+              </Button>
+            </>
+          )
+        }
+      >
+        {selected && (
+          <p className="text-sm text-slate-600">
+            <span className="font-medium text-slate-800">{selected.name}</span>{' '}
+            (<code className="rounded bg-slate-100 px-1 py-0.5">{selected.code}</code>) will be
+            removed permanently. This cannot be undone.
+          </p>
+        )}
+      </Modal>
     </>
   );
 }
