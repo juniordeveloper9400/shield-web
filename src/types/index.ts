@@ -885,6 +885,9 @@ export interface LabReportPage {
 }
 
 /** A member's lab-test booking — one row of `app.lab_booking`. */
+/** Shown in place of the test name to roles the backend withholds it from. */
+export const HIDDEN_TEST_LABEL = 'Test hidden';
+
 export interface LabBooking {
   id: string;
   code: string;
@@ -898,6 +901,9 @@ export interface LabBooking {
   memberName: string;
   memberPhone: string;
   packageName: string;
+  /** The backend withheld the booked test: only the Super Admin and lab
+   *  technicians see it. `packageName` is then {@link HIDDEN_TEST_LABEL}. */
+  testHidden: boolean;
   /** The branch this booking is routed to (migration 0057) — '' for a
    *  booking made before branches existed, or whose branch has since gone. */
   storeCode: string;

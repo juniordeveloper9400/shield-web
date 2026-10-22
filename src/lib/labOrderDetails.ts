@@ -29,6 +29,7 @@ export function labOrderDetailsDraft(booking: LabBooking) {
     contactPhone: booking.contactPhone ?? booking.memberPhone,
     addressPhone: booking.addressPhone,
     labPackageId: booking.labPackageId ?? '',
+    testHidden: booking.testHidden,
     storeId: booking.storeId ?? '',
     fulfillmentType: booking.fulfillmentType.toUpperCase(),
     assignedStaffId: booking.assignedStaffId,
@@ -58,7 +59,7 @@ export function validateLabOrderDetails(draft: LabOrderDetailsDraft): string | n
   for (const phone of [draft.contactPhone, draft.addressPhone, ...draft.patients.map((p) => p.phone)]) {
     if (phone.trim() && !/^\d{10}$/.test(phone.trim())) return 'Phone numbers must contain 10 digits.';
   }
-  if (!/^\d+$/.test(draft.labPackageId)) return 'Choose a test or package.';
+  if (!draft.testHidden && !/^\d+$/.test(draft.labPackageId)) return 'Choose a test or package.';
   if (!/^\d+$/.test(draft.storeId)) return 'Choose a branch.';
   if (!draft.unitPrice.trim() || !Number.isFinite(Number(draft.unitPrice)) || Number(draft.unitPrice) < 0 || !/^\d+(\.\d{1,2})?$/.test(draft.unitPrice)) return 'Enter a non-negative unit price with at most two decimal places.';
   if (draft.fixCharge && (!Number.isFinite(Number(draft.fixCharge)) || Number(draft.fixCharge) < 0 || !/^\d+(\.\d{1,2})?$/.test(draft.fixCharge))) return 'Enter a non-negative fixed charge with at most two decimal places.';
@@ -76,7 +77,9 @@ export function validateLabOrderDetails(draft: LabOrderDetailsDraft): string | n
 export function labOrderDetailsInput(draft: LabOrderDetailsDraft) {
   return {
     contactName: draft.contactName.trim(), contactPhone: draft.contactPhone.trim(), addressPhone: draft.addressPhone.trim(),
-    labPackageId: Number(draft.labPackageId), storeId: Number(draft.storeId),
+    // Never sent when the test is withheld: this role cannot change it.
+    ...(draft.testHidden ? {} : { labPackageId: Number(draft.labPackageId) }),
+    storeId: Number(draft.storeId),
     fulfillmentType: draft.fulfillmentType as 'HOME_COLLECTION' | 'STORE_VISIT',
     assignedStaffId: draft.fulfillmentType === 'HOME_COLLECTION' && draft.assignedStaffId ? Number(draft.assignedStaffId) : null,
     unitPrice: Number(draft.unitPrice), fixCharge: Number(draft.fixCharge || 0), address: draft.address.trim(),

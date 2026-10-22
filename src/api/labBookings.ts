@@ -1,6 +1,7 @@
 import { api } from '@/lib/api';
 import type { LabOrderDetailsInput } from '@/lib/labOrderDetails';
 import { fromEnum } from '@/lib/mappers';
+import { HIDDEN_TEST_LABEL } from '@/types';
 import type {
   LabBooking,
   LabBookingStatus,
@@ -18,11 +19,12 @@ interface LabBookingApiRow {
   memberId: number;
   contactName?: string;
   contactPhone?: string;
-  labPackageId: number;
+  labPackageId: number | null;
   storeId: number | null;
   memberName: string | null;
   memberPhone: string | null;
   packageName: string | null;
+  testHidden?: boolean;
   storeCode: string | null;
   storeName: string | null;
   patientsCount: number;
@@ -76,11 +78,12 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
     memberId: String(r.memberId),
     contactName: r.contactName ?? r.memberName ?? '',
     contactPhone: r.contactPhone ?? r.memberPhone ?? '',
-    labPackageId: String(r.labPackageId),
+    labPackageId: r.labPackageId == null ? '' : String(r.labPackageId),
     storeId: r.storeId == null ? '' : String(r.storeId),
     memberName: r.memberName ?? '—',
     memberPhone: r.memberPhone ?? '',
-    packageName: r.packageName ?? '—',
+    packageName: r.testHidden ? HIDDEN_TEST_LABEL : r.packageName ?? '—',
+    testHidden: r.testHidden === true,
     storeCode: r.storeCode ?? '',
     storeName: r.storeName ?? '',
     patientsCount: r.patientsCount ?? (r.patients?.length || 1),

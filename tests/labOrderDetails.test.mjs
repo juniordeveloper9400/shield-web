@@ -40,3 +40,11 @@ test('invalid or empty patient details are rejected instead of silently dropping
   draft.unitPrice = '12.345';
   assert.match(validateLabOrderDetails(draft), /decimal/);
 });
+
+test('a withheld test needs no test choice and is never sent back', () => {
+  const draft = labOrderDetailsDraft({ ...booking, labPackageId: '', packageName: 'Test hidden', testHidden: true });
+  assert.equal(validateLabOrderDetails(draft), null);
+  assert.equal('labPackageId' in labOrderDetailsInput(draft), false);
+  const visible = labOrderDetailsInput(labOrderDetailsDraft({ ...booking, testHidden: false }));
+  assert.equal(visible.labPackageId, 12);
+});

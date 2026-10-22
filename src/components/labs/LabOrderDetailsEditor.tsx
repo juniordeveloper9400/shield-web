@@ -326,36 +326,40 @@ export function LabOrderDetailsEditor({
                         return (
                           <tr key={patient.bookingPatientId ?? patient.patientId ?? idx} className="hover:bg-slate-50/50">
                             <td className="min-w-[170px] px-3 py-3 align-middle font-medium text-slate-800">
-                              <select
-                                className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
-                                value={currentTestId}
-                                disabled={paid || booking.reportPages > 0}
-                                onChange={(e) => {
-                                  onEditing();
-                                  const chosen = tests.data?.find((test) => String(test.id) === e.target.value);
-                                  const newPrice = chosen ? String(chosen.price) : '0';
-                                  patchPatient(idx, {
-                                    testId: e.target.value,
-                                    testName: chosen?.name,
-                                    testPrice: newPrice,
-                                  });
-                                  if (idx === 0) {
-                                    patch({
-                                      labPackageId: e.target.value,
-                                      unitPrice: newPrice,
+                              {booking.testHidden ? (
+                                <span className="text-xs italic text-slate-400">{booking.packageName}</span>
+                              ) : (
+                                <select
+                                  className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                  value={currentTestId}
+                                  disabled={paid || booking.reportPages > 0}
+                                  onChange={(e) => {
+                                    onEditing();
+                                    const chosen = tests.data?.find((test) => String(test.id) === e.target.value);
+                                    const newPrice = chosen ? String(chosen.price) : '0';
+                                    patchPatient(idx, {
+                                      testId: e.target.value,
+                                      testName: chosen?.name,
+                                      testPrice: newPrice,
                                     });
-                                  }
-                                }}
-                              >
-                                <option value={booking.labPackageId ?? ''}>{booking.packageName}</option>
-                                {tests.data
-                                  ?.filter((t) => String(t.id) !== booking.labPackageId)
-                                  .map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                      {t.name}
-                                    </option>
-                                  ))}
-                              </select>
+                                    if (idx === 0) {
+                                      patch({
+                                        labPackageId: e.target.value,
+                                        unitPrice: newPrice,
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <option value={booking.labPackageId ?? ''}>{booking.packageName}</option>
+                                  {tests.data
+                                    ?.filter((t) => String(t.id) !== booking.labPackageId)
+                                    .map((t) => (
+                                      <option key={t.id} value={t.id}>
+                                        {t.name}
+                                      </option>
+                                    ))}
+                                </select>
+                              )}
                             </td>
                             <td className="px-3 py-3 align-middle">
                               <button
@@ -383,28 +387,32 @@ export function LabOrderDetailsEditor({
                     ) : (
                       <tr className="hover:bg-slate-50/50">
                         <td className="min-w-[180px] px-3 py-3 align-middle font-medium text-slate-800">
-                          <select
-                            className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
-                            value={draft.labPackageId}
-                            disabled={paid || booking.reportPages > 0}
-                            onChange={(e) => {
-                              onEditing();
-                              const chosen = tests.data?.find((test) => String(test.id) === e.target.value);
-                              patch({
-                                labPackageId: e.target.value,
-                                ...(chosen ? { unitPrice: String(chosen.price) } : {}),
-                              });
-                            }}
-                          >
-                            <option value={booking.labPackageId ?? ''}>{booking.packageName}</option>
-                            {tests.data
-                              ?.filter((t) => String(t.id) !== booking.labPackageId)
-                              .map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.name}
-                                </option>
-                              ))}
-                          </select>
+                          {booking.testHidden ? (
+                            <span className="text-xs italic text-slate-400">{booking.packageName}</span>
+                          ) : (
+                            <select
+                              className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-800 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 disabled:bg-slate-100 disabled:text-slate-400"
+                              value={draft.labPackageId}
+                              disabled={paid || booking.reportPages > 0}
+                              onChange={(e) => {
+                                onEditing();
+                                const chosen = tests.data?.find((test) => String(test.id) === e.target.value);
+                                patch({
+                                  labPackageId: e.target.value,
+                                  ...(chosen ? { unitPrice: String(chosen.price) } : {}),
+                                });
+                              }}
+                            >
+                              <option value={booking.labPackageId ?? ''}>{booking.packageName}</option>
+                              {tests.data
+                                ?.filter((t) => String(t.id) !== booking.labPackageId)
+                                .map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.name}
+                                  </option>
+                                ))}
+                            </select>
+                          )}
                         </td>
                         <td className="px-3 py-3 align-middle text-slate-400 text-xs italic">
                           No patients added
