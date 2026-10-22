@@ -69,6 +69,7 @@ interface LabBookingApiRow {
   billGpayCollected?: string | number;
   healthPassApplied?: boolean;
   healthPassTier?: string | null;
+  orderGroupId?: string | null;
 }
 
 function toLabBooking(r: LabBookingApiRow): LabBooking {
@@ -131,6 +132,7 @@ function toLabBooking(r: LabBookingApiRow): LabBooking {
     billGpayCollected: Number(r.billGpayCollected || 0),
     healthPassApplied: r.healthPassApplied === true,
     healthPassTier: r.healthPassTier ?? '',
+    orderGroupId: r.orderGroupId ?? null,
   };
 }
 

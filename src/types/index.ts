@@ -961,6 +961,12 @@ export interface LabBooking {
   /** Which plan was applied ("Silver Shield", "Gold Shield", …); '' when
    *  [healthPassApplied] is false. */
   healthPassTier: string;
+  /** Shared by every test the member placed in the same checkout, when
+   *  there was more than one (migration 0112) — null for a lone test, or
+   *  one booked before this existed. Lab Orders/Lab Bills group rows
+   *  carrying the same id into a single order, same as My Lab Bookings
+   *  does on the member's own app. */
+  orderGroupId: string | null;
 }
 
 /** `app.appointment_kind`. */

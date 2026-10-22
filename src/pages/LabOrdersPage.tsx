@@ -100,6 +100,34 @@ export default function LabOrdersPage() {
   // stripped from every column below instead of a whole branch's worth of
   // someone else's bookings.
   const scoped = useMemo(() => scopeToStore(rows, user), [rows, user]);
+  // How many rows share each non-null orderGroupId — two or more tests the
+  // member placed in one checkout. A count of 1 means nothing else shares
+  // it, so the "Order" badge only shows for a genuine group.
+  const orderGroupCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of scoped) {
+      if (!r.orderGroupId) continue;
+      counts.set(r.orderGroupId, (counts.get(r.orderGroupId) ?? 0) + 1);
+    }
+    return counts;
+  }, [scoped]);
+  // Each group's own code — the earliest (lowest id) row in it, the same
+  // "names the order after its first test" rule My Lab Bookings uses.
+  const orderGroupCode = useMemo(() => {
+    const byGroup = new Map<string, LabBooking[]>();
+    for (const r of scoped) {
+      if (!r.orderGroupId) continue;
+      const bucket = byGroup.get(r.orderGroupId) ?? [];
+      bucket.push(r);
+      byGroup.set(r.orderGroupId, bucket);
+    }
+    const codes = new Map<string, string>();
+    for (const [groupId, members] of byGroup) {
+      const earliest = [...members].sort((a, b) => Number(a.id) - Number(b.id))[0];
+      codes.set(groupId, earliest.code);
+    }
+    return codes;
+  }, [scoped]);
   const branchBound = (user?.role === 'pharmacy' || user?.role === 'lab_technician') && Boolean(user.storeCode);
   // Pharmacy sees that a lab order exists for their branch — enough to
   // reconcile it as "an order" — but never who it was for or what test was
@@ -149,12 +177,18 @@ export default function LabOrdersPage() {
     {
       key: 'code',
       header: 'Booking',
-      render: (row) => (
-        <div>
-          <p className="font-medium text-slate-800">{row.code}</p>
-          <p className="text-xs text-slate-400">{formatDateTime(row.createdAt)}</p>
-        </div>
-      ),
+      render: (row) => {
+        const orderCode = row.orderGroupId ? orderGroupCode.get(row.orderGroupId) : undefined;
+        return (
+          <div>
+            <p className="font-medium text-slate-800">{row.code}</p>
+            <p className="text-xs text-slate-400">{formatDateTime(row.createdAt)}</p>
+            {orderCode && orderCode !== row.code && (
+              <p className="mt-0.5 text-xs text-slate-400">Order {orderCode}</p>
+            )}
+          </div>
+        );
+      },
     },
     // Who it was for and what was booked — a store admin sees that the
     // order exists, never this; a Lab Technician (own branch) or Lab Admin
@@ -175,18 +209,22 @@ export default function LabOrdersPage() {
           {
             key: 'package',
             header: 'Test',
-            render: (row) => (
-              <div>
-                <p>{row.packageName}</p>
-                {row.healthPassApplied && (
-                  <p className="mt-1">
-                    <Badge tone="blue">
-                      Health Pass applied{row.healthPassTier ? ` · ${row.healthPassTier}` : ''}
-                    </Badge>
-                  </p>
-                )}
-              </div>
-            ),
+            render: (row) => {
+              const siblingCount = row.orderGroupId ? orderGroupCounts.get(row.orderGroupId) ?? 1 : 1;
+              return (
+                <div>
+                  <p>{row.packageName}</p>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {siblingCount > 1 && <Badge tone="violet">{siblingCount} tests in this order</Badge>}
+                    {row.healthPassApplied && (
+                      <Badge tone="blue">
+                        Health Pass applied{row.healthPassTier ? ` · ${row.healthPassTier}` : ''}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              );
+            },
           },
           {
             key: 'fulfillment',

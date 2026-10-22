@@ -95,6 +95,17 @@ export default function LabBillsPage() {
     [rows],
   );
   const scoped = useMemo(() => scopeToStore(billedRows, user), [billedRows, user]);
+  // How many billed rows share each non-null orderGroupId — two or more
+  // tests the member placed in one checkout, same grouping LabOrdersPage
+  // shows before a booking is even billed.
+  const orderGroupCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const r of scoped) {
+      if (!r.orderGroupId) continue;
+      counts.set(r.orderGroupId, (counts.get(r.orderGroupId) ?? 0) + 1);
+    }
+    return counts;
+  }, [scoped]);
   const branchBound = user?.role === 'lab_technician' && Boolean(user.storeCode);
 
   const selected = scoped.find((r) => r.id === selectedId) ?? null;
@@ -148,18 +159,22 @@ export default function LabBillsPage() {
     {
       key: 'package',
       header: 'Package',
-      render: (row) => (
-        <div>
-          <p>{row.packageName}</p>
-          {row.healthPassApplied && (
-            <p className="mt-1">
-              <Badge tone="blue">
-                Health Pass applied{row.healthPassTier ? ` · ${row.healthPassTier}` : ''}
-              </Badge>
-            </p>
-          )}
-        </div>
-      ),
+      render: (row) => {
+        const siblingCount = row.orderGroupId ? orderGroupCounts.get(row.orderGroupId) ?? 1 : 1;
+        return (
+          <div>
+            <p>{row.packageName}</p>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {siblingCount > 1 && <Badge tone="violet">{siblingCount} tests in this order</Badge>}
+              {row.healthPassApplied && (
+                <Badge tone="blue">
+                  Health Pass applied{row.healthPassTier ? ` · ${row.healthPassTier}` : ''}
+                </Badge>
+              )}
+            </div>
+          </div>
+        );
+      },
     },
     ...(branchBound
       ? []
