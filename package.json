@@ -5,7 +5,6 @@
   "type": "module",
   "scripts": {
     "test:invoice": "node --experimental-strip-types --test tests/invoice.test.mjs",
-    "test:otp": "node --experimental-strip-types --test tests/deliveryOtp.test.mjs",
     "test:contact": "node --experimental-strip-types --test tests/contactLinks.test.mjs",
     "test:wallet-month": "node --experimental-strip-types --test tests/walletMonth.test.mjs",
     "test:review-video": "node --experimental-strip-types --test tests/reviewVideo.test.mjs",

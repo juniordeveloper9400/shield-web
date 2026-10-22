@@ -95,19 +95,13 @@ hosted on its own). It's a static Vite SPA — `npm run build` emits `dist/`.
 
 ### Bill collection SMS verification
 
-Bill OTP uses the Firebase project `shield-zabnix` configured in
-`src/lib/deliveryOtp.ts`. Register the **exact admin hostname** under
-Authentication → Settings → Authorized domains, including any custom or preview
-hostname staff actually use. `Hostname match not found (auth/captcha-check-failed)`
-means the site was rejected before SMS sending; a frontend rebuild does not add
-that hostname to Firebase. After authorization, reload and request a fresh code.
+Bill OTP uses the MSG91 widget in `src/lib/msg91Otp.ts`, configured by
+`VITE_MSG91_WIDGET_ID` and `VITE_MSG91_TOKEN_AUTH`. The widget's access token is
+re-checked by `POST /v1/staff/otp/verify-msg91` before the bill collection API
+is called; retrying collection after a consumed code requires another SMS.
 
-OTP retries create a fresh reCAPTCHA instance. Resending discards the previous
-confirmation. Only successful six-digit verification invokes the existing bill
-collection API; retrying collection after a consumed code requires another SMS.
-The OTP gate itself is still client-side (Firebase's own verification), separate
-from `backend/api`, which the bill collection call still goes through.
+Agent withdrawal approval OTP is sent and checked entirely by `backend/api`
+(`POST /v1/staff/agent-withdrawals/:id/otp`, then `otpCode` on the approval).
 
-Run `npm run test:otp` with Node 22.18+ for OTP regression tests, then
-`npm run typecheck` and `npm run build`. Real SMS delivery and bill settlement
+Run `npm run typecheck` and `npm run build`. Real SMS delivery and bill settlement
 must also be checked on the authorized deployment.
