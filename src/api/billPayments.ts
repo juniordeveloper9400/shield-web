@@ -52,7 +52,7 @@ export async function getMonthlyRedeemableForOrder(orderId: string, token: strin
 /**
  * Settles a sent-and-priced bill, staff-triggered — the collection half of
  * `BillEditorModal`'s (and `PrescriptionReviewModal`'s Bill step's) OTP
- * flow: the member reads the code Firebase texted them out to staff, staff
+ * flow: the member reads the code MSG91 texted them out to staff, staff
  * verifies it client-side (`confirmDeliveryOtp`), and only on that success
  * does this get called.
  *

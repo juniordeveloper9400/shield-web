@@ -214,7 +214,7 @@ export async function sendLabBookingBill(
 /**
  * Settles a sent-and-priced lab bill — the collection half of the same
  * OTP flow `collectBillWithWallet` (orders/prescriptions) uses: the member
- * reads back the code Firebase texted them, staff verifies it client-side
+ * reads back the code MSG91 texted them, staff verifies it client-side
  * (`confirmDeliveryOtp`), and only on that success does this get called.
  * `PATCH /v1/staff/lab-bookings/:id/collect-wallet`
  * (`BookingService.collectLabBillWithWallet`) — see that method's own doc.

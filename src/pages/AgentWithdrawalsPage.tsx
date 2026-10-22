@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
-import type { ConfirmationResult } from 'firebase/auth';
+import { useRef, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { useAsync } from '@/lib/useAsync';
@@ -7,11 +6,6 @@ import { useConfirmDialog } from '@/lib/useConfirmDialog';
 import { formatCurrency } from '@/lib/format';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { clearDeliveryOtp, confirmOtpForIdToken, describeOtpError, sendDeliveryOtp } from '@/lib/deliveryOtp';
-
-// The server rejects a code older than five minutes; stop offering Approve a
-// little earlier so a click never races the cut-off.
-const OTP_VALID_MS = 4.5 * 60 * 1000;
 
 interface Withdrawal {
   id: string; code: string; name: string; phone: string;
@@ -53,40 +47,22 @@ function Review({ row, token, close, saved }: { row: Withdrawal; token: string |
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const { ask, dialog: confirmDialog } = useConfirmDialog();
-  const [otpConfirmation, setOtpConfirmation] = useState<ConfirmationResult | null>(null);
+  // The backend texts the code to the agent's registered phone (MSG91) and
+  // checks it when Approve is sent; nothing is verified in the browser.
+  const [otpSent, setOtpSent] = useState(false);
   const [otpCode, setOtpCode] = useState('');
   const [otpBusy, setOtpBusy] = useState(false);
   const [otpError, setOtpError] = useState('');
-  const [otpToken, setOtpToken] = useState<{ token: string; at: number } | null>(null);
-  const [now, setNow] = useState(() => Date.now());
   const otpInFlight = useRef(false);
-  const recaptchaContainerId = `agent-withdrawal-otp-recaptcha-${row.id}`;
-  const otpValid = otpToken !== null && now - otpToken.at < OTP_VALID_MS;
-  useEffect(() => () => clearDeliveryOtp(recaptchaContainerId), [recaptchaContainerId]);
-  useEffect(() => {
-    if (!otpToken) return;
-    const timer = window.setInterval(() => setNow(Date.now()), 10_000);
-    return () => window.clearInterval(timer);
-  }, [otpToken]);
+  const otpReady = otpSent && /^\d{4,6}$/.test(otpCode);
   async function sendOtp() {
     if (otpInFlight.current) return;
     otpInFlight.current = true;
-    setOtpBusy(true); setOtpError(''); setOtpConfirmation(null); setOtpCode(''); setOtpToken(null);
-    try { setOtpConfirmation(await sendDeliveryOtp(row.phone, recaptchaContainerId)); }
-    catch (e) { setOtpError(describeOtpError(e)); }
-    finally { otpInFlight.current = false; setOtpBusy(false); }
-  }
-  async function verifyOtp() {
-    if (otpInFlight.current || !otpConfirmation) return;
-    otpInFlight.current = true;
-    setOtpBusy(true); setOtpError('');
+    setOtpBusy(true); setOtpError(''); setOtpCode('');
     try {
-      const token = await confirmOtpForIdToken(otpConfirmation, otpCode);
-      // Firebase codes are single-use; the token is what proves it from here on.
-      setOtpConfirmation(null); setOtpCode('');
-      const at = Date.now();
-      setOtpToken({ token, at }); setNow(at);
-    } catch (e) { setOtpError(describeOtpError(e)); }
+      await api.post(`/v1/staff/agent-withdrawals/${row.id}/otp`, {}, token);
+      setOtpSent(true);
+    } catch (e) { setOtpError(e instanceof Error ? e.message : 'Could not send the code. Try again in a moment.'); }
     finally { otpInFlight.current = false; setOtpBusy(false); }
   }
   const eligible = Number(row.amount) >= 3000 && Number(row.pending_total) <= Number(row.earned) - Number(row.redeemed);
@@ -97,7 +73,7 @@ function Review({ row, token, close, saved }: { row: Withdrawal; token: string |
       await api.post(`/v1/staff/agent-withdrawals/${row.id}/resolve`, {
         status, accountNumber: account, identityVerified: identity,
         earningsVerified: earnings, note, paymentReference: reference,
-        ...(status === 'APPROVED' && otpToken ? { otpIdToken: otpToken.token } : {}),
+        ...(status === 'APPROVED' ? { otpCode } : {}),
       }, token);
       saved();
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not process request. Refresh and try again.'); }
@@ -140,18 +116,14 @@ function Review({ row, token, close, saved }: { row: Withdrawal; token: string |
         <label className="block"><input type="checkbox" checked={earnings} onChange={e => setEarnings(e.target.checked)} /> I cross-checked earnings, previous payouts and pending requests.</label>
         <div className="rounded border p-3 space-y-2">
           <p className="font-medium">Verify the agent by OTP</p>
-          {otpValid ? <p className="text-green-700" role="status">✓ Agent’s phone verified. Approve within 5 minutes.</p> : <>
-            <p className="text-sm text-slate-600">A one-time code is sent to the agent’s registered phone ({row.phone}). Ask the agent to read it out. Approval is only possible after it is verified.</p>
-            {!otpConfirmation
-              ? <Button variant="secondary" disabled={otpBusy || !eligible} onClick={sendOtp}>{otpBusy ? 'Sending…' : otpToken ? 'Send a new OTP' : 'Send OTP to agent'}</Button>
-              : <div className="flex flex-wrap items-center gap-2">
-                  <input className="border rounded p-2 w-36" inputMode="numeric" maxLength={6} placeholder="6-digit code" value={otpCode} onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))} autoComplete="one-time-code" />
-                  <Button disabled={otpBusy || otpCode.length !== 6} onClick={verifyOtp}>{otpBusy ? 'Verifying…' : 'Verify OTP'}</Button>
-                  <Button variant="secondary" disabled={otpBusy} onClick={sendOtp}>Resend</Button>
-                </div>}
-          </>}
+          <p className="text-sm text-slate-600">A one-time code is sent to the agent’s registered phone ({row.phone}). Ask the agent to read it out; it is checked when you approve.</p>
+          {!otpSent
+            ? <Button variant="secondary" disabled={otpBusy || !eligible} onClick={sendOtp}>{otpBusy ? 'Sending…' : 'Send OTP to agent'}</Button>
+            : <div className="flex flex-wrap items-center gap-2">
+                <input className="border rounded p-2 w-36" inputMode="numeric" maxLength={6} placeholder="OTP code" value={otpCode} onChange={e => setOtpCode(e.target.value.replace(/\D/g, ''))} autoComplete="one-time-code" />
+                <Button variant="secondary" disabled={otpBusy} onClick={sendOtp}>{otpBusy ? 'Sending…' : 'Resend'}</Button>
+              </div>}
           {otpError && <p role="alert" className="text-red-600">{otpError}</p>}
-          <div id={recaptchaContainerId} />
         </div>
         <label className="block">Re-enter verified bank account<input className="block w-full border rounded p-2" value={account} onChange={e => setAccount(e.target.value)} autoComplete="off" /></label>
       </> : <><p>Approved on {new Date(row.approved_at).toLocaleString()}. Record payment only after completing the bank transfer.</p>
@@ -159,7 +131,7 @@ function Review({ row, token, close, saved }: { row: Withdrawal; token: string |
       <label className="block">Verification note / rejection reason<textarea className="block w-full border rounded p-2" value={note} onChange={e => setNote(e.target.value)} /></label>
       {error && <p role="alert" className="text-red-600">{error}</p>}
       <div className="flex flex-wrap gap-3">
-        {!row.approved_at ? <Button disabled={busy || !eligible || !otpValid || !identity || !earnings || !account.trim() || account.trim() !== row.account_number?.trim() || !note.trim()} onClick={() => askResolve('APPROVED')}>Approve withdrawal</Button>
+        {!row.approved_at ? <Button disabled={busy || !eligible || !otpReady || !identity || !earnings || !account.trim() || account.trim() !== row.account_number?.trim() || !note.trim()} onClick={() => askResolve('APPROVED')}>Approve withdrawal</Button>
           : <Button disabled={busy || !eligible || !reference.trim()} onClick={() => askResolve('PAID')}>Record payment</Button>}
         <Button variant="secondary" disabled={busy || !note.trim()} onClick={() => askResolve('REJECTED')}>Reject request</Button>
         <Button variant="secondary" disabled={busy} onClick={close}>Close</Button>

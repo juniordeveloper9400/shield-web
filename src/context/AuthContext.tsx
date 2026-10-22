@@ -90,7 +90,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
  *
  * Login id + password, checked directly by the backend (backend/api/, see
  * backend/docs/) against a bcrypt hash on app.admin_user — no Firebase
- * involved for staff at all (member login stays Firebase phone-auth,
+ * involved for staff at all (member login is MSG91 OTP,
  * unrelated). The backend issues its own session: a short-lived access
  * token (kept in memory) plus a refresh token (persisted so a reload
  * doesn't sign the admin out). Replaces the static credential list that

@@ -1,11 +1,10 @@
 import { api } from './api';
 
 /**
- * MSG91 Widget OTP — replaces Firebase Phone Auth for the counter/
- * delivery OTP check `BillEditorModal` and `LabBookingModal` use before
- * collecting a bill off a member's wallet. `deliveryOtp.ts` is left as-is
- * and still backs `AgentWithdrawalsPage`'s separate agent-withdrawal-
- * approval OTP (a different mechanism, out of scope here).
+ * MSG91 Widget OTP — the counter/delivery OTP check `BillEditorModal` and
+ * `LabBookingModal` use before collecting a bill off a member's wallet.
+ * (`AgentWithdrawalsPage`'s approval OTP is sent and checked entirely by
+ * the backend instead.)
  *
  * The widget does the actual SMS send/verify entirely in the browser and
  * hands back a signed access-token on success. That token alone proves

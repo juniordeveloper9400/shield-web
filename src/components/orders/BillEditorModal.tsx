@@ -183,8 +183,8 @@ export function BillEditorModal({
 
   // --- OTP-gated wallet collection ----------------------------------------
   // Nothing here ever debits the wallet on its own — sendOtp only asks
-  // Firebase to text the member a code; verifyAndCollect is the one place
-  // that calls collectBillWithWallet, and only after Firebase has confirmed
+  // MSG91 to text the member a code; verifyAndCollect is the one place
+  // that calls collectBillWithWallet, and only after MSG91 has confirmed
   // the code staff typed in actually matches what was sent to the member's
   // phone. See lib/msg91Otp.ts.
   const [otpConfirmation, setOtpConfirmation] = useState<OtpConfirmation | null>(null);
